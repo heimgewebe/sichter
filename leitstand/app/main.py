@@ -53,14 +53,15 @@ def summary():
         sev = (rep.get("severity") or rep.get("level") or "").lower()
         findings = rep.get("findings") or rep.get("issues") or []
         if sev == "critical":
-            critical += 1; errors += 1
+            critical += 1
+            errors += 1
         elif sev in ("error","high"):
             errors += 1
         elif sev in ("warn","warning","medium"):
             warning += 1
-        if isinstance(findings, list) and findings:
-            warning += 1
-
+        else:
+            if isinstance(findings, list) and findings:
+                warning += 1
     return {
         "total_repos": total,
         "errors": errors,

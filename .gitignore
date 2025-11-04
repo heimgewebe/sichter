@@ -3,3 +3,5 @@ review/
 *.log
 *.cache
 .DS_Store
+temp_venv/
+__pycache__/
