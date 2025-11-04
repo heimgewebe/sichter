@@ -28,25 +28,25 @@ ORIG_BRANCH="$BRANCH"
 FORCE_KEEP_BRANCH="${HAUSKI_FORCE_KEEP_BRANCH:-0}"
 
 if [ "$FORCE_KEEP_BRANCH" != "1" ]; then
-  if [ "$BRANCH" = "HEAD" ]; then
-    TARGET_BRANCH="hauski/$REPO-$STAMP_SAFE"
-    CREATED_BRANCH=1
-    if ! git switch -c "$TARGET_BRANCH" >/dev/null 2>&1; then
-      git checkout -b "$TARGET_BRANCH"
-    fi
-    BRANCH="$TARGET_BRANCH"
-  elif [ "$BRANCH" = "$BASE_BRANCH" ] || [ "$BRANCH" = "main" ] || [ "$BRANCH" = "master" ]; then
-    SAFE_REPO="$(printf '%s' "$REPO" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-')"
-    TARGET_BRANCH="hauski/${SAFE_REPO}-${STAMP_SAFE}"
-    CREATED_BRANCH=1
-    if git rev-parse --verify "$TARGET_BRANCH" >/dev/null 2>&1; then
-      TARGET_BRANCH="${TARGET_BRANCH}-$$"
-    fi
-    if ! git switch -c "$TARGET_BRANCH" >/dev/null 2>&1; then
-      git checkout -b "$TARGET_BRANCH"
-    fi
-    BRANCH="$TARGET_BRANCH"
-  fi
+	if [ "$BRANCH" = "HEAD" ]; then
+		TARGET_BRANCH="hauski/$REPO-$STAMP_SAFE"
+		CREATED_BRANCH=1
+		if ! git switch -c "$TARGET_BRANCH" >/dev/null 2>&1; then
+			git checkout -b "$TARGET_BRANCH"
+		fi
+		BRANCH="$TARGET_BRANCH"
+	elif [ "$BRANCH" = "$BASE_BRANCH" ] || [ "$BRANCH" = "main" ] || [ "$BRANCH" = "master" ]; then
+		SAFE_REPO="$(printf '%s' "$REPO" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-')"
+		TARGET_BRANCH="hauski/${SAFE_REPO}-${STAMP_SAFE}"
+		CREATED_BRANCH=1
+		if git rev-parse --verify "$TARGET_BRANCH" >/dev/null 2>&1; then
+			TARGET_BRANCH="${TARGET_BRANCH}-$$"
+		fi
+		if ! git switch -c "$TARGET_BRANCH" >/dev/null 2>&1; then
+			git checkout -b "$TARGET_BRANCH"
+		fi
+		BRANCH="$TARGET_BRANCH"
+	fi
 fi
 
 # Commit
@@ -63,20 +63,20 @@ FORCE_PUSH_REF="${HAUSKI_FORCE_PUSH_REF:-}"
 FORCE_PUSH_SET_UPSTREAM="${HAUSKI_FORCE_PUSH_SET_UPSTREAM:-0}"
 
 if [ -n "$FORCE_PUSH_REMOTE" ] && [ -n "$FORCE_PUSH_REF" ]; then
-  git push "$FORCE_PUSH_REMOTE" "$BRANCH:$FORCE_PUSH_REF" || true
+	git push "$FORCE_PUSH_REMOTE" "$BRANCH:$FORCE_PUSH_REF" || true
 elif git rev-parse --symbolic-full-name --verify "@{u}" >/dev/null 2>&1; then
-  git push || true
+	git push || true
 else
-  if [ "$FORCE_PUSH_SET_UPSTREAM" = "1" ] && [ -n "$FORCE_PUSH_REMOTE" ]; then
-    git push -u "$FORCE_PUSH_REMOTE" "$BRANCH:$FORCE_PUSH_REF" || true
-  else
-    git push -u origin "$BRANCH" || true
-  fi
+	if [ "$FORCE_PUSH_SET_UPSTREAM" = "1" ] && [ -n "$FORCE_PUSH_REMOTE" ]; then
+		git push -u "$FORCE_PUSH_REMOTE" "$BRANCH:$FORCE_PUSH_REF" || true
+	else
+		git push -u origin "$BRANCH" || true
+	fi
 fi
 
 # Optional: PR erstellen, wenn keiner offen (opt-in per HAUSKI_AUTO_PR=1)
 if [ "${HAUSKI_AUTO_PR:-0}" = "1" ] && command -v gh >/dev/null 2>&1; then
-  OPEN="$(gh pr list --state open --head "$BRANCH" --json number -q 'length' 2>/dev/null || echo 0)"
+	OPEN="$(gh pr list --state open --head "$BRANCH" --json number -q 'length' 2>/dev/null || echo 0)"
 	if [ "$OPEN" -eq 0 ]; then
 		BASE_FOR_PR="$BASE_BRANCH"
 		gh pr create --title "HausKI fixes ($STAMP)" --body "Auto-applied fixes." --base "$BASE_FOR_PR" --head "$BRANCH" >/dev/null 2>&1 || true

@@ -4,13 +4,13 @@ ROOT="$HOME/sichter/review"
 IDX="$ROOT/index.json"
 OUT="$ROOT/dashboard.html"
 mkdir -p "$ROOT"
-[ -f "$IDX" ] || echo "[]" > "$IDX"
+[ -f "$IDX" ] || echo "[]" >"$IDX"
 # Valides JSON in temp erzeugen (ohne NUL):
 TMP="$(mktemp)"
-jq -cM 'map(select(type=="object"))' "$IDX" > "$TMP" || echo "[]" > "$TMP"
+jq -cM 'map(select(type=="object"))' "$IDX" >"$TMP" || echo "[]" >"$TMP"
 
 # HTML schreiben, JSON via <script type="application/json"> einbetten
-cat > "$OUT" <<'HTML'
+cat >"$OUT" <<'HTML'
 <!doctype html><meta charset="utf-8">
 <title>HausKI – Reviews</title>
 <style>
@@ -75,8 +75,10 @@ build();
 HTML
 
 # Daten sicher injizieren
-printf '<script id="data" type="application/json">' >> "$OUT"
-cat "$TMP" >> "$OUT"
-printf '</script>\n' >> "$OUT"
+{
+	printf '<script id="data" type="application/json">'
+	cat "$TMP"
+	printf '</script>\n'
+} >>"$OUT"
 
 echo "✅ Dashboard gebaut: $OUT"

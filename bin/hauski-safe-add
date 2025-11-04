@@ -5,14 +5,14 @@ DENY="$HOME/sichter/denylist.paths"
 # - ignore Standard (.gitignore)
 # - exclusiv: Denylist
 # danach gezielt adden
-PATTERN="$(tr -d '\r\n' < "$DENY")"
+PATTERN="$(tr -d '\r\n' <"$DENY")"
 # unstaged/modified/untracked, aber nicht ignored:
 files="$(git ls-files -m -o --exclude-standard)"
 sel=""
 while IFS= read -r f; do
-  echo "$f" | grep -Eq "$PATTERN" && continue
-  sel+="$f"$'\n'
-done <<< "$files"
+	echo "$f" | grep -Eq "$PATTERN" && continue
+	sel+="$f"$'\n'
+done <<<"$files"
 # wenn leer, sauber beenden
 [ -z "${sel//[$'\n\r ']/}" ] && exit 0
 # add nur die erlaubten

@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-command -v gh >/dev/null 2>&1 || { echo "⚠️  gh fehlt" >&2; exit 1; }
+command -v gh >/dev/null 2>&1 || {
+	echo "⚠️  gh fehlt" >&2
+	exit 1
+}
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-[ -n "$ROOT" ] || { echo "⏭️  kein Git-Repo"; exit 0; }
+[ -n "$ROOT" ] || {
+	echo "⏭️  kein Git-Repo"
+	exit 0
+}
 cd "$ROOT"
 
 if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
-  echo "⚠️  Arbeitsbaum ist nicht sauber – abbrechen." >&2
-  exit 1
+	echo "⚠️  Arbeitsbaum ist nicht sauber – abbrechen." >&2
+	exit 1
 fi
 
 ORIG_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)"
@@ -20,52 +26,55 @@ PR_FORCE_FLAGS="${HAUSKI_PR_FORCE_FLAGS:-${HAUSKI_FORCE_FLAGS:-}}"
 
 declare -a TARGET_PRS=()
 if [ "$#" -gt 0 ]; then
-  for pr in "$@"; do
-    if gh pr view "$pr" --json number >/dev/null 2>&1; then
-      TARGET_PRS+=("$pr")
-    else
-      echo "ℹ️  PR #$pr nicht gefunden" >&2
-    fi
-  done
+	for pr in "$@"; do
+		if gh pr view "$pr" --json number >/dev/null 2>&1; then
+			TARGET_PRS+=("$pr")
+		else
+			echo "ℹ️  PR #$pr nicht gefunden" >&2
+		fi
+	done
 else
-  PR_JSON="$(gh pr list --state open --limit 50 --json number,createdAt 2>/dev/null || echo '[]')"
-  mapfile -t TARGET_PRS < <(printf '%s' "$PR_JSON" | jq -r 'sort_by(.createdAt)|.[].number')
+	PR_JSON="$(gh pr list --state open --limit 50 --json number,createdAt 2>/dev/null || echo '[]')"
+	mapfile -t TARGET_PRS < <(printf '%s' "$PR_JSON" | jq -r 'sort_by(.createdAt)|.[].number')
 fi
 
-[ ${#TARGET_PRS[@]} -gt 0 ] || { echo "ℹ️  keine offenen PRs"; exit 0; }
+[ ${#TARGET_PRS[@]} -gt 0 ] || {
+	echo "ℹ️  keine offenen PRs"
+	exit 0
+}
 
 cleanup_branch() {
-  local branch="$1"
-  git branch -D "$branch" >/dev/null 2>&1 || true
+	local branch="$1"
+	git branch -D "$branch" >/dev/null 2>&1 || true
 }
 
 for pr in "${TARGET_PRS[@]}"; do
-  echo "▶️  PR #$pr prüfen"
-  TMP_BRANCH="hauski/pr-$pr"
-  cleanup_branch "$TMP_BRANCH"
+	echo "▶️  PR #$pr prüfen"
+	TMP_BRANCH="hauski/pr-$pr"
+	cleanup_branch "$TMP_BRANCH"
 
-  if ! gh pr checkout "$pr" --branch "$TMP_BRANCH" >/dev/null 2>&1; then
-    echo "⚠️  Checkout für PR #$pr fehlgeschlagen" >&2
-    cleanup_branch "$TMP_BRANCH"
-    continue
-  fi
+	if ! gh pr checkout "$pr" --branch "$TMP_BRANCH" >/dev/null 2>&1; then
+		echo "⚠️  Checkout für PR #$pr fehlgeschlagen" >&2
+		cleanup_branch "$TMP_BRANCH"
+		continue
+	fi
 
-  env \
-    HAUSKI_AUTO_APPLY=0 \
-    HAUSKI_AUTO_COMMIT=0 \
-    HAUSKI_AUTO_PR=0 \
-    HAUSKI_PR_ALL=0 \
-    HAUSKI_PR_NUMBER="$pr" \
-    HAUSKI_FORCE_FLAGS="$PR_FORCE_FLAGS" \
-    "$HOME/sichter/hooks/post-run" || true
+	env \
+		HAUSKI_AUTO_APPLY=0 \
+		HAUSKI_AUTO_COMMIT=0 \
+		HAUSKI_AUTO_PR=0 \
+		HAUSKI_PR_ALL=0 \
+		HAUSKI_PR_NUMBER="$pr" \
+		HAUSKI_FORCE_FLAGS="$PR_FORCE_FLAGS" \
+		"$HOME/sichter/hooks/post-run" || true
 
-  if [ -n "$ORIG_BRANCH" ] && [ "$ORIG_BRANCH" != "HEAD" ]; then
-    git switch "$ORIG_BRANCH" >/dev/null 2>&1 || git checkout "$ORIG_BRANCH" >/dev/null 2>&1 || true
-  elif [ -n "$ORIG_COMMIT" ]; then
-    git checkout "$ORIG_COMMIT" >/dev/null 2>&1 || true
-  fi
+	if [ -n "$ORIG_BRANCH" ] && [ "$ORIG_BRANCH" != "HEAD" ]; then
+		git switch "$ORIG_BRANCH" >/dev/null 2>&1 || git checkout "$ORIG_BRANCH" >/dev/null 2>&1 || true
+	elif [ -n "$ORIG_COMMIT" ]; then
+		git checkout "$ORIG_COMMIT" >/dev/null 2>&1 || true
+	fi
 
-  cleanup_branch "$TMP_BRANCH"
+	cleanup_branch "$TMP_BRANCH"
 done
 
 echo "✅ PR-Reviews abgeschlossen"

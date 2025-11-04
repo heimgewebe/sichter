@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
-R="$HOME/sichter/review"; O="$R/dashboard.html"; I="$R/index.json"
-mkdir -p "$R"; [ -f "$I" ] || echo "[]" > "$I"
+R="$HOME/sichter/review"
+O="$R/dashboard.html"
+I="$R/index.json"
+mkdir -p "$R"
+[ -f "$I" ] || echo "[]" >"$I"
 DATA="$(jq -c '.' "$I" 2>/dev/null || echo '[]')"
-cat > "$O" <<HTML
+cat >"$O" <<HTML
 <!doctype html><meta charset="utf-8"><title>HausKI Dashboard</title>
 <style>body{font:14px system-ui;background:#f8fafc}table{border-collapse:collapse;width:100%}th,td{padding:8px 10px;border-bottom:1px solid #e5e7eb}</style>
 <div id="app"></div><script>const d=$DATA;const g={};d.forEach(x=>(g[x.repo]??=[]).push(x));Object.values(g).forEach(a=>a.sort((x,y)=>y.ts.localeCompare(x.ts)));
