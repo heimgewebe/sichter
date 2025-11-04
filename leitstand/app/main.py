@@ -90,13 +90,18 @@ def api_repos():
 
 @app.get("/api/report/{repo}")
 def api_report(repo: str):
-    repo_dir = (REVIEW_ROOT / repo).resolve()
-    # Prevent path traversal by ensuring repo_dir is within REVIEW_ROOT
-    root_path = str(REVIEW_ROOT.resolve())
-    repo_path = str(repo_dir)
-    if os.path.commonpath([root_path, repo_path]) != root_path or not repo_dir.exists():
+    candidate_path = REVIEW_ROOT / repo
+    try:
+        resolved_candidate = candidate_path.resolve(strict=False)
+        resolved_root = REVIEW_ROOT.resolve(strict=True)
+    except Exception:
         raise HTTPException(404, "repo not found")
-    rep = collect_repo_report(repo_dir)
+    # Prevent path traversal by ensuring resolved_candidate is within resolved_root
+    if resolved_root not in resolved_candidate.parents and resolved_candidate != resolved_root:
+        raise HTTPException(404, "repo not found")
+    if not resolved_candidate.exists():
+        raise HTTPException(404, "repo not found")
+    rep = collect_repo_report(resolved_candidate)
     return rep or {}
 
 app.mount("/static", StaticFiles(directory=str(APP_ROOT / "static")), name="static")
