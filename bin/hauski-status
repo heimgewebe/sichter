@@ -49,8 +49,8 @@ summary() {
 			exit 0
 		}
 		printf "Repo\tRuns\tLast\n"
-		echo "$rows" | awk -F'\t' '{c[$1]++; last[$1]=$2} END {for (r in c) printf "%s\t%d\t%s\n", r, c[r], last[r]}' |
-			{ have column && column -t -s $'\t' || cat; }
+		out="$(echo "$rows" | awk -F'\t' '{c[$1]++; last[$1]=$2} END {for (r in c) printf "%s\t%d\t%s\n", r, c[r], last[r]}')"
+		if have column; then echo "$out" | column -t -s $'\t'; else echo "$out"; fi
 	fi
 }
 export_json() {
