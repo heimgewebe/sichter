@@ -60,10 +60,18 @@ config_tuner() {
   NEW_INT="$(whiptail --inputbox "Watch-Intervall (Sekunden)" 10 60 "${CUR_INT:-300}" 3>&1 1>&2 2>&3 || true)"
   NEW_MOD="$(whiptail --inputbox "Ollama Modell" 10 60 "${CUR_MOD:-qwen2.5-coder:7b}" 3>&1 1>&2 2>&3 || true)"
   if [ -n "${NEW_INT:-}" ]; then
-    sed -i "s/^HAUSKI_WATCH_INTERVAL_SEC=.*/HAUSKI_WATCH_INTERVAL_SEC=${NEW_INT}/" "$ENVF" || echo "HAUSKI_WATCH_INTERVAL_SEC=${NEW_INT}" >> "$ENVF"
+    if grep -q '^HAUSKI_WATCH_INTERVAL_SEC=' "$ENVF"; then
+      sed -i "s/^HAUSKI_WATCH_INTERVAL_SEC=.*/HAUSKI_WATCH_INTERVAL_SEC=${NEW_INT}/" "$ENVF"
+    else
+      echo "HAUSKI_WATCH_INTERVAL_SEC=${NEW_INT}" >> "$ENVF"
+    fi
   fi
   if [ -n "${NEW_MOD:-}" ]; then
-    sed -i "s/^HAUSKI_OLLAMA_MODEL=.*/HAUSKI_OLLAMA_MODEL=${NEW_MOD}/" "$ENVF" || echo "HAUSKI_OLLAMA_MODEL=${NEW_MOD}" >> "$ENVF"
+    if grep -q '^HAUSKI_OLLAMA_MODEL=' "$ENVF"; then
+      sed -i "s/^HAUSKI_OLLAMA_MODEL=.*/HAUSKI_OLLAMA_MODEL=${NEW_MOD}/" "$ENVF"
+    else
+      echo "HAUSKI_OLLAMA_MODEL=${NEW_MOD}" >> "$ENVF"
+    fi
   fi
   systemctl --user restart "$UNIT"
 }
