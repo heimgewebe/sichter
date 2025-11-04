@@ -90,7 +90,11 @@ def api_repos():
 
 @app.get("/api/report/{repo}")
 def api_report(repo: str):
-    repo_dir = REVIEW_ROOT / repo
+    # Validate: normalized path must remain inside REVIEW_ROOT
+    repo_dir = (REVIEW_ROOT / repo).resolve()
+    review_root_resolved = REVIEW_ROOT.resolve()
+    if not str(repo_dir).startswith(str(review_root_resolved)):
+        raise HTTPException(403, "Invalid repo path")
     if not repo_dir.exists():
         raise HTTPException(404, "repo not found")
     rep = collect_repo_report(repo_dir)
