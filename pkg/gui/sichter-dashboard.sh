@@ -27,11 +27,14 @@ menu() {
     6 "Jetzt sofort laufen (post-run)" \
     7 "Ollama-Modelle anzeigen" \
     8 "Logs anzeigen (autopilot.log)" \
-    9 "Beenden" 3>&1 1>&2 2>&3
+     9 "Reports bereinigen" \
+     10 "Beenden" 3>&1 1>&2 2>&3
 }
 while true; do
   choice=$(menu) || exit 0
   case "$choice" in
+    9) "$HOME/sichter/bin/sichter-sanitize-reports" >/dev/null 2>&1 || true; \
+       whiptail --msgbox "Reports bereinigt." 8 40 ;;
     1) systemctl --user status hauski-autopilot.service | less ;;
     2) set_policy periodic; systemctl --user enable --now hauski-autopilot.service ;;
     3) systemctl --user stop hauski-autopilot.service ;;
@@ -40,6 +43,6 @@ while true; do
     6) [ -x "$POST" ] && "$POST" || echo "post-run Hook fehlt" ;;
     7) ollama list | less ;;
     8) less +F "$HOME/sichter/logs/autopilot.log" ;;
-    9) exit 0 ;;
+    10) exit 0 ;;
   esac
 done
