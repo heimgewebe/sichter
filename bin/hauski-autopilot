@@ -1,2 +1,28 @@
 #!/usr/bin/env bash
-exec sleep 60
+set -euo pipefail
+
+# === SICHTER POLICY LOAD BEGIN ===
+"$HOME/sichter/bin/sichter-env" >/dev/null 2>&1 || true
+STATE_DIR="$HOME/.local/state/sichter"
+PIDF="$STATE_DIR/hauski-autopilot.pid"
+HBF="$STATE_DIR/heartbeat"
+mkdir -p "$STATE_DIR"
+# === SICHTER POLICY LOAD END ===
+
+# === SICHTER HEARTBEAT/LOCK BEGIN ===
+now_ts="$(date +%s)"
+if [ -f "$PIDF" ]; then
+ old_pid="$(cut -d: -f1 "$PIDF" 2>/dev/null || true)"
+ old_ts="$(cut -d: -f2 "$PIDF" 2>/dev/null || echo 0)"
+ # wenn <300s alt → nicht doppelt starten
+ if [ "$((now_ts - old_ts))" -lt 300 ] && ps -p "$old_pid" >/dev/null 2>&1; then
+ echo "⏸ Autopilot bereits aktiv (PID $old_pid) – Skip"
+ exit 0
+ fi
+fi
+echo "$$:$now_ts" > "$PIDF"
+echo "$now_ts" > "$HBF"
+# === SICHTER HEARTBEAT/LOCK END ===
+
+echo "Starte hauski-watch..."
+exec "$HOME/sichter/bin/hauski-watch"
