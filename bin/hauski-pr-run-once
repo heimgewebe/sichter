@@ -1,4 +1,22 @@
 #!/usr/bin/env bash
+
+# === SICHTER-AUTO-PR BEGIN ===
+sichter_auto_pr() {
+  local repo_name pr_title pr_body branch
+  branch="$(git rev-parse --abbrev-ref HEAD)"
+  repo_name="$(basename "$(git rev-parse --show-toplevel)")"
+  pr_title="Sichter: auto PR ($repo_name)"
+  pr_body="Automatischer Vorschlag durch Sichter-Autopilot am $(date -Iseconds)"
+  if gh pr view "$branch" --json number >/dev/null 2>&1; then
+    echo "↻ PR existiert bereits → Kommentar"
+    gh pr comment "$branch" --body "🔁 Update vom Sichter-Autopilot am $(date -Iseconds)" || true
+  else
+    echo "📤 Erstelle neuen PR: $pr_title"
+    gh pr create --fill --title "$pr_title" --body "$pr_body" --label sichter --label automation --repo "heimgewebe/$repo_name" || true
+  fi
+}
+# === SICHTER-AUTO-PR END ===
+
 set -euo pipefail
 LOG="$HOME/sichter/logs/pr-runner.log"; mkdir -p "$(dirname "$LOG")"
 STATE="$HOME/sichter/review/pr-processed.json"; [ -f "$STATE" ] || echo '{}' > "$STATE"
@@ -48,6 +66,7 @@ for J in "${PRS[@]}"; do
       upstream="$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null | cut -d/ -f1 || true)"
       branch="$(git rev-parse --abbrev-ref HEAD)"
       [ -n "$upstream" ] && git push "$upstream" "$branch" || git push --set-upstream origin "$branch" || true
+    sichter_auto_pr || true
     fi
   fi
 
