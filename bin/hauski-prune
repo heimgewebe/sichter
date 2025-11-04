@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # Logs klein halten
-find "$HOME/sichter/logs" -type f -name "*.log" -size +2M -print -exec sh -c '> "{}"' \;
+find "$HOME/sichter/logs" -type f -name "*.log" -size +2M -print0 | while IFS= read -r -d '' file; do
+	: >"$file"
+done
 # Reports älter 90 Tage löschen (pro Repo die jüngsten 50 immer behalten)
 for d in "$HOME/sichter/review"/*; do
 	[ -d "$d" ] || continue
