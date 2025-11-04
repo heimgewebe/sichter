@@ -92,7 +92,9 @@ def api_repos():
 def api_report(repo: str):
     repo_dir = (REVIEW_ROOT / repo).resolve()
     # Prevent path traversal by ensuring repo_dir is within REVIEW_ROOT
-    if not str(repo_dir).startswith(str(REVIEW_ROOT.resolve()) + os.sep) or not repo_dir.exists():
+    root_path = str(REVIEW_ROOT.resolve())
+    repo_path = str(repo_dir)
+    if os.path.commonpath([root_path, repo_path]) != root_path or not repo_dir.exists():
         raise HTTPException(404, "repo not found")
     rep = collect_repo_report(repo_dir)
     return rep or {}
