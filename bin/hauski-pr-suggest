@@ -129,9 +129,9 @@ build_body() {
 		echo
 		echo "<details><summary>Report-Auszug</summary>"
 		echo
-		echo '\`\`\`md'
+		echo "\`\`\`md"
 		printf '%s\n' "$HEAD_MD"
-		echo '\`\`\`'
+		echo "\`\`\`"
 		echo
 		echo "</details>"
 		echo
@@ -140,9 +140,9 @@ build_body() {
 			[ -s "$f" ] || continue
 			echo "<details><summary>Patch $idx</summary>"
 			echo
-			echo '\`\`\`diff'
+			echo "\`\`\`diff"
 			cat "$f"
-			echo '\`\`\`'
+			echo "\`\`\`"
 			echo
 			echo "</details>"
 			echo
