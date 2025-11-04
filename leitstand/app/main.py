@@ -92,8 +92,9 @@ def api_repos():
 def api_report(repo: str):
     # Validate: normalized path must remain inside REVIEW_ROOT
     repo_dir = (REVIEW_ROOT / repo).resolve()
-    review_root_resolved = REVIEW_ROOT.resolve()
-    if not str(repo_dir).startswith(str(review_root_resolved)):
+    try:
+        repo_dir.relative_to(REVIEW_ROOT.resolve())
+    except ValueError:
         raise HTTPException(403, "Invalid repo path")
     if not repo_dir.exists():
         raise HTTPException(404, "repo not found")
