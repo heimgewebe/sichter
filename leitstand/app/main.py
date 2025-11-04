@@ -92,7 +92,9 @@ def api_repos():
 def api_report(repo: str):
     # Validate and sanitize the repo path to prevent path traversal
     repo_dir = (REVIEW_ROOT / repo).resolve()
-    if not str(repo_dir).startswith(str(REVIEW_ROOT.resolve()) + os.sep):
+    # Ensure repo_dir remains strictly within REVIEW_ROOT
+    root_dir = REVIEW_ROOT.resolve()
+    if os.path.commonpath([str(repo_dir), str(root_dir)]) != str(root_dir):
         raise HTTPException(400, "Invalid repo path")
     if not repo_dir.exists():
         raise HTTPException(404, "repo not found")
