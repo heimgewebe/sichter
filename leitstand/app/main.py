@@ -90,10 +90,11 @@ def api_repos():
 
 @app.get("/api/report/{repo}")
 def api_report(repo: str):
-    # Validate: forbid absolute paths and directory traversal
-    if Path(repo).is_absolute() or ".." in Path(repo).parts:
+    # Validate: normalize and ensure the path is inside the review root
+    normalized = os.path.normpath(repo)
+    if normalized.startswith(os.sep) or normalized.startswith("..") or os.path.isabs(normalized):
         raise HTTPException(403, "Invalid repo path")
-    repo_dir = (REVIEW_ROOT / repo).resolve()
+    repo_dir = (REVIEW_ROOT / normalized).resolve()
     try:
         repo_dir.relative_to(REVIEW_ROOT.resolve())
     except ValueError:
