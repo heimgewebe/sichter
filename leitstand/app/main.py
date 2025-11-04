@@ -4,6 +4,7 @@ from fastapi.responses import FileResponse
 from pathlib import Path
 from datetime import datetime
 import json, os
+import re
 
 APP_ROOT = Path(__file__).resolve().parent
 # Standard: Sichter-Layout
@@ -90,6 +91,9 @@ def api_repos():
 
 @app.get("/api/report/{repo}")
 def api_report(repo: str):
+    # Allow only safe repo directory names: no slashes or traversal, only alphanum, dash, underscore
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", repo):
+        raise HTTPException(400, "Invalid repo identifier")
     # Validate and sanitize the repo path to prevent path traversal
     repo_dir = (REVIEW_ROOT / repo).resolve()
     # Ensure repo_dir remains strictly within REVIEW_ROOT
