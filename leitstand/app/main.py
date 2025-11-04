@@ -91,6 +91,9 @@ def api_repos():
 @app.get("/api/report/{repo}")
 def api_report(repo: str):
     # Safely resolve repo directory path and prevent traversal or external access
+    # Reject absolute paths and path separators to enforce name-only repo selection
+    if Path(repo).is_absolute() or ".." in repo or "/" in repo or "\\" in repo:
+        raise HTTPException(400, "Invalid repo name")
     try:
         repo_dir = (REVIEW_ROOT / repo).resolve()
         # Ensure repo_dir is a subdirectory of REVIEW_ROOT
