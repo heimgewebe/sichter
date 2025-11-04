@@ -41,13 +41,15 @@ for J in "${PRS[@]}"; do
 
   # Commit & Push, wenn Änderungen
   git add -A || true
-  if ! git diff --cached; then
+  if ! git diff --cached --quiet; then
     git commit -m "hauski: autofix" || true
     # push auf Upstream, sonst set-upstream
-    if ! git push; then
-      upstream="$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null | cut -d/ -f1 || true)"
-      branch="$(git rev-parse --abbrev-ref HEAD)"
-      [ -n "$upstream" ] && git push "$upstream" "$branch" || git push --set-upstream origin "$branch" || true
+    upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null | cut -d/ -f1 || true)"
+    branch="$(git rev-parse --abbrev-ref HEAD)"
+    if [ -n "$upstream" ]; then
+      git push "$upstream" "$branch" || true
+    else
+      git push --set-upstream origin "$branch" || true
     fi
   fi
 
