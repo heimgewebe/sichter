@@ -45,7 +45,7 @@ jobs:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ruff check . \
-            | reviewdog -f=gcc -name="ruff" -reporter=github-pr-check -level=warning
+            | reviewdog -efm='%f:%l:%c: %m' -name="ruff" -reporter=github-pr-check -level=warning
 
       - name: Markdownlint
         env:
@@ -61,7 +61,7 @@ jobs:
         run: |
           git ls-files -z -- '*.sh' '*.bash' \
             | xargs -0 -r shellcheck -f gcc \
-            | reviewdog -f=gcc -name="shellcheck" -reporter=github-pr-check -level=warning || true
+            | reviewdog -efm='%f:%l:%c: %m' -name="shellcheck" -reporter=github-pr-check -level=warning || true
 
       - name: shfmt
         env:

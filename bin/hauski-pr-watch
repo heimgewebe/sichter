@@ -8,17 +8,17 @@ H
 REPO=""; LABEL=""; ONCE=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    -h|--help) usage; exi''t 0 ;;
+    -h|--help) usage; exit 0 ;;
     --repo)    REPO="${2:-}"; shift 2 ;;
     --repo=*)  REPO="${1#*=}"; shift ;;
     --label)   LABEL="${2:-}"; shift 2 ;;
     --label=*) LABEL="${1#*=}"; shift ;;
     --once)    ONCE=1; shift ;;
     --)        shift; break ;;
-    *)         echo "Unbekannte Option: $1"; usage; exi''t 2 ;;
+    *)         echo "Unbekannte Option: $1"; usage; exit 2 ;;
   esac
 done
 
 # Platzhalter-Implementierung (CI-sicher, ohne Syntaxfehler)
 echo "hauski-pr-watch: REPO='${REPO}' LABEL='${LABEL}' ONCE=${ONCE}"
-exi''t 0
+exit 0
