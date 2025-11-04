@@ -59,9 +59,9 @@ def summary():
             errors += 1
         elif sev in ("warn","warning","medium"):
             warning += 1
-        elif isinstance(findings, list) and findings:
-            warning += 1
-
+        else:
+            if isinstance(findings, list) and findings:
+                warning += 1
     return {
         "total_repos": total,
         "errors": errors,
