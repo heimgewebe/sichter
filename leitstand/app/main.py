@@ -94,10 +94,9 @@ def api_report(repo: str):
     try:
         resolved_candidate = candidate_path.resolve(strict=False)
         resolved_root = REVIEW_ROOT.resolve(strict=True)
+        # Robust containment check: ensure candidate is within root
+        resolved_candidate.relative_to(resolved_root)
     except Exception:
-        raise HTTPException(404, "repo not found")
-    # Prevent path traversal by ensuring resolved_candidate is within resolved_root
-    if resolved_root not in resolved_candidate.parents and resolved_candidate != resolved_root:
         raise HTTPException(404, "repo not found")
     if not resolved_candidate.exists():
         raise HTTPException(404, "repo not found")
