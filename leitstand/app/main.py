@@ -8,6 +8,7 @@ import json, os
 APP_ROOT = Path(__file__).resolve().parent
 # Standard: Sichter-Layout
 REVIEW_ROOT = Path(os.environ.get("REVIEW_ROOT", str(Path.home() / "sichter" / "review")))
+REVIEW_ROOT_RESOLVED = REVIEW_ROOT.resolve()
 INDEX = REVIEW_ROOT / "index.json"
 
 app = FastAPI(title="Sichter Leitstand", version="0.1.0")
@@ -91,13 +92,19 @@ def api_repos():
 @app.get("/api/report/{repo}")
 def api_report(repo: str):
     # Safely resolve repo directory path and prevent traversal or external access
-    # Reject absolute paths and path separators to enforce name-only repo selection
-    if Path(repo).is_absolute() or ".." in repo or "/" in repo or "\\" in repo:
+    # More robust filtering of the repo name: must be a valid single directory name (no separators or '..')
+    invalid = (
+        not repo or
+        Path(repo).is_absolute() or
+        ".." in repo or
+        os.sep in repo or
+        (os.altsep is not None and os.altsep in repo)
+    )
+    if invalid:
         raise HTTPException(400, "Invalid repo name")
     try:
-        repo_dir = (REVIEW_ROOT / repo).resolve()
-        # Ensure repo_dir is a subdirectory of REVIEW_ROOT (resolve symlinks)
-        repo_dir.relative_to(REVIEW_ROOT.resolve())
+        repo_dir = (REVIEW_ROOT_RESOLVED / repo).resolve()
+        repo_dir.relative_to(REVIEW_ROOT_RESOLVED)
     except (ValueError, RuntimeError, OSError):
         raise HTTPException(400, "Invalid repo path")
     if not repo_dir.exists():
