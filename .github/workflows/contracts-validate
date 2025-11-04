@@ -162,10 +162,11 @@ jobs:
             status="${fields[0]}"
             p1="${fields[1]}"
             p2="${fields[2]:-}"
+            [[ -z "$p2" ]] && p2="(unknown destination)"
             [[ "$p1" =~ ${PROTECTED_REGEX} ]] || continue
             case "$status" in
               D)  blocked+=("DELETE: $p1") ;;
-              R*) blocked+=("RENAME: $p1 → ${p2:-(unknown destination)}") ;;
+              R*) blocked+=("RENAME: $p1 → $p2") ;;
             esac
           done < <(git diff --name-status --diff-filter=DR "${base}...HEAD")
 
