@@ -1,93 +1,45 @@
 #!/usr/bin/env bash
 set -euo pipefail
+ENV="$HOME/sichter/autostart.env"
+POST="$HOME/sichter/hooks/post-run"
 
-SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$SELF_DIR/../.." && pwd)"
-ENVF="$ROOT/autostart.env"
-LOGF="$ROOT/logs/autopilot.log"
-UNIT="hauski-autopilot.service"
-
-need() { command -v "$1" >/dev/null 2>&1 || { echo "Fehlt: $1"; exit 1; }; }
-need whiptail
-
-_pause() { read -rp $'\n[Enter] zurück zum Menü…'; }
-
-status_view() {
-  systemctl --user status "$UNIT" --no-pager || true
-  echo
-  echo "--- Letzte 50 Journalzeilen ---"
-  journalctl --user -u "$UNIT" -n 50 --no-pager || true
-  _pause
+get_policy() {
+  p="periodic"
+  [ -f "$ENV" ] && p="$(grep -E '^SICHTER_RUN_POLICY=' "$ENV" | cut -d= -f2- || echo periodic)"
+  echo "${p:-periodic}"
 }
-
-restart_service() {
-  systemctl --user restart "$UNIT"
-  echo "Dienst neu gestartet."
-  _pause
-}
-
-models_view() {
-  echo "Ollama-Modelle:"
-  ollama list || true
-  echo
-  echo "Aktuelle Backend-Config:"
-  grep -E '^(HAUSKI_PR_SUGGEST_BACKEND|HAUSKI_OLLAMA_HOST|HAUSKI_OLLAMA_MODEL|HAUSKI_OLLAMA_OPTS)=' "$ENVF" || true
-  _pause
-}
-
-worker_logs() {
-  if [ -f "$LOGF" ]; then
-    less "$LOGF"
-  else
-    echo "Noch kein Log vorhanden: $LOGF"
-    _pause
-  fi
-}
-
-trigger_fixprs() {
-  if [ -x "$ROOT/hooks/post-run" ]; then
-    "$ROOT/hooks/post-run" || true
-  else
-    echo "Hook fehlt: $ROOT/hooks/post-run"
-  fi
-  _pause
-}
-
-config_tuner() {
-  # kleine Konfig-Maske: Intervall und Modell
-  CUR_INT="$(grep -oE '^HAUSKI_WATCH_INTERVAL_SEC=.*' "$ENVF" | cut -d= -f2 || true)"
-  CUR_MOD="$(grep -oE '^HAUSKI_OLLAMA_MODEL=.*' "$ENVF" | cut -d= -f2 || true)"
-  NEW_INT="$(whiptail --inputbox "Watch-Intervall (Sekunden)" 10 60 "${CUR_INT:-300}" 3>&1 1>&2 2>&3 || true)"
-  NEW_MOD="$(whiptail --inputbox "Ollama Modell" 10 60 "${CUR_MOD:-qwen2.5-coder:7b}" 3>&1 1>&2 2>&3 || true)"
-  if [ -n "${NEW_INT:-}" ]; then
-    sed -i "s/^HAUSKI_WATCH_INTERVAL_SEC=.*/HAUSKI_WATCH_INTERVAL_SEC=${NEW_INT}/" "$ENVF" || echo "HAUSKI_WATCH_INTERVAL_SEC=${NEW_INT}" >> "$ENVF"
-  fi
-  if [ -n "${NEW_MOD:-}" ]; then
-    sed -i "s/^HAUSKI_OLLAMA_MODEL=.*/HAUSKI_OLLAMA_MODEL=${NEW_MOD}/" "$ENVF" || echo "HAUSKI_OLLAMA_MODEL=${NEW_MOD}" >> "$ENVF"
-  fi
-  systemctl --user restart "$UNIT"
+set_policy() {
+  pol="$1"
+  grep -q '^SICHTER_RUN_POLICY=' "$ENV" \
+    && sed -i "s|^SICHTER_RUN_POLICY=.*|SICHTER_RUN_POLICY=$pol|" "$ENV" \
+    || echo "SICHTER_RUN_POLICY=$pol" >> "$ENV"
+  echo "⚙️ Policy = $pol"
 }
 
 menu() {
-  whiptail --title "Sichter-Dashboard" --menu "Aktion wählen:" 20 72 10 \
+  cur="$(get_policy)"
+  whiptail --title "Sichter-Dashboard" --menu "Aktion wählen (Policy: $cur):" 22 80 12 \
     1 "Autopilot-Status anzeigen" \
-    2 "Autopilot neu starten" \
-    3 "Ollama-Modelle & Backend-Config prüfen" \
-    4 "Worker-Logs (autopilot.log) ansehen" \
-    5 "Fix-PRs jetzt anstoßen (post-run)" \
-    6 "Config anpassen (Intervall/Modell)" \
-    7 "Beenden" 3>&1 1>&2 2>&3
+    2 "Autopilot START (periodic)" \
+    3 "Autopilot STOPPEN" \
+    4 "Policy: periodic (alle 5 Min laufen)" \
+    5 "Policy: after_omnipull (nur nach omnipull laufen)" \
+    6 "Jetzt sofort laufen (post-run)" \
+    7 "Ollama-Modelle anzeigen" \
+    8 "Logs anzeigen (autopilot.log)" \
+    9 "Beenden" 3>&1 1>&2 2>&3
 }
-
 while true; do
-  choice="$(menu)" || exit 0
+  choice=$(menu) || exit 0
   case "$choice" in
-    1) status_view ;;
-    2) restart_service ;;
-    3) models_view ;;
-    4) worker_logs ;;
-    5) trigger_fixprs ;;
-    6) config_tuner ;;
-    *) exit 0 ;;
+    1) systemctl --user status hauski-autopilot.service | less ;;
+    2) set_policy periodic; systemctl --user enable --now hauski-autopilot.service ;;
+    3) systemctl --user stop hauski-autopilot.service ;;
+    4) set_policy periodic ;;
+    5) set_policy after_omnipull; systemctl --user disable --now hauski-autopilot.service || true ;;
+    6) [ -x "$POST" ] && "$POST" || echo "post-run Hook fehlt" ;;
+    7) ollama list | less ;;
+    8) less +F "$HOME/sichter/logs/autopilot.log" ;;
+    9) exit 0 ;;
   esac
 done
