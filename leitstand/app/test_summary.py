@@ -1,4 +1,5 @@
-import os, sys
+import os
+import sys
 from pathlib import Path
 
 # Add the app directory to the Python path
