@@ -6,3 +6,7 @@ review/
 temp_venv/
 __pycache__/
 work/
+# Sichter noise
+*.bak.*
+*.patches
+pkg/gui/jules-dashboard.sh
