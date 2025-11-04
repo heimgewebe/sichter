@@ -90,7 +90,10 @@ def api_repos():
 
 @app.get("/api/report/{repo}")
 def api_report(repo: str):
-    repo_dir = REVIEW_ROOT / repo
+    # Validate and sanitize the repo path to prevent path traversal
+    repo_dir = (REVIEW_ROOT / repo).resolve()
+    if not str(repo_dir).startswith(str(REVIEW_ROOT.resolve()) + os.sep):
+        raise HTTPException(400, "Invalid repo path")
     if not repo_dir.exists():
         raise HTTPException(404, "repo not found")
     rep = collect_repo_report(repo_dir)
