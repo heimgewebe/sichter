@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+BASE="${1:-$HOME/sichter/review}"
+MAX_DAYS="${SICHTER_REPORT_MAX_AGE_DAYS:-3}"
+ARCH="$BASE/_archive"
+mkdir -p "$ARCH"
+
+now=$(date +%s)
+find "$BASE" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null | while IFS= read -r -d '' repo_dir; do
+  repo="$(basename "$repo_dir")"
+  gitdir="$HOME/repos/$repo/.git"
+  [ -d "$gitdir" ] || continue
+  head_sha="$(git -C "$HOME/repos/$repo" rev-parse HEAD 2>/dev/null || true)"
+  [ -n "$head_sha" ] || continue
+
+  # Wähle alle *-review.md und deren *.patch*
+  while IFS= read -r -d '' f; do
+    # Alter prüfen
+    mtime=$(stat -c %Y "$f" 2>/dev/null || echo 0)
+    age_days=$(( (now - mtime) / 86400 ))
+    # HEAD-Match (Report enthält HEAD oder Sidecar .head/.meta falls vorhanden)
+    match=0
+    if grep -aq "$head_sha" "$f" 2>/dev/null; then
+      match=1
+    else
+      for side in "${f%.md}.head" "${f%.md}.meta" ; do
+        [ -f "$side" ] && grep -aq "$head_sha" "$side" && match=1
+      done
+    fi
+
+    if [ "$age_days" -gt "$MAX_DAYS" ] || [ "$match" -eq 0 ]; then
+      rel="${f#$BASE/}"
+      dest_dir="$ARCH/$(dirname "$rel")"
+      mkdir -p "$dest_dir"
+      # alle Geschwister (patches, meta) mit verschieben
+      for s in "$f" "${f%.md}.patch" "${f%.md}.patches" "${f%.md}.head" "${f%.md}.meta"; do
+        [ -f "$s" ] || continue
+        mv -f "$s" "$dest_dir/" || true
+      done
+    fi
+  done < <(find "$repo_dir" -maxdepth 1 -type f -name '*-review.md' -print0)
+done

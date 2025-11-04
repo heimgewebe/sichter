@@ -1,4 +1,26 @@
 #!/usr/bin/env bash
+
+# --- SICHTER HEAD-Guard BEGIN ---
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+REPO="$(basename "$ROOT")"
+REPORT_DIR="$HOME/sichter/review/$REPO"
+LATEST_MD=""
+while IFS= read -r -d "" c; do LATEST_MD="$c"; done < <(find "$REPORT_DIR" -maxdepth 1 -type f -name "*-review.md" -printf "%T@ %p\0" 2>/dev/null | sort -z -nr | cut -z -d" " -f2-)
+[ -n "$LATEST_MD" ] || { echo "ℹ️  kein Report"; exit 0; }
+curr_head="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
+grep -aq "$curr_head" "$LATEST_MD" 2>/dev/null || { echo "ℹ️  Report passt nicht zum aktuellen HEAD ($curr_head) – überspringe"; exit 0; }
+# --- SICHTER HEAD-Guard END ---
+
+# --- SICHTER HEAD-Guard BEGIN ---
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+REPO="$(basename "$ROOT")"
+REPORT_DIR="$HOME/sichter/review/$REPO"
+LATEST_MD=""
+while IFS= read -r -d "" c; do LATEST_MD="$c"; done < <(find "$REPORT_DIR" -maxdepth 1 -type f -name "*-review.md" -printf "%T@ %p\0" 2>/dev/null | sort -z -nr | cut -z -d" " -f2-)
+[ -n "$LATEST_MD" ] || { echo "ℹ️  kein Report"; exit 0; }
+curr_head="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
+grep -aq "$curr_head" "$LATEST_MD" 2>/dev/null || { echo "ℹ️  Report passt nicht zum aktuellen HEAD ($curr_head) – überspringe"; exit 0; }
+# --- SICHTER HEAD-Guard END ---
 set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 [ -n "$ROOT" ] || {
