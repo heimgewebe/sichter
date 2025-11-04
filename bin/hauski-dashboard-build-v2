@@ -31,7 +31,7 @@ enrich() {
   if [ -f "$path" ]; then
     # nur die ersten 200 Zeilen lesen (schnell)
     head200="$(head -n 200 "$path" 2>/dev/null || true)"
-    verdict="$(printf '%s\n' "$head200" | grep -m1 -E '^(Verdict|\- *Verdict):' | sed -E 's/^[- ]*Verdict:\s*//I' | tr -d '\r' | tr 'a-z' 'A-Z' | sed 's/ .*//')"
+    verdict="$(printf '%s\n' "$head200" | grep -m1 -E '^(Verdict|\- *Verdict):' | sed -E 's/^[- ]*Verdict:\s*//I' | tr -d '\r' | tr '[:lower:]' '[:upper:]' | sed 's/ .*//')"
     score="$(printf '%s\n' "$head200" | grep -m1 -E '(^Score:|Score[[:space:]]*)' | sed -E 's/.*Score[: ]+([0-9]+).*/\1/' || true)"
     bytes="$(wc -c < "$path" 2>/dev/null || echo 0)"
     dir="$(dirname "$path")"

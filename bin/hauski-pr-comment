@@ -3,7 +3,7 @@ set -euo pipefail
 repo="${1:?repo z.B. heimgewebe/hausKI}"
 pr="${2:?pr nummer}"
 dir="$HOME/sichter/review/$(basename "$repo")"
-file="$(ls -1t "$dir"/*-review.md 2>/dev/null | head -n1 || true)"
+file="$(find "$dir" -name '*-review.md' -printf '%T@ %p\n' | sort -nr | head -n1 | cut -d' ' -f2- || true)"
 [ -n "$file" ] || {
 	echo "kein Report gefunden"
 	exit 1
