@@ -98,7 +98,7 @@ def api_report(repo: str):
         repo_dir = (REVIEW_ROOT / repo).resolve()
         # Ensure repo_dir is a subdirectory of REVIEW_ROOT
         repo_dir.relative_to(REVIEW_ROOT)
-    except (ValueError, RuntimeError):
+    except (ValueError, RuntimeError, OSError):
         raise HTTPException(400, "Invalid repo path")
     if not repo_dir.exists():
         raise HTTPException(404, "repo not found")
