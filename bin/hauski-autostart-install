@@ -5,7 +5,6 @@ UNIT_NAME="hauski-autopilot.service"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 UNIT_PATH="$CONFIG_DIR/$UNIT_NAME"
 ENV_FILE="$HOME/sichter/autostart.env"
-AUTOPILOT="$HOME/sichter/bin/hauski-autopilot"
 
 command -v systemctl >/dev/null 2>&1 || {
 	echo "⚠️  systemctl nicht verfügbar – Autostart kann nicht eingerichtet werden." >&2

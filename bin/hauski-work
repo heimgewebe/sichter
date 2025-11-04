@@ -21,7 +21,7 @@ if [ ! -x "$HOOK" ]; then
 fi
 
 while true; do
-	job="$(ls -1 "$QUEUE"/*.job 2>/dev/null | head -n1 || true)"
+	job="$(find "$QUEUE" -name '*.job' -type f -print -quit)"
 	if [ -z "${job:-}" ]; then
 		sleep 2
 		continue
