@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 export HAUSKI_PROFILE="$HOME/sichter/profile.yml"
 export HAUSKI_ORG="${HAUSKI_ORG:-heimgewebe}"
 export HAUSKI_REMOTE_BASE="${HAUSKI_REMOTE_BASE:-$HOME/sichter/repos}"

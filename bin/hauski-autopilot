@@ -1,2 +1,76 @@
 #!/usr/bin/env bash
-exec sleep 60
+set -euo pipefail
+
+ROOT="$HOME/sichter"
+BIN="$ROOT/bin"
+LOGS="$ROOT/logs"
+ENVF="$ROOT/autostart.env"
+mkdir -p "$LOGS"
+
+ts() { date "+%Y-%m-%d %H:%M:%S"; }
+log() { echo "$(ts) $*"; echo "$(ts) $*" >> "$LOGS/autopilot.log"; }
+
+# Env laden
+if [ -f "$ENVF" ]; then
+  # shellcheck disable=SC1090
+  . "$ENVF"
+fi
+
+# Erforderliche Pfade/Skripte prüfen, Platzhalter erzeugen falls nötig
+mk_stub() {
+  local name="$1"
+  local path="$BIN/$name"
+  [ -x "$path" ] && return 0
+  cat > "$path" <<'STUB'
+#!/usr/bin/env bash
+# Platzhalter-Worker: tut nichts Böses, loggt Herzschlag
+set -euo pipefail
+name="$(basename "$0")"
+LOG="$HOME/sichter/logs/${name}.log"
+while true; do
+  echo "$(date '+%Y-%m-%d %H:%M:%S') $name heartbeat" >> "$LOG"
+  sleep 30
+done
+STUB
+  chmod +x "$path"
+}
+
+mk_stub hauski-watch
+mk_stub hauski-work
+mk_stub hauski-pr-watch
+
+# Health: Optionale Checks (Ollama erreichbar? nicht fatal)
+if command -v curl >/dev/null 2>&1 && [ -n "${HAUSKI_OLLAMA_HOST:-}" ]; then
+  curl -fsS "${HAUSKI_OLLAMA_HOST}/api/tags" >/dev/null 2>&1 \
+    && log "Ollama OK: ${HAUSKI_OLLAMA_HOST}" \
+    || log "Ollama WARN: ${HAUSKI_OLLAMA_HOST} nicht erreichbar (nicht fatal)"
+fi
+
+# Worker-Start/Restart
+start_worker() {
+  local path="$1"
+  local name; name="$(basename "$path")"
+  log "Starte $name"
+  # eigenständiger Prozess; Exit -> wird vom Autopilot neu gestartet
+  "$path" >> "$LOGS/$name.out" 2>> "$LOGS/$name.err" &
+  echo $! > "$LOGS/$name.pid"
+}
+
+ensure_running() {
+  local path="$1"
+  local name; name="$(basename "$path")"
+  if [ -f "$LOGS/$name.pid" ] && kill -0 "$(cat "$LOGS/$name.pid")" 2>/dev/null; then
+    return 0
+  fi
+  start_worker "$path"
+}
+
+trap 'log "Beende Autopilot"; exit 0' INT TERM
+
+log "HausKI Autopilot gestartet"
+while true; do
+  ensure_running "$BIN/hauski-watch"
+  ensure_running "$BIN/hauski-work"
+  ensure_running "$BIN/hauski-pr-watch"
+  sleep "${HAUSKI_SCAN_INTERVAL:-300}"
+done

@@ -9,7 +9,7 @@ for d in "$HOME/sichter/review"/*; do
 	# Bash nullglob sorgt dafür, dass leere Trefferlisten kein Literal zurückgeben
 	shopt -s nullglob
 	# In ein Array einlesen; ohne Treffer bleibt das Array leer statt einen Fehler zu werfen.
-	mapfile -t files < <(ls -1t "$d"/*-review.md 2>/dev/null || true)
+	mapfile -t files < <(find -1t "$d"/ -maxdepth 1 -name '*' -print0 | xargs -0 -I{} echo {}-review.md 2>/dev/null || true)
 	shopt -u nullglob
 
 	# Keine Dateien → nichts zu tun

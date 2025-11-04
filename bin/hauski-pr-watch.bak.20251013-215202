@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 ghjson(){ ghjson -H "Accept: application/vnd.github+json" "$@"; }
 #!/usr/bin/env bash
 set -euo pipefail
