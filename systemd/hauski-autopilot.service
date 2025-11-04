@@ -6,6 +6,7 @@ After=default.target
 Type=simple
 Environment=HOME=%h
 EnvironmentFile=%h/sichter/autostart.env
+ExecStartPre=%h/sichter/scripts/bootstrap.sh
 ExecStart=%h/sichter/bin/hauski-autopilot
 Restart=always
 RestartSec=10
