@@ -14,13 +14,13 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 }
 REPO="$(basename "$ROOT")"
 REPORT_DIR="$HOME/sichter/review/$REPO"
-LAST="$(ls -1t "$REPORT_DIR"/*-review.md 2>/dev/null | head -n1 || true)"
+LAST="$(find "$REPORT_DIR" -maxdepth 1 -name '*-review.md' -type f -print0 | xargs -0 ls -1t 2>/dev/null | head -n1 || true)"
 [ -n "$LAST" ] || {
 	echo "ℹ️  kein Report"
 	exit 0
 }
 
-command -v gh >/dev/null 2>&1 || {
+command -v gh >/dev/null 2>/dev/null || {
 	echo "⚠️  gh fehlt"
 	exit 0
 }
@@ -115,7 +115,8 @@ APPLY_HINT="hauski-auto-here"
 
 build_body() {
 	local title="$1"
-	local body_file="$(mktemp)"
+	local body_file
+	body_file="$(mktemp)"
 
 	{
 		echo "### $title"
@@ -129,9 +130,9 @@ build_body() {
 		echo
 		echo "<details><summary>Report-Auszug</summary>"
 		echo
-		echo '\`\`\`md'
+		echo "\`\`\`md"
 		printf '%s\n' "$HEAD_MD"
-		echo '\`\`\`'
+		echo "\`\`\`"
 		echo
 		echo "</details>"
 		echo
@@ -140,9 +141,9 @@ build_body() {
 			[ -s "$f" ] || continue
 			echo "<details><summary>Patch $idx</summary>"
 			echo
-			echo '\`\`\`diff'
+			echo "\`\`\`diff"
 			cat "$f"
-			echo '\`\`\`'
+			echo "\`\`\`"
 			echo
 			echo "</details>"
 			echo
