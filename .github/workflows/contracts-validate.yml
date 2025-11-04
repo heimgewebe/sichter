@@ -76,7 +76,7 @@ jobs:
           check_pair() {
             local wf="$1" repo="$2" ref="$3"
             [[ "$repo" == "$REQUIRED_REPO" ]] || return 0
-            if [[ "$ref" =~ (\$\{.*\}|\$\([^\)]*\)|\$[A-Za-z_][A-Za-z0-9_]*) ]]; then
+            if [[ "$ref" =~ (\$\{.*\}|\$\([^)]*\)|\$[A-Za-z_][A-Za-z0-9_]*) ]]; then
               echo "::error file=$wf::Dynamic ref not allowed: $ref"; return 1
             fi
             if [[ "$ref" != "$REQUIRED_REF" ]]; then
