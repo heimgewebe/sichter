@@ -49,7 +49,7 @@ fi
 
 ts="$(date -Iseconds)"
 if [ "$decision" = "DENY" ]; then
-  { echo "[$ts] DENY: $reason"; echo "Changed ($CHANGED_COUNT):"; printf "  %s\n" $CHANGED; } >>"$LOG"
+  { echo "[$ts] DENY: $reason"; echo "Changed ($CHANGED_COUNT):"; printf "  %s\n" "$CHANGED"; } >>"$LOG"
   exit 0
 fi
 
