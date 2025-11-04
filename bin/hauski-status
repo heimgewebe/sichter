@@ -16,7 +16,7 @@ valid_index() {
 }
 summary() {
 	if valid_index && have jq; then
-	out="$(jq -r '
+		out="$(jq -r '
       group_by(.repo)
       | map(
           . as $group

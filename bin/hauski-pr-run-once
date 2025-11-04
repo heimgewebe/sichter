@@ -1,59 +1,71 @@
 #!/usr/bin/env bash
 set -euo pipefail
-LOG="$HOME/sichter/logs/pr-runner.log"; mkdir -p "$(dirname "$LOG")"
-STATE="$HOME/sichter/review/pr-processed.json"; [ -f "$STATE" ] || echo '{}' > "$STATE"
-ts(){ date -Is; }
-log(){ echo "[runner] $*" | tee -a "$LOG"; }
-jqget(){ jq -r "$1" 2>/dev/null || echo ""; }
+LOG="$HOME/sichter/logs/pr-runner.log"
+mkdir -p "$(dirname "$LOG")"
+STATE="$HOME/sichter/review/pr-processed.json"
+[ -f "$STATE" ] || echo '{}' >"$STATE"
+ts() { date -Is; }
+log() { echo "[runner] $*" | tee -a "$LOG"; }
+jqget() { jq -r "$1" 2>/dev/null || echo ""; }
+
+# ensure WORK is defined
+WORK="${WORK:-$HOME}"
 
 log "start $(ts)"
 
 # PRs holen (nur echte JSON-Zeilen)
 mapfile -t PRS < <(~/sichter/bin/hauski-pr-watch --once 2>>"$LOG" | grep -E '^\{')
-[ "${#PRS[@]}" -eq 0 ] && { log "ℹ️  keine PRs gefunden"; log "done  $(ts)"; exit 0; }
+[ "${#PRS[@]}" -eq 0 ] && {
+	log "ℹ️  keine PRs gefunden"
+	log "done  $(ts)"
+	exit 0
+}
 
 for J in "${PRS[@]}"; do
-  repo="$(printf '%s' "$J" | jqget '.repo')"
-  num="$(printf  '%s' "$J" | jqget '.number')"
-  [ -z "$repo" ] || [ -z "$num" ] && continue
+	repo="$(printf '%s' "$J" | jqget '.repo')"
+	num="$(printf '%s' "$J" | jqget '.number')"
+	[ -z "$repo" ] || [ -z "$num" ] && continue
 
-  meta="$(gh pr view -R "$repo" "$num" --json headRefName,headRefOid,headRepository,maintainerCanModify \
-          --jq '{headRefName, headRefOid, headRepo:(.headRepository.nameWithOwner//""), maintainerCanModify}')"
-  sha="$(printf '%s' "$meta" | jqget '.headRefOid')"
-  key="${repo}#${num}@${sha}"
-  # schon verarbeitet?
-  if jq -e --arg k "$key" '.[$k]' "$STATE" >/dev/null 2>&1; then
-    continue
-  fi
+	meta="$(gh pr view -R "$repo" "$num" --json headRefName,headRefOid,headRepository,maintainerCanModify \
+		--jq '{headRefName, headRefOid, headRepo:(.headRepository.nameWithOwner//""), maintainerCanModify}')"
+	sha="$(printf '%s' "$meta" | jqget '.headRefOid')"
+	key="${repo}#${num}@${sha}"
+	# schon verarbeitet?
+	if jq -e --arg k "$key" '.[$k]' "$STATE" >/dev/null 2>&1; then
+		continue
+	fi
 
-  log "▶ ${repo} #${num} ($(printf '%s' "$meta" | jqget '.headRefName'))"
+	log "▶ ${repo} #${num} ($(printf '%s' "$meta" | jqget '.headRefName'))"
 
-  # Checkout PR (richtet Remote/Tracking automatisch)
-  if ! gh pr checkout -R "$repo" "$num" -f >/dev/null 2>&1; then
-    log "  ⚠️ checkout fehlgeschlagen"; continue
-  fi
-  touch "$WORK/sichter-enable"
+	# Checkout PR (richtet Remote/Tracking automatisch)
+	if ! gh pr checkout -R "$repo" "$num" -f >/dev/null 2>&1; then
+		log "  ⚠️ checkout fehlgeschlagen"
+		continue
+	fi
+	touch "$WORK/sichter-enable"
 
-  # Optionaler Auto-Fix-Hook
-  if [ -x "$HOME/sichter/hooks/post-run" ]; then
-    HAUSKI_AUTO_APPLY=1 HAUSKI_AUTO_COMMIT=1 HAUSKI_AUTO_PR=0 "$HOME/sichter/hooks/post-run" || true
-  fi
+	# Optionaler Auto-Fix-Hook
+	if [ -x "$HOME/sichter/hooks/post-run" ]; then
+		HAUSKI_AUTO_APPLY=1 HAUSKI_AUTO_COMMIT=1 HAUSKI_AUTO_PR=0 "$HOME/sichter/hooks/post-run" || true
+	fi
 
-  # Commit & Push, wenn Änderungen
-  git add -A || true
-  if ! git diff --cached; then
-    git commit -m "hauski: autofix" || true
-    # push auf Upstream, sonst set-upstream
-    if ! git push; then
-      upstream="$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null | cut -d/ -f1 || true)"
-      branch="$(git rev-parse --abbrev-ref HEAD)"
-      [ -n "$upstream" ] && git push "$upstream" "$branch" || git push --set-upstream origin "$branch" || true
-    fi
-  fi
+	# Commit & Push, wenn Änderungen
+	git add -A || true
+	# use --quiet to check if there are staged changes
+	if ! git diff --cached --quiet >/dev/null 2>&1; then
+		git commit -m "hauski: autofix" || true
+		# push auf Upstream, sonst set-upstream
+		if ! git push; then
+			# quote @{u} to avoid brace parsing warnings
+			upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null | cut -d/ -f1 || true)"
+			branch="$(git rev-parse --abbrev-ref HEAD)"
+			[ -n "$upstream" ] && git push "$upstream" "$branch" || git push --set-upstream origin "$branch" || true
+		fi
+	fi
 
-  # State-Cache aktualisieren
-  tmp="$(mktemp)"; jq --arg k "$key" --arg t "$(ts)" '.[$k]=$t' "$STATE" > "$tmp" && mv "$tmp" "$STATE"
+	# State-Cache aktualisieren
+	tmp="$(mktemp)"
+	jq --arg k "$key" --arg t "$(ts)" '.[$k]=$t' "$STATE" >"$tmp" && mv "$tmp" "$STATE"
 done
 
 log "done  $(ts)"
-
