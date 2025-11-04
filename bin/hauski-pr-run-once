@@ -51,15 +51,16 @@ for J in "${PRS[@]}"; do
 
 	# Commit & Push, wenn Änderungen
 	git add -A || true
-	# use --quiet to check if there are staged changes
-	if ! git diff --cached --quiet >/dev/null 2>&1; then
+	# Nur committen, wenn etwas gestaged ist
+	if ! git diff --cached --quiet; then
 		git commit -m "hauski: autofix" || true
-		# push auf Upstream, sonst set-upstream
-		if ! git push; then
-			# quote @{u} to avoid brace parsing warnings
-			upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null | cut -d/ -f1 || true)"
-			branch="$(git rev-parse --abbrev-ref HEAD)"
-			[ -n "$upstream" ] && git push "$upstream" "$branch" || git push --set-upstream origin "$branch" || true
+		# Push: bevorzugt Upstream, sonst origin setzen
+		upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null | cut -d/ -f1 || true)"
+		branch="$(git rev-parse --abbrev-ref HEAD)"
+		if [ -n "$upstream" ]; then
+			git push "$upstream" "$branch" || true
+		else
+			git push --set-upstream origin "$branch" || true
 		fi
 	fi
 
