@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ORG="${HAUSKI_ORG:-}"
+USER_NAME="${HAUSKI_USER:-}"
+LOG="$HOME/sichter/logs/auth.log"
+mkdir -p "$(dirname "$LOG")"
+
+command -v gh >/dev/null 2>&1 || {
+  echo "⚠️  GitHub CLI (gh) ist nicht installiert." | tee -a "$LOG" >&2
+  echo "Installiere zuerst: https://cli.github.com/" | tee -a "$LOG" >&2
+  exit 1
+}
+
+cat <<'INFO' | tee -a "$LOG"
+🗝️  HausKI GitHub-Authentifizierung
+-----------------------------------
+• Es wird ein Webflow gestartet (gh auth login --web).
+• Benötigte Scopes: repo, read:org, workflow.
+INFO
+
+if [ -n "$ORG" ]; then
+  echo "• Ziel-Organisation: $ORG" | tee -a "$LOG"
+fi
+if [ -n "$USER_NAME" ]; then
+  echo "• Account: $USER_NAME" | tee -a "$LOG"
+fi
+
+echo | tee -a "$LOG"
+
+echo "Starte gh auth login …" | tee -a "$LOG"
+
+gh auth login \
+  --hostname github.com \
+  --scopes repo,read:org,workflow \
+  --web | tee -a "$LOG"
+
+if command -v gh >/dev/null 2>&1; then
+  gh config set git_protocol ssh >/dev/null 2>&1 || true
+fi
+
+echo | tee -a "$LOG"
+
+gh auth status >/tmp/hauski-gh-status.$$ 2>&1 || true
+STATUS=$(cat /tmp/hauski-gh-status.$$)
+rm -f /tmp/hauski-gh-status.$$
+
+echo "$STATUS" | tee -a "$LOG"
+
+echo "✅ Auth-Setup abgeschlossen (ggf. oben auf Fehler prüfen)." | tee -a "$LOG"

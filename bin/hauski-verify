@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ok() { printf "✓ %s\n" "$1"; }
+bad() {
+	printf "✗ %s\n" "$1"
+	exit 1
+}
+systemctl --user is-active hauski-watch >/dev/null && ok "watcher läuft" || bad "watcher down"
+systemctl --user is-active hauski-work >/dev/null && ok "worker läuft" || bad "worker down"
+[ -x "$HOME/sichter/hooks/post-run" ] && ok "hook vorhanden" || bad "hook fehlt"
+command -v pr-review >/dev/null && ok "pr-review im PATH" || echo "⚠ pr-review nicht im PATH (Stub nutzbar)"
+[ -f "$HOME/sichter/review/index.json" ] && ok "index.json vorhanden" || echo "ℹ index.json wird beim nächsten Lauf gebaut"

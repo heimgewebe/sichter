@@ -1,0 +1,3 @@
+# niemals in Commits
+(^|/)(target/|node_modules/|dist/|build/|out/|coverage/|.venv/|venv/|__pycache__/|.pytest_cache/|.parcel-cache/|.next/|.cache/|.DS_Store$)
+^sichter-reports$

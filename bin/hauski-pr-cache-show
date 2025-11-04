@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+jq -r 'to_entries[]
+ | "\(.key)\n  sha: \(.value.sha)\n  at:  \(.value.ts)\n  runs:\(.value.runs // 0)"' \
+   "$HOME/sichter/review/pr-processed.json" 2>/dev/null || echo "(leer)"

@@ -1,0 +1,16 @@
+name: ci
+on:
+  push:
+    branches: [ main ]
+  pull_request: {}
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ludeeus/action-shellcheck@master
+      - name: shfmt
+        run: |
+          curl -sSLo /usr/local/bin/shfmt https://github.com/mvdan/sh/releases/latest/download/shfmt_linux_amd64
+          chmod +x /usr/local/bin/shfmt
+          shfmt -d .

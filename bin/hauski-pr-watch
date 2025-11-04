@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${HAUSKI_ORG:=}"
+: "${HAUSKI_USER:=}"
+: "${HAUSKI_PR_SCOPE:=both}"
+: "${HAUSKI_INCLUDE_AUTHORED:=1}"
+
+list_org_repos() {
+  [ -n "${HAUSKI_ORG:-}" ] || return 0
+  gh api --paginate "/orgs/${HAUSKI_ORG}/repos" -f per_page=100 -q '.[].full_name' || true
+}
+
+list_user_repos() {
+  [ -n "${HAUSKI_USER:-}" ] || return 0
+  gh api --paginate "/users/${HAUSKI_USER}/repos" -f per_page=100 -q '.[].full_name' || true
+}
+
+in_scope() {
+  case "${HAUSKI_PR_SCOPE}" in
+    both|all)
+      echo org user
+      ;;
+    org)
+      echo org
+      ;;
+    user)
+      echo user
+      ;;
+    auto)
+      { [ -n "${HAUSKI_ORG:-}" ] && echo -n "org "; }{ [ -n "${HAUSKI_USER:-}" ] && echo "user"; }
+      ;;
+    *)
+      echo
+      ;;
+  esac
+}
+
+dedup() {
+  awk '!seen[$0]++ && NF>0'
+}
+
+repos() {
+  local scope
+  scope="$(in_scope)"
+  if echo "$scope" | grep -q org; then
+    list_org_repos
+  fi
+  if echo "$scope" | grep -q user; then
+    list_user_repos
+  fi
+}
+
+main() {
+  repos | dedup | while read -r repo; do
+    [ -n "$repo" ] || continue
+    gh api "/repos/$repo/pulls" -f state=open -f per_page=100 2>/dev/null |
+      jq -r --arg repo "$repo" --arg user "${HAUSKI_USER:-}" --argjson inc "${HAUSKI_INCLUDE_AUTHORED:-1}" '
+        .[] |
+        {repo:$repo, number:.number, head:(.head.ref//""), author:(.user.login//""), updatedAt:(.updated_at//"" )}
+        | select((inc==1) or (.author != $user))
+      '
+  done
+}
+
+if [ "${1:-}" = "--once" ]; then
+  main
+  exit 0
+fi
+
+LOG="$HOME/sichter/logs/pr-watch.log"
+mkdir -p "$(dirname "$LOG")"
+while :; do
+  printf '[hauski] poll…\n' | tee -a "$LOG" >/dev/null
+  main | tee -a "$LOG"
+  sleep "${HAUSKI_PR_INTERVAL:-300}"
+done

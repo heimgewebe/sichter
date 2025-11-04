@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+UNIT_NAME="hauski-autopilot.service"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+UNIT_PATH="$CONFIG_DIR/$UNIT_NAME"
+ENV_FILE="$HOME/sichter/autostart.env"
+AUTOPILOT="$HOME/sichter/bin/hauski-autopilot"
+
+command -v systemctl >/dev/null 2>&1 || {
+  echo "⚠️  systemctl nicht verfügbar – Autostart kann nicht eingerichtet werden." >&2
+  exit 1
+}
+
+mkdir -p "$CONFIG_DIR"
+
+if [ ! -f "$ENV_FILE" ]; then
+  {
+    cat <<'ENV_HDR'
+# HausKI Autostart-Umgebung
+# Passe die Werte an deine Organisation/Nutzer:innen an.
+# Entferne das führende #, falls du eine Zeile deaktivieren willst.
+ENV_HDR
+    [ -n "${HAUSKI_ORG:-}" ] && echo "HAUSKI_ORG=${HAUSKI_ORG}"
+    [ -n "${HAUSKI_USER:-}" ] && echo "HAUSKI_USER=${HAUSKI_USER}"
+    [ -n "${HAUSKI_REMOTE_AUTO_APPLY:-}" ] && echo "HAUSKI_REMOTE_AUTO_APPLY=${HAUSKI_REMOTE_AUTO_APPLY}"
+    [ -n "${HAUSKI_REMOTE_AUTO_COMMIT:-}" ] && echo "HAUSKI_REMOTE_AUTO_COMMIT=${HAUSKI_REMOTE_AUTO_COMMIT}"
+    [ -n "${HAUSKI_PR_INTERVAL:-}" ] && echo "HAUSKI_PR_INTERVAL=${HAUSKI_PR_INTERVAL}"
+  } >"$ENV_FILE"
+  echo "ℹ️  Autostart-Env erstellt: $ENV_FILE" >&2
+fi
+
+cat >"$UNIT_PATH" <<'UNIT'
+[Unit]
+Description=HausKI Autopilot
+After=default.target
+
+[Service]
+Type=simple
+Environment=HOME=%h
+EnvironmentFile=%h/sichter/autostart.env
+ExecStart=%h/sichter/bin/hauski-autopilot
+Restart=always
+RestartSec=10
+WorkingDirectory=%h
+
+[Install]
+WantedBy=default.target
+UNIT
+
+echo "ℹ️  Unit geschrieben: $UNIT_PATH" >&2
+
+if env HOME="$HOME" systemctl --user daemon-reload >/dev/null 2>&1 && \
+   env HOME="$HOME" systemctl --user enable --now "$UNIT_NAME" >/dev/null 2>&1; then
+  echo "✅ Autostart aktiviert (systemd user service)"
+else
+  echo "⚠️  Autostart konnte nicht automatisch aktiviert werden." >&2
+  echo "⚙️  Manuell ausführen:" >&2
+  echo "    systemctl --user daemon-reload" >&2
+  echo "    systemctl --user enable --now $UNIT_NAME" >&2
+  exit 1
+fi

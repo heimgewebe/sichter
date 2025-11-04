@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Gate: Score < 70 ⇒ PR CHANGES_REQUESTED (ältester offener PR)
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+[ -n "$ROOT" ] || exit 0
+REPO_NAME="$(basename "$ROOT")"
+REPORT_DIR="$HOME/sichter/review/$REPO_NAME"
+LAST="$(ls -1t "$REPORT_DIR"/*-review.md 2>/dev/null | head -n1 || true)"
+[ -n "$LAST" ] || exit 0
+
+# Score-Logik:
+# 1) expliziter Marker: HAUSKI_SCORE: <int>
+# 2) Heuristik: Security/Test-Fails => 60, sonst 90
+SCORE="$(grep -Eo 'HAUSKI_SCORE: *[0-9]+' "$LAST" | awk '{print $2}' | tail -n1 || true)"
+if [ -z "$SCORE" ]; then
+	if grep -Eiq 'TESTS?.*FAILED|security|critical|advisory|CHANGES_REQUESTED' "$LAST"; then
+		SCORE=60
+	else
+		SCORE=90
+	fi
+fi
+
+THRESH="${HAUSKI_GATE_THRESHOLD:-70}"
+[ "$SCORE" -ge "$THRESH" ] && {
+	echo "🟢 Gate pass (score=$SCORE)"
+	exit 0
+}
+
+# unter THRESHOLD → CHANGES_REQUESTED
+if ! command -v gh >/dev/null 2>&1; then
+	echo "⚠️  gh fehlt – Gate kann PR nicht setzen (score=$SCORE)"
+	exit 0
+fi
+PR_LINE="$(gh pr list --state open --limit 100 --json number,createdAt | jq -r 'sort_by(.createdAt)|.[0] | .number' 2>/dev/null || true)"
+[ -n "$PR_LINE" ] || {
+	echo "ℹ️  kein offener PR für Gate"
+	exit 0
+}
+
+gh pr review "$PR_LINE" --request-changes --body "HausKI Gate: Score=$SCORE < $THRESH" >/dev/null &&
+	echo "🟥 Gate gesetzt: PR #$PR_LINE → CHANGES_REQUESTED (score=$SCORE)"

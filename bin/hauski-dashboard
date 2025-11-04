@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+~/sichter/bin/hauski-dashboard-build-v4
+xdg-open "$HOME/sichter/review/dashboard.html" >/dev/null 2>&1 || true

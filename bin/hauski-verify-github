@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+LOG="${HOME}/sichter/logs/gh-check.log"
+mkdir -p "$(dirname "$LOG")"
+{
+  echo "== $(date) GH verify =="
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "❌ gh (GitHub CLI) fehlt"; exit 12
+  fi
+  if ! gh auth status >/dev/null 2>&1; then
+    echo "❌ gh nicht eingeloggt. Bitte: gh auth login"; exit 13
+  fi
+  # Header nötig, um JSON zu erzwingen:
+  if ! gh api -H 'Accept: application/vnd.github+json' /rate_limit >/dev/null 2>&1; then
+    echo "❌ API nicht erreichbar (Token/Netz?)."; exit 14
+  fi
+  # Rate limit kurz checken:
+  rem=$(gh api -H 'Accept: application/vnd.github+json' /rate_limit --jq '.resources.core.remaining // 0' || echo 0)
+  echo "rate.remaining=${rem}"
+  if [ "${rem:-0}" -lt 5 ]; then
+    echo "⚠️ wenig Rate-Limit (${rem}) – warte 60s"; sleep 60
+  fi
+  echo "✅ gh ok"
+} >> "$LOG" 2>&1

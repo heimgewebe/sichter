@@ -1,0 +1,15 @@
+[Unit]
+Description=HausKI Autopilot
+After=default.target
+
+[Service]
+Type=simple
+Environment=HOME=%h
+EnvironmentFile=%h/sichter/autostart.env
+ExecStart=%h/sichter/bin/hauski-autopilot
+Restart=always
+RestartSec=10
+WorkingDirectory=%h
+
+[Install]
+WantedBy=default.target

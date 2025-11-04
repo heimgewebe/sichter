@@ -1,0 +1,229 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$HOME/sichter/review"
+IDX="$ROOT/index.json"
+OUT="$ROOT/dashboard.html"
+
+limit_repo="${DASH_MAX_PER_REPO:-10}"   # pro Repo nur die letzten N
+global_cap="${DASH_MAX_GLOBAL:-2000}"   # insgesamt deckeln
+filter_re="${DASH_REPO_FILTER:-}"       # optional: nur bestimmte Repos (regex)
+
+# 1) Index einlesen & sanft normalisieren
+jq -e . "$IDX" >/dev/null 2>&1 || { echo "[]" > "$IDX"; }
+RAW="$(jq -c 'map({repo, path, ts}) | sort_by(.ts) | reverse | .[0:'"$global_cap"']' "$IDX" )"
+
+# 2) Pro Repo deckeln
+if [ -n "$filter_re" ]; then
+  RAW="$(printf '%s' "$RAW" | jq -c '[ .[] | select(.repo|test("'"$filter_re"'")) ]')"
+fi
+RAW="$(printf '%s' "$RAW" | jq -c '
+  group_by(.repo)
+  | map( .[:'"$limit_repo"'] )
+  | add // []')"
+
+# 3) Metadaten aus Dateien anreichern (Verdict/Score/Bytes/Dir/URLs)
+#    – Parsen nur leichten Header, robust bei fehlenden Feldern
+enrich() {
+  repo="$1"; path="$2"; ts="$3"
+  verdict=""; score=""; bytes=""; dir=""; furl=""; vsc=""
+
+  if [ -f "$path" ]; then
+    # nur die ersten 200 Zeilen lesen (schnell)
+    head200="$(head -n 200 "$path" 2>/dev/null || true)"
+    verdict="$(printf '%s\n' "$head200" | grep -m1 -E '^(Verdict|\- *Verdict):' | sed -E 's/^[- ]*Verdict:\s*//I' | tr -d '\r' | tr 'a-z' 'A-Z' | sed 's/ .*//')"
+    score="$(printf '%s\n' "$head200" | grep -m1 -E '(^Score:|Score[[:space:]]*)' | sed -E 's/.*Score[: ]+([0-9]+).*/\1/' || true)"
+    bytes="$(wc -c < "$path" 2>/dev/null || echo 0)"
+    dir="$(dirname "$path")"
+    furl="file://$path"
+    # VS Code Deep Link (Spaces maskieren)
+    vsc="vscode://file$path"
+    vsc="${vsc// /%20}"
+  else
+    verdict="MISSING"
+    score=""
+    bytes="0"
+    dir="$(dirname "$path")"
+    furl=""
+    vsc=""
+  fi
+
+  jq -cn \
+    --arg repo "$repo" \
+    --arg path "$path" \
+    --arg ts "$ts" \
+    --arg verdict "$verdict" \
+    --arg score "$score" \
+    --arg bytes "$bytes" \
+    --arg dir "$dir" \
+    --arg furl "$furl" \
+    --arg vsc "$vsc" \
+    '{repo:$repo, path:$path, ts:$ts, verdict:$verdict, score: ( ($score|tonumber?) // null ), bytes: ($bytes|tonumber), dir:$dir, fileurl:$furl, vscurl:$vsc}'
+}
+
+DATA="[]"
+# shellcheck disable=SC2016
+printf '%s' "$RAW" | jq -c '.[]' | while read -r row; do
+  repo="$(printf '%s' "$row" | jq -r '.repo')"
+  path="$(printf '%s' "$row" | jq -r '.path')"
+  ts="$(printf '%s' "$row" | jq -r '.ts')"
+  meta="$(enrich "$repo" "$path" "$ts")"
+  DATA="$(jq -c --argjson m "$meta" '. + [$m]' <<<"$DATA")"
+done
+
+# 4) HTML erzeugen (Inline-Daten; keine externen Fetches nötig)
+cat > "$OUT" <<HTML
+<!doctype html>
+<html lang="de">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HausKI – Reviews</title>
+<style>
+  :root{--bg:#0b1220;--card:#0f172a;--ink:#e2e8f0;--muted:#93a2b9;--ok:#22c55e;--warn:#f59e0b;--err:#ef4444;--acc:#38bdf8}
+  html,body{margin:0;background:linear-gradient(180deg,#0b1220,#0a0f1d);color:var(--ink);font:14px/1.45 system-ui,Segoe UI,Roboto,Ubuntu,sans-serif}
+  header{position:sticky;top:0;z-index:2;background:#0b1220cc;border-bottom:1px solid #1f2937;padding:14px 16px;display:flex;gap:12px;align-items:center}
+  header b{letter-spacing:.3px}
+  input,select{background:#0f172a;color:var(--ink);border:1px solid #1f2937;border-radius:8px;padding:8px 10px;outline:none}
+  input::placeholder{color:#64748b}
+  button{background:#0f172a;border:1px solid #1f2937;border-radius:8px;color:var(--ink);padding:8px 10px;cursor:pointer}
+  button:hover{border-color:#334155}
+  main{padding:18px 16px;max-width:1200px;margin:0 auto}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media (max-width: 920px){ .grid{grid-template-columns:1fr} }
+  .card{background:var(--card);border:1px solid #1f2937;border-radius:14px;padding:12px}
+  h2{margin:0 0 10px 0;font-size:16px;color:#cbd5e1}
+  table{width:100%;border-collapse:separate;border-spacing:0 8px}
+  th,td{font-size:13px;padding:8px 10px;vertical-align:middle}
+  tr{background:#0b1327;border:1px solid #1f2937}
+  tr td:first-child, tr th:first-child{border-top-left-radius:10px;border-bottom-left-radius:10px}
+  tr td:last-child, tr th:last-child{border-top-right-radius:10px;border-bottom-right-radius:10px}
+  th{color:#93a2b9;text-align:left}
+  .badge{font-size:12px;border-radius:999px;padding:2px 8px;border:1px solid #334155;background:#0f172a;color:#cbd5e1}
+  .ok{background:#122a1a;border-color:#11381b;color:#34d399}
+  .warn{background:#2a220f;border-color:#3d2b10;color:#fbbf24}
+  .err{background:#2a1315;border-color:#3a1215;color:#f87171}
+  .muted{color:#93a2b9}
+  .row-actions a{margin-right:10px;text-decoration:none;color:#93c5fd}
+  .row-actions a:hover{color:#bfdbfe}
+  .pill{display:inline-block;border:1px solid #334155;border-radius:999px;padding:2px 8px;margin-right:6px;font-size:12px}
+  .kbd{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;background:#0f172a;border:1px solid #1f2937;border-radius:6px;padding:2px 6px}
+  .footer{margin-top:14px;color:#93a2b9}
+</style>
+<header>
+  <b>HausKI Reviews</b>
+  <input id="q" placeholder="Suche (Repo, Verdict)…" />
+  <select id="ver">
+    <option value="">Verdict: alle</option>
+    <option value="APPROVE">APPROVE</option>
+    <option value="CHANGES_REQUESTED">CHANGES_REQUESTED</option>
+    <option value="MISSING">MISSING</option>
+  </select>
+  <select id="sort">
+    <option value="ts">Sort: Neueste</option>
+    <option value="repo">Sort: Repo</option>
+    <option value="score">Sort: Score</option>
+    <option value="size">Sort: Größe</option>
+  </select>
+  <button id="reload">↻ Rebuild</button>
+</header>
+<main>
+  <div class="grid">
+    <div class="card">
+      <h2>Aktuelle Läufe</h2>
+      <div id="table"></div>
+    </div>
+    <div class="card">
+      <h2>Quick Actions</h2>
+      <div>
+        <span class="pill">Alle PRs reviewen</span> <span class="kbd">HAUSKI_ORG=… HAUSKI_USER=… hauski-pr-review-all</span><br/>
+        <span class="pill">Dashboard neu bauen</span> <span class="kbd">hauski-dashboard</span><br/>
+        <span class="pill">Nur Low-Risk fixen</span> <span class="kbd">hauski-pr-apply-lowrisk &lt;repo&gt; &lt;pr#&gt;</span>
+      </div>
+      <div class="footer muted" id="stats"></div>
+    </div>
+  </div>
+</main>
+<script>
+const data = $DATA; // inline vom Builder
+function fmtVerd(v){
+  if(!v) return '<span class="badge">n/a</span>';
+  const up = (v+'').toUpperCase();
+  if(up.includes('APPROVE')) return '<span class="badge ok">APPROVE</span>';
+  if(up.includes('CHANGE')) return '<span class="badge warn">CHANGES_REQUESTED</span>';
+  if(up.includes('MISSING')) return '<span class="badge err">MISSING</span>';
+  return '<span class="badge">'+up+'</span>';
+}
+function fmtScore(s){
+  if(s==null) return '<span class="badge">–</span>';
+  const n = Number(s);
+  const cls = n>=85?'ok': (n>=70?'warn':'err');
+  return '<span class="badge '+cls+'">'+n+'</span>';
+}
+function humanKb(b){ if(!b) return '—'; const n=Number(b); if(n<1024) return n+' B'; if(n<1024*1024) return (n/1024).toFixed(1)+' KB'; return (n/1024/1024).toFixed(1)+' MB'; }
+function row(r){
+  return \`
+  <tr>
+    <td style="white-space:nowrap"><b>\${r.repo}</b><div class="muted">\${r.ts}</div></td>
+    <td>\${fmtVerd(r.verdict)}</td>
+    <td>\${fmtScore(r.score)}</td>
+    <td class="muted">\${humanKb(r.bytes)}</td>
+    <td class="row-actions">
+      \${r.fileurl?'<a href="'+r.fileurl+'">Open</a>':''}
+      \${r.vscurl?'<a href="'+r.vscurl+'">VS Code</a>':''}
+      <a href="file://\${r.dir}">Ordner</a>
+    </td>
+  </tr>\`;
+}
+function build(){
+  const q = document.getElementById('q').value.trim().toLowerCase();
+  const ver = document.getElementById('ver').value;
+  const sort = document.getElementById('sort').value;
+  let rows = data.slice(0);
+
+  if(q){
+    rows = rows.filter(r => (r.repo||'').toLowerCase().includes(q) || (r.verdict||'').toLowerCase().includes(q));
+  }
+  if(ver){
+    rows = rows.filter(r => (r.verdict||'').toUpperCase().includes(ver));
+  }
+  // pro Repo nur die neueste Zeile sichtbar? nein – wir zeigen alle (zukünftig togglebar)
+  // sort
+  rows.sort((a,b)=>{
+    if(sort==='repo') return (a.repo||'').localeCompare(b.repo||'') || b.ts.localeCompare(a.ts);
+    if(sort==='score') return (Number(b.score||-1)-Number(a.score||-1)) || b.ts.localeCompare(a.ts);
+    if(sort==='size') return (Number(b.bytes||0)-Number(a.bytes||0)) || b.ts.localeCompare(a.ts);
+    return b.ts.localeCompare(a.ts);
+  });
+
+  document.getElementById('table').innerHTML =
+    '<table><thead><tr><th>Repo</th><th>Verdict</th><th>Score</th><th>Größe</th><th>Aktion</th></tr></thead><tbody>'+
+    rows.map(row).join('')+
+    '</tbody></table>';
+
+  // Stats
+  const repos = new Set(rows.map(r=>r.repo));
+  const last = rows[0]?.ts || '—';
+  document.getElementById('stats').textContent = \`\${rows.length} Einträge · \${repos.size} Repos · letzter Run: \${last}\`;
+}
+document.getElementById('q').addEventListener('input', build);
+document.getElementById('ver').addEventListener('change', build);
+document.getElementById('sort').addEventListener('change', build);
+document.getElementById('reload').addEventListener('click', ()=>{ location.reload(); });
+build();
+</script>
+</html>
+HTML
+
+# 5) Inline JSON ersetzen
+#    DATA wird als bereits korrektes JSON eingesetzt (keine Quotes drumherum!)
+tmp="$(mktemp)"
+echo "$DATA" > "$tmp"
+# escape \$ in sed replacement sicher umgehen:
+json_inline="$(cat "$tmp")"
+rm -f "$tmp"
+# Schreibvorgang
+sed -i "s|\$DATA|$json_inline|g" "$OUT"
+
+echo "✅ Dashboard gebaut: $OUT"
+# still öffnen, wenn möglich
+xdg-open "$OUT" >/dev/null 2>&1 || true

@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+R="$HOME/sichter/review"; O="$R/dashboard.html"; I="$R/index.json"
+mkdir -p "$R"; [ -f "$I" ] || echo "[]" > "$I"
+DATA="$(jq -c '.' "$I" 2>/dev/null || echo '[]')"
+cat > "$O" <<HTML
+<!doctype html><meta charset="utf-8"><title>HausKI Dashboard</title>
+<style>body{font:14px system-ui;background:#f8fafc}table{border-collapse:collapse;width:100%}th,td{padding:8px 10px;border-bottom:1px solid #e5e7eb}</style>
+<div id="app"></div><script>const d=$DATA;const g={};d.forEach(x=>(g[x.repo]??=[]).push(x));Object.values(g).forEach(a=>a.sort((x,y)=>y.ts.localeCompare(x.ts)));
+let h='<table><thead><tr><th>Repo</th><th>Runs</th><th>Last</th><th>Open</th></tr></thead><tbody>';
+for(const [r,a] of Object.entries(g).sort((A,B)=>B[1][0].ts.localeCompare(A[1][0].ts))){
+  const last=a[0];h+=\`<tr><td>\${r}</td><td>\${a.length}</td><td>\${last.ts}</td><td><a href="file://\${last.path}">open</a></td></tr>\`;
+}document.getElementById('app').innerHTML=h+'</tbody></table>';</script>
+HTML
+sed -i "s|\$DATA|$DATA|g" "$O"
+echo "$O"

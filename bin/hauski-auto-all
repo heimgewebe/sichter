@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+BASE="${1:-$HOME/repos}"
+
+# Sanity
+command -v git >/dev/null 2>&1 || { echo "git fehlt"; exit 1; }
+
+find "$BASE" -mindepth 1 -maxdepth 2 -type d -name ".git" -print0 2>/dev/null \
+| while IFS= read -r -d '' g; do
+  repo="$(dirname "$g")"
+  echo "▶ Auto-Fix: $repo"
+  (
+    set -e
+    cd "$repo"
+    # Upstream ggf. setzen (für Push/PR)
+    ~/sichter/bin/hauski-ensure-upstream || true
+    # Review + Auto-Apply + Auto-Commit (+ ggf. Draft-PR) via Hook
+    HAUSKI_AUTO_APPLY=1 HAUSKI_AUTO_COMMIT=1 HAUSKI_AUTO_PR=1 ~/sichter/hooks/post-run || true
+  )
+done
+
+echo "— Gesamtstatus —"
+hauski-status summary || true

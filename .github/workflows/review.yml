@@ -1,0 +1,88 @@
+name: review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+env:
+  SEMGREP_RULES: ${{ vars.SEMGREP_RULES }}
+  SEMGREP_ARGS: ${{ vars.SEMGREP_ARGS }}
+
+jobs:
+  lint-and-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: reviewdog/action-setup@v1
+        with:
+          reviewdog_version: latest
+
+      - name: Install tooling
+        run: |
+          pip install ruff==0.6.9 semgrep || true
+          npm install -g markdownlint-cli@0.40.0
+          sudo apt-get update
+          sudo apt-get install -y shellcheck shfmt jq
+
+      - name: Ruff (Python)
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ruff check . \
+            | reviewdog -f=ruff -name="ruff" -reporter=github-pr-check -level=warning
+
+      - name: Markdownlint
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git ls-files -z -- '*.md' \
+            | xargs -0 -r markdownlint \
+            | reviewdog -f=markdownlint -name="markdownlint" -reporter=github-pr-check -level=warning || true
+
+      - name: Shellcheck
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git ls-files -z -- '*.sh' '*.bash' \
+            | xargs -0 -r shellcheck -f gcc \
+            | reviewdog -f=gcc -name="shellcheck" -reporter=github-pr-check -level=warning || true
+
+      - name: shfmt
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git ls-files -z -- '*.sh' '*.bash' \
+            | xargs -0 -r shfmt -d \
+            | reviewdog -f=diff -name="shfmt" -reporter=github-pr-check -level=warning || true
+
+      - name: Semgrep (optional)
+        if: ${{ env.SEMGREP_RULES != '' }}
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          semgrep --error --json --output semgrep.json ${SEMGREP_ARGS} -f "$SEMGREP_RULES" || true
+          jq -r '.results[] | "\(.path):\(.start.line):\(.extra.message)"' semgrep.json \
+            | reviewdog -f=golint -name="semgrep" -reporter=github-pr-check -level=warning || true
+
+      - name: Summary comment
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER=$(jq -r .pull_request.number "$GITHUB_EVENT_PATH")
+          gh api repos/${{ github.repository }}/issues/$PR_NUMBER/comments -f body="Automated lint & policy review (ruff, markdownlint, shellcheck, semgrep optional) completed via HausKI CI bridge."

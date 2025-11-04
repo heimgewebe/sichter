@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Ping bei „Tests failed“ / „Security“: Desktop + Slack (Webhook) + Matrix
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+[ -n "$ROOT" ] || exit 0
+REPO_NAME="$(basename "$ROOT")"
+REPORT_DIR="$HOME/sichter/review/$REPO_NAME"
+LAST="$(ls -1t "$REPORT_DIR"/*-review.md 2>/dev/null | head -n1 || true)"
+[ -n "$LAST" ] || exit 0
+
+extract_flag() {
+	local patt="$1"
+	grep -Eiq "$patt" "$LAST"
+}
+
+NEED_ALERT=0
+extract_flag 'TESTS?.*FAILED|failures' && NEED_ALERT=1
+extract_flag 'security|critical|advisory' && NEED_ALERT=1
+extract_flag 'CHANGES_REQUESTED' && NEED_ALERT=1
+
+[ "$NEED_ALERT" -eq 1 ] || exit 0
+
+MSG="HausKI: ⚠️  $REPO_NAME – Review-Alarm ($(basename "$LAST"))"
+
+# Desktop
+if command -v notify-send >/dev/null 2>&1; then
+	notify-send "$MSG" "Siehe Dashboard / Report" || true
+fi
+
+# Slack Webhook (optional)
+SLACK_WEBHOOK="$(grep '^SLACK_WEBHOOK=' "$HOME/sichter/secrets.env" | cut -d= -f2-)"
+if [ -n "$SLACK_WEBHOOK" ]; then
+	curl -s -X POST -H 'Content-type: application/json' --data "{\"text\":\"$MSG\"}" "$SLACK_WEBHOOK" >/dev/null || true
+fi
+
+# Matrix (optional)
+MATRIX_HS="$(grep '^MATRIX_HOMESERVER=' "$HOME/sichter/secrets.env" | cut -d= -f2-)"
+MATRIX_TOKEN="$(grep '^MATRIX_TOKEN=' "$HOME/sichter/secrets.env" | cut -d= -f2-)"
+MATRIX_ROOM="$(grep '^MATRIX_ROOM=' "$HOME/sichter/secrets.env" | cut -d= -f2-)"
+if [ -n "$MATRIX_HS" ] && [ -n "$MATRIX_TOKEN" ] && [ -n "$MATRIX_ROOM" ]; then
+	curl -s -X POST -H "Authorization: Bearer $MATRIX_TOKEN" \
+		-H "Content-Type: application/json" \
+		--data "{\"msgtype\":\"m.text\",\"body\":\"$MSG\"}" \
+		"$MATRIX_HS/_matrix/client/r0/rooms/$MATRIX_ROOM/send/m.room.message" >/dev/null || true
+fi
+
+echo "📣 Notify raus: $MSG"

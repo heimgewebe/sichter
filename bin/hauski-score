@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+f="${1:?report.md}"
+[ -s "$f" ] || {
+	echo 0
+	exit 0
+}
+
+score=100
+
+lower() { tr '[:upper:]' '[:lower:]'; }
+body="$(cat "$f" | lower)"
+
+dec() {
+	local n="$1"
+	score=$((score - n))
+	[ $score -lt 0 ] && score=0
+}
+
+# große Hämmer
+echo "$body" | grep -q 'tests.*failed' && dec 35
+echo "$body" | grep -q 'panic\|backtrace' && dec 25
+echo "$body" | grep -q 'security.*critical' && dec 40
+echo "$body" | grep -q 'deny.*failure' && dec 20
+echo "$body" | grep -q 'audit.*unmaintained' && dec 15
+
+# mittlere Dellen
+echo "$body" | grep -q 'clippy.*issues' && dec 10
+echo "$body" | grep -q 'fmt:.*fail' && dec 10
+echo "$body" | grep -q 'lychee.*broken' && dec 5
+
+# sanfte Abzüge bei Warnungen
+warns=$(echo "$body" | grep -Eo 'warning[s]?: [0-9]+' | awk '{s+=$2} END{print s+0}' 2>/dev/null || echo 0)
+if [ -n "$warns" ] && [ "$warns" -gt 0 ]; then
+	d=$((warns / 5))
+	[ $d -gt 15 ] && d=15
+	dec "$d"
+fi
+
+echo "$score"

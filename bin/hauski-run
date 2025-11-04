@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Im aktuellen Repo: Review → Status → Dashboard
+~/sichter/hooks/post-run || true
+hauski-status summary || true
+hauski-dashboard || true

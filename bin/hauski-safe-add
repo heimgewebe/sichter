@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+DENY="$HOME/sichter/denylist.paths"
+# alle Änderungen in der Arbeitskopie ermitteln, aber:
+# - ignore Standard (.gitignore)
+# - exclusiv: Denylist
+# danach gezielt adden
+PATTERN="$(tr -d '\r\n' < "$DENY")"
+# unstaged/modified/untracked, aber nicht ignored:
+files="$(git ls-files -m -o --exclude-standard)"
+sel=""
+while IFS= read -r f; do
+  echo "$f" | grep -Eq "$PATTERN" && continue
+  sel+="$f"$'\n'
+done <<< "$files"
+# wenn leer, sauber beenden
+[ -z "${sel//[$'\n\r ']/}" ] && exit 0
+# add nur die erlaubten
+echo "$sel" | xargs -r git add -- || true

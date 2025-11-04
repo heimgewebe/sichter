@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+: "${HAUSKI_ORG:=}"; : "${HAUSKI_USER:=}"; : "${HAUSKI_PR_SCOPE:=both}"; : "${HAUSKI_INCLUDE_AUTHORED:=1}"
+
+# Repos aus ORG und/oder USER (REST) sammeln:
+declare -A SEEN
+list_repos(){
+  if { [ "$HAUSKI_PR_SCOPE" = "org" ] || [ "$HAUSKI_PR_SCOPE" = "both" ] || { [ "$HAUSKI_PR_SCOPE" = "auto" ] && [ -n "${HAUSKI_ORG:-}" ]; }; } && [ -n "${HAUSKI_ORG:-}" ]; then
+    while read -r r; do [ -n "$r" ] && [ -z "${SEEN[$r]:-}" ] && { echo "$r"; SEEN[$r]=1; }; done < <(
+      gh api --paginate "/orgs/$HAUSKI_ORG/repos" -f per_page=100 -q '.[].full_name'
+    )
+  fi
+  if { [ "$HAUSKI_PR_SCOPE" = "user" ] || [ "$HAUSKI_PR_SCOPE" = "both" ] || { [ "$HAUSKI_PR_SCOPE" = "auto" ] && [ -n "${HAUSKI_USER:-}" ]; }; } && [ -n "${HAUSKI_USER:-}" ]; then
+    while read -r r; do [ -n "$r" ] && [ -z "${SEEN[$r]:-}" ] && { echo "$r"; SEEN[$r]=1; }; done < <(
+      gh api --paginate "/users/$HAUSKI_USER/repos" -f per_page=100 -q '.[].full_name'
+    )
+  fi
+}
+
+# Für jedes Repo offene PRs holen und als JSON-Lines ausgeben:
+while read -r REPO; do
+  [ -n "$REPO" ] || continue
+  gh api --paginate "/repos/$REPO/pulls" -f state=open -f per_page=50 \
+    -q '.[] | {repo:"'"$REPO"'", number:.number, head:(.head.ref//""), author:(.user.login//""), updatedAt:(.updated_at//"")} | @json'
+done < <(list_repos)

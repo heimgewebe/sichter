@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Läuft über alle lokalen Git-Repos unter ~/repos und triggert je einen Review
+BASE="${1:-$HOME/repos}"
+find "$BASE" -mindepth 1 -maxdepth 2 -type d -name ".git" -print0 2>/dev/null |
+	while IFS= read -r -d '' g; do
+		repo="$(dirname "$g")"
+		echo "▶ Review: $repo"
+		(cd "$repo" && ~/sichter/hooks/post-run) || true
+	done
+echo "— Gesamtstatus —"
+hauski-status summary || true

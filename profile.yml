@@ -1,0 +1,9 @@
+review:
+  mode: local
+  base: HEAD
+  flags: ["--fast","--heavy"]
+  report_root: "~/sichter/review"
+  auto_after_codex: true
+meta:
+  author: "alexdermohr"
+  version: 1.4

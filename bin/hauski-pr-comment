@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo="${1:?repo z.B. heimgewebe/hausKI}"
+pr="${2:?pr nummer}"
+dir="$HOME/sichter/review/$(basename "$repo")"
+file="$(ls -1t "$dir"/*-review.md 2>/dev/null | head -n1 || true)"
+[ -n "$file" ] || {
+	echo "kein Report gefunden"
+	exit 1
+}
+gh pr comment -R "$repo" "$pr" --body-file "$file"
+echo "✓ kommentiert: $file → PR #$pr"

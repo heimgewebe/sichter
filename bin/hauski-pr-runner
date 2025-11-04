@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+set -euo pipefail
+INT="${HAUSKI_PR_INTERVAL:-300}"
+while :; do ~/sichter/bin/hauski-pr-run-once || true; sleep "$INT"; done

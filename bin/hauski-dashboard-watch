@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+R="$HOME/sichter/review"
+echo "👀 Watching $R for changes (index.json & reports)…"
+inotifywait -mq -e close_write,create,move "$R" -r | while read -r _; do
+  "$HOME/sichter/bin/hauski-dashboard-build-v3" --no-open >/dev/null 2>&1 || true
+done

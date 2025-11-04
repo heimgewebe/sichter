@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$HOME/sichter/review"
+IDX="$ROOT/index.json"
+OUT="$ROOT/dashboard.html"
+mkdir -p "$ROOT"
+[ -f "$IDX" ] || echo "[]" > "$IDX"
+# Valides JSON in temp erzeugen (ohne NUL):
+TMP="$(mktemp)"
+jq -cM 'map(select(type=="object"))' "$IDX" > "$TMP" || echo "[]" > "$TMP"
+
+# HTML schreiben, JSON via <script type="application/json"> einbetten
+cat > "$OUT" <<'HTML'
+<!doctype html><meta charset="utf-8">
+<title>HausKI – Reviews</title>
+<style>
+:root{--bg:#0b1220;--card:#0f172a;--ink:#e2e8f0;--muted:#93a2b9;--ok:#22c55e;--warn:#f59e0b;--err:#ef4444;--line:#1f2937}
+*{box-sizing:border-box} html,body{margin:0;background:linear-gradient(180deg,#0b1220,#0a0f1d);color:var(--ink);font:14px/1.45 system-ui,Segoe UI,Roboto,Ubuntu,sans-serif}
+header{position:sticky;top:0;z-index:3;background:#0b1220cc;border-bottom:1px solid var(--line);backdrop-filter:saturate(180%) blur(8px);padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+button,input,select{background:#0f172a;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+main{padding:18px 16px;max-width:1280px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:14px}
+.badge{font-size:12px;border-radius:999px;padding:2px 8px;border:1px solid #334155;background:#0f172a;color:#cbd5e1}
+.ok{background:#122a1a;border-color:#11381b;color:#34d399}.warn{background:#2a220f;border-color:#3d2b10;color:#fbbf24}.err{background:#2a1315;border-color:#3a1215;color:#f87171}
+.row{display:grid;grid-template-columns:minmax(180px,1fr) 120px 80px 1fr;gap:8px;background:#0b1327;border:1px solid var(--line);border-radius:12px;padding:8px 10px}
+</style>
+<header>
+  <b>HausKI Reviews</b>
+  <input id="q" placeholder="Suche…"/>
+  <select id="ver"><option value="">Verdict: alle</option><option>APPROVE</option><option>CHANGES_REQUESTED</option><option>MISSING</option></select>
+  <select id="sort"><option value="ts">Neueste</option><option value="repo">Repo</option><option value="score">Score</option><option value="size">Größe</option></select>
+  <label><input type="checkbox" id="latest"> nur letzter Run</label>
+  <button id="rebuild">↻</button>
+</header>
+<main>
+  <div class="card"><h2>Übersicht</h2><div id="stats"></div></div>
+  <div class="card"><h2>Runs</h2><div id="list"></div></div>
+</main>
+<script id="data" type="application/json"></script>
+<script>
+const raw = JSON.parse(document.getElementById('data').textContent || "[]");
+const qs = id=>document.getElementById(id);
+function badge(v){if(!v)return "";v=String(v).toUpperCase();if(v.includes("APPROVE"))return'<span class=badge ok>APPROVE</span>';if(v.includes("CHANGE"))return'<span class=badge warn>CHANGES_REQUESTED</span>';if(v.includes("MISS"))return'<span class=badge err>MISSING</span>';return'<span class=badge>'+v+'</span>';}
+function bscore(s){if(s==null)return'<span class=badge>–</span>';const n=+s;const c=n>=85?'ok':(n>=70?'warn':'err');return'<span class="badge '+c+'">'+n+'</span>';}
+function kb(n){n=+n||0;return n<1024?n+' B':n<1048576?(n/1024).toFixed(1)+' KB':(n/1048576).toFixed(1)+' MB';}
+function build(){
+  let arr=[...raw];
+  const q=(qs('q').value||'').toLowerCase(),ver=(qs('ver').value||'').toUpperCase(),sort=qs('sort').value;
+  if(q)arr=arr.filter(r=>(r.repo||'').toLowerCase().includes(q)||(r.verdict||'').toLowerCase().includes(q)||(r.ts||'').toLowerCase().includes(q));
+  if(ver)arr=arr.filter(r=>(r.verdict||'').toUpperCase().includes(ver));
+  const groups={}; for(const x of arr){(groups[x.repo]??=[]).push(x)}; for(const k in groups){groups[k].sort((a,b)=>b.ts.localeCompare(a.ts))}
+  const repos=Object.keys(groups).sort((a,b)=>sort==='repo'?a.localeCompare(b):sort==='score'?((+groups[b][0].score||-1)-(+groups[a][0].score||-1))||b.localeCompare(a):sort==='size'?((+groups[b][0].bytes||0)-(+groups[a][0].bytes||0))||b.localeCompare(a):groups[b][0].ts.localeCompare(groups[a][0].ts));
+  let html='';
+  for(const repo of repos){
+    const runs = qs('latest').checked ? [groups[repo][0]] : groups[repo];
+    const head = groups[repo][0];
+    html += `<div style="margin:10px 0;padding:10px;border:1px solid #1f2937;border-radius:10px;">
+      <h3 style="margin:0 0 6px 0">${repo} ${badge(head.verdict)} ${bscore(head.score)} <span style="color:#93a2b9">· ${groups[repo].length} Runs · ${head.ts}</span></h3>
+      ${runs.map(r=>`<div class=row>
+        <div><div style="font-family:ui-monospace">${r.ts}</div><div style="color:#93a2b9">${r.verdict||'—'}</div></div>
+        <div>${bscore(r.score)}</div>
+        <div style="font-family:ui-monospace">${kb(r.bytes)}</div>
+        <div><a href="${r.fileurl||'#'}">Open</a> ${r.dir?`· <a href="file://${r.dir}">Ordner</a>`:''}</div>
+      </div>`).join('')}
+    </div>`;
+  }
+  qs('list').innerHTML=html;
+  const flat=arr.sort((a,b)=>b.ts.localeCompare(a.ts));
+  qs('stats').textContent = `${flat.length} Einträge · ${repos.length} Repos · letzter Run: ${flat[0]?.ts||'—'}`;
+}
+['q','ver','sort','latest'].forEach(id=>{const el=qs(id); el && el.addEventListener('input', build)});
+qs('rebuild').addEventListener('click',()=>location.reload());
+build();
+</script>
+HTML
+
+# Daten sicher injizieren
+printf '<script id="data" type="application/json">' >> "$OUT"
+cat "$TMP" >> "$OUT"
+printf '</script>\n' >> "$OUT"
+
+echo "✅ Dashboard gebaut: $OUT"

@@ -1,0 +1,79 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sichter Leitstand</title>
+<style>
+  :root { --bg:#0b0e12; --fg:#e6edf3; --muted:#9da7b3; --ok:#3fb950; --warn:#d29922; --err:#f85149;}
+  body {background:var(--bg); color:var(--fg); font:14px/1.5 system-ui, sans-serif; margin:0; padding:20px;}
+  h1 {font-size:20px; margin:0 0 12px 0;}
+  .grid {display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));}
+  .card {background:#11161c; border:1px solid #1f2630; border-radius:12px; padding:16px;}
+  table {width:100%; border-collapse:collapse; margin-top:8px;}
+  th, td {padding:8px; border-bottom:1px solid #1f2630; text-align:left; font-size:13px;}
+  .sev-ok {color:var(--ok);} .sev-warning {color:var(--warn);} .sev-critical, .sev-error, .sev-high {color:var(--err);}
+  .muted {color:var(--muted);}
+  .tag {display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; background:#0e141b; border:1px solid #1f2630;}
+</style>
+<h1>Sichter Leitstand</h1>
+
+<div class="grid">
+  <div class="card" id="summary">
+    <div class="muted">Zusammenfassung</div>
+    <div id="summary-body">lädt…</div>
+  </div>
+  <div class="card" style="grid-column:1/-1">
+    <div class="muted">Repos (Status)</div>
+    <input id="q" placeholder="Filter (Repo-Name, Schweregrad)…" style="width:100%;margin:6px 0 8px 0;padding:8px;border-radius:8px;background:#0b1117;color:#e6edf3;border:1px solid #1f2630;">
+    <table id="table"><thead><tr><th>Repo</th><th>Schwere</th><th>Aktualisiert</th><th>Details</th></tr></thead><tbody></tbody></table>
+  </div>
+</div>
+
+<script>
+async function getJSON(url){ const r = await fetch(url); if(!r.ok) throw new Error(await r.text()); return await r.json(); }
+function sevClass(s){ s=(s||"").toLowerCase(); if(["critical","high","error"].includes(s)) return "sev-critical"; if(["warn","warning","medium"].includes(s)) return "sev-warning"; return "sev-ok"; }
+function sevLabel(s){ s=(s||"ok").toLowerCase(); if(s==="") s="ok"; return s; }
+
+async function load() {
+  try {
+    const sum = await getJSON("/api/summary");
+    document.getElementById("summary-body").innerHTML =
+      \`<div style="display:flex;gap:12px;flex-wrap:wrap">
+        <span class="tag">Repos: <b>\${sum.total_repos}</b></span>
+        <span class="tag">Warnings: <b>\${sum.warnings}</b></span>
+        <span class="tag">Errors: <b>\${sum.errors}</b></span>
+        <span class="tag">Critical: <b>\${sum.critical}</b></span>
+        <span class="muted" style="margin-left:auto">UTC: \${sum.timestamp}</span>
+      </div>\`;
+
+    const data = await getJSON("/api/repos");
+    const tb = document.querySelector("#table tbody");
+    function redraw(filter="") {
+      tb.innerHTML = "";
+      for (const it of data.items) {
+        const hit = (it.name + " " + it.severity).toLowerCase().includes(filter.toLowerCase());
+        if (!filter || hit) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = \`
+            <td><b>\${it.name}</b></td>
+            <td class="\${sevClass(it.severity)}">\${sevLabel(it.severity)}</td>
+            <td class="muted">\${it.updated || "-"}</td>
+            <td><button data-repo="\${it.name}" style="background:#0b1117;color:#e6edf3;border:1px solid #1f2630;border-radius:6px;padding:4px 8px">öffnen</button></td>\`;
+          tb.appendChild(tr);
+        }
+      }
+    }
+    redraw();
+    document.getElementById("q").addEventListener("input", (e)=>redraw(e.target.value));
+    document.querySelector("#table").addEventListener("click", async (e)=>{
+      if (e.target.tagName === "BUTTON") {
+        const repo = e.target.dataset.repo;
+        const rep = await getJSON("/api/report/"+repo);
+        alert(JSON.stringify(rep, null, 2).slice(0, 5000));
+      }
+    });
+  } catch (e) {
+    document.getElementById("summary-body").innerHTML = "<span style='color:#f85149'>Fehler: "+e.message+"</span>";
+  }
+}
+load();
+</script>

@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+from pathlib import Path
+import json, os, sys, time
+try:
+    from rich.console import Console
+    from rich.table import Table
+    from rich import box
+except Exception:
+    print("Bitte 'rich' installieren (pip install rich).", file=sys.stderr)
+    sys.exit(1)
+
+REVIEW_ROOT = Path(os.environ.get("REVIEW_ROOT", str(Path.home()/"sichter"/"review")))
+INDEX = REVIEW_ROOT / "index.json"
+c = Console()
+
+def load_index():
+    if not INDEX.exists(): return {"repos":[]}
+    try:
+        data = json.loads(INDEX.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {"repos": data}
+    except Exception as e:
+        return {"repos": [], "error": str(e)}
+
+def read_report(repo):
+    pdir = REVIEW_ROOT / repo
+    cand = pdir / "report.json"
+    if cand.exists():
+        try: return json.loads(cand.read_text(encoding="utf-8"))
+        except: return {}
+    js = sorted(pdir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if js:
+        try: return json.loads(js[0].read_text(encoding="utf-8"))
+        except: return {}
+    return {}
+
+def sev(rep):
+    s = (rep.get("severity") or rep.get("level") or "").lower()
+    if not s:
+        s = "warning" if rep.get("findings") else "ok"
+    return s
+
+def render():
+    idx = load_index()
+    t = Table(box=box.MINIMAL_DOUBLE_HEAD)
+    t.add_column("Repo", style="bold")
+    t.add_column("Schwere", style="bold")
+    t.add_column("Hinweise", justify="right")
+    t.add_column("Aktualisiert", justify="right")
+    for r in idx.get("repos", []):
+        name = r.get("name") or r.get("repo") or "unknown"
+        rep = read_report(name)
+        s = sev(rep)
+        col = {"critical":"red","high":"red","error":"red","warning":"yellow","ok":"green"}.get(s,"cyan")
+        hints = str(len(rep.get("findings", []) if isinstance(rep.get("findings"), list) else []))
+        repo_dir = REVIEW_ROOT / name
+        try:
+            mt = max([p.stat().st_mtime for p in repo_dir.glob("*.json")], default=0)
+            upd = time.strftime("%Y-%m-%d %H:%M", time.gmtime(mt)) if mt else "-"
+        except Exception:
+            upd = "-"
+        t.add_row(name, f"[{col}]{s}[/{col}]", hints, upd)
+    c.print(t)
+
+if __name__ == "__main__":
+    render()

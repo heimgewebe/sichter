@@ -1,0 +1,124 @@
+Alles klar ✅ — hier ist eine **idempotente README** für dein HausKI-System. Sie beschreibt den aktuellen Stand mit Auto-Review, Auto-Fix & Auto-Push für alle PRs (Org + User).
+
+---
+
+````bash
+#!/usr/bin/env bash
+# === HausKI README-Builder ===
+set -euo pipefail
+DOC="$HOME/sichter/README.md"
+mkdir -p "$(dirname "$DOC")"
+
+cat > "$DOC" <<'MD'
+# 🏠 HausKI • Auto Review & Fix (v1.6)
+
+## 🧠 Überblick
+- Vollautomatische Reviews für Organisations- **und** persönliche Repositories (`HAUSKI_PR_SCOPE=both`).
+- `hauski-pr-watch` erkennt neue PRs, reviewed tief, wendet Fixes an und pusht sie – sofern Maintainer-Rechte oder eigener Branch.
+- Auto-Apply (`HAUSKI_REMOTE_AUTO_APPLY=1`) & Auto-Commit (`HAUSKI_REMOTE_AUTO_COMMIT=1`) laufen standardmäßig; `hauski-pr-suggest` ergänzt kommentierbare Diffs.
+- Dashboard v4 zeigt die letzten Läufe pro Repo mit Verdict, Score und Größe.
+- Dateisystem-Watcher (`hauski-watch` + `hauski-work`) verarbeiten lokale Änderungen unmittelbar.
+
+---
+
+## 🔧 Architektur-Bausteine
+- **Hook `hooks/post-run`**
+  - führt `pr-review --local --fast --heavy` aus
+  - erzeugt Reports (`review/<repo>/<timestamp>-review.md`) & aktualisiert `review/index.json`
+  - legt `sichter-reports`-Symlink, baut Dashboard, verschickt Notifications
+  - triggert Auto-Apply, Auto-Commit und `hauski-pr-suggest`
+- **PR-Automation `hauski-pr-watch`**
+  - Scope via `HAUSKI_PR_SCOPE` (`org`, `user`, `both`, `auto`), kombiniert mit `HAUSKI_INCLUDE_AUTHORED`
+  - spiegelt Repos nach `~/sichter/repos`, erzeugt Worktrees unter `~/sichter/pr-worktrees`
+  - richtet bei Push-Freigabe ein Head-Remote ein (oder nutzt `origin`) und pusht neue Commits nach `head.ref`
+- **Dateisystem-Dienste**
+  - `hauski-watch` überwacht `~/repos` (inotify, Debounce 3 s)
+  - `hauski-work` entkoppelt Jobs, limitiert jeden Hook auf 15 min (Timeout) und serialisiert pro Repo (`flock`)
+  - `hauski-autopilot` sorgt dafür, dass Watcher, Worker und PR-Watcher dauerhaft laufen (systemd user service empfohlen)
+- **Dashboard v4**
+  - statisches HTML (`review/dashboard.html`) mit Suche, Filtern, CSV-Export und „nur letzter Run“-Ansicht
+
+---
+
+## 🔄 Automatischer PR-Flow
+1. **Erkennen** – `hauski-pr-watch` pollt Repos & eigene offenen PRs; Head-SHAs landen in `review/pr-reviewed.json`.
+2. **Mirror & Worktree** – PR-Head wird als Branch `hauski/pr-<NR>` gefetched, Worktree erzeugt, `sichter-enable` gesetzt.
+3. **Review & Fix** – Hook läuft mit Auto-Apply/Commit, `hauski-pr-suggest` postet kommentierbare Diffs.
+4. **Push** – Bei Schreibrechten (`maintainer_can_modify`, eigener Branch oder eigener Fork) erfolgt `git push <remote> <branch>:<head.ref>` direkt in den PR.
+5. **Aufräumen** – Worktree & temporäre Remotes werden entfernt, Push-Status optional im Statefile vermerkt.
+
+> ⚠️ Kein Push, wenn der Head-Remote nicht erreichbar ist oder keine neuen Commits entstanden – in dem Fall bleibt nur der Kommentar + Report.
+
+---
+
+## ⚙️ Konfiguration & Defaults
+| Variable | Default | Wirkung |
+| --- | --- | --- |
+| `HAUSKI_PR_SCOPE` | `both` | `org`, `user`, `both` oder `auto` (auto nutzt nur gesetzte Werte) |
+| `HAUSKI_ORG` | `heimgewebe` | Organisations-Repos scannen |
+| `HAUSKI_USER` | `alexdermohr` | Eigene Repos berücksichtigen |
+| `HAUSKI_INCLUDE_AUTHORED` | `1` | Eigene offenen PRs (via Search-API) hinzufügen |
+| `HAUSKI_REMOTE_AUTO_APPLY` | `1` | Nach Review automatisch `hauski-apply` ausführen |
+| `HAUSKI_REMOTE_AUTO_COMMIT` | `1` | Nach Apply committen & (ggf.) pushen |
+| `HAUSKI_REMOTE_AUTO_PR` | `0` | Kein Draft-PR erstellen (wir pushen in bestehende Branches) |
+| `HAUSKI_PR_TIMEOUT` | `20m` | Timeout pro PR-Lauf |
+
+Anpassungen erfolgen in `~/sichter/autostart.env`; danach `systemctl --user restart hauski-autopilot.service`.
+
+---
+
+## 🚀 Manuelle Workflows
+- Aktuelles Repo: `hauski-run`
+- Alle Repos unter `~/repos`: `hauski-review-all`
+- Offene PRs im aktuellen Git-Projekt: `hauski-pr-review-all`
+- Status & Dashboard: `hauski-status summary`, `hauski-dashboard`
+
+> Für einmalige Läufe bleiben die Shell-Flags gültig: `HAUSKI_AUTO_APPLY=1`, `HAUSKI_AUTO_COMMIT=1`, `HAUSKI_AUTO_PR=0`.
+
+---
+
+## 🛡️ Safety & Guardrails
+- `hauski-guard-branch` blockiert Pushes auf `main/master` (Override: `ALLOW_MAIN_PUSH=1 git push`).
+- Push nur bei vorhandenen Rechten; ansonsten bleiben Fixes lokal bzw. als Kommentar.
+- `denylist.paths` verhindert versehentliches Stagen von Artefakten (`node_modules`, `target`, …).
+- Repo-Locks (`flock`) + Worktrees stellen sicher, dass parallele Läufe sauber getrennt sind.
+
+---
+
+## 🗂️ Datenlayout
+```
+~/sichter/
+ ├── bin/                 # CLI-Tools & Worker
+ ├── hooks/post-run       # Herzstück der Review-Pipeline
+ ├── review/
+ │    ├── <repo>/<ts>-review.md
+ │    ├── index.json
+ │    └── dashboard.html
+ ├── queue/               # Jobs vom Dateisystem-Watcher
+ ├── tmp/                 # Locks & Zwischendateien
+ └── logs/                # review.log, watch.log, pr-watch.log, …
+```
+
+---
+
+## 🔍 Monitoring & Troubleshooting
+- `hauski-status logs` → sammelt aktuelle Review-/Watch-/Worker-Logs
+- `tail -f ~/sichter/logs/pr-watch.log` → PR-Automation live verfolgen
+- `hauski-doctor-migrate` → repariert Dashboard/Index, falls leer
+- `HAUSKI_DEBUG=1 hauski-pr-watch` → zusätzliche Diagnosen für den Watcher
+
+---
+
+## 📜 Version
+HausKI v1.6 • Dashboard v4 • PR-Automation v3.0 • Auto-Push Pilot aktiv
+MD
+
+echo "✅ README aktualisiert: $DOC"
+
+```
+
+---
+
+📌 **Anwendung:**
+Einmal ausführen → aktualisiert `~/sichter/README.md`. Wiederholte Ausführung ist safe (idempotent).
+

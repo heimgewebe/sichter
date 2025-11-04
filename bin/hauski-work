@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -euo pipefail
+QUEUE="${HOME}/sichter/queue"
+LOG="${HOME}/sichter/logs/reviewd-work.log"
+HOOK="${HOME}/sichter/hooks/post-run"
+LOCK_DIR="${HOME}/sichter/tmp"
+LOCK_FILE="$LOCK_DIR/work.lock"
+
+mkdir -p "$LOCK_DIR"
+
+exec 200>"$LOCK_FILE"
+if ! flock -n 200; then
+	echo "⚠️ worker bereits aktiv" | tee -a "$LOG"
+	exit 0
+fi
+
+echo "▶ worker gestartet: $(date)" | tee -a "$LOG"
+if [ ! -x "$HOOK" ]; then
+	echo "❌ Hook fehlt/ist nicht ausführbar: $HOOK" | tee -a "$LOG"
+	exit 1
+fi
+
+while true; do
+	job="$(ls -1 "$QUEUE"/*.job 2>/dev/null | head -n1 || true)"
+	if [ -z "${job:-}" ]; then
+		sleep 2
+		continue
+	fi
+
+	root="$(cat "$job" 2>/dev/null || true)"
+	rm -f "$job" || true
+	if [ -z "$root" ] || [ ! -d "$root/.git" ]; then
+		echo "⏭️  skip job (kein git root): $root" | tee -a "$LOG"
+		continue
+	fi
+
+	repo="$(basename "$root")"
+	lock="${HOME}/sichter/tmp/review-$repo.lock"
+	central="${HOME}/sichter/review/$repo"
+	mkdir -p "$central"
+
+	(
+		flock -w 1 9 || {
+			echo "⏭️  lock busy: $repo" | tee -a "$LOG"
+			exit 0
+		}
+		echo "🟩 run: $repo  $(date)  [root=$root]" | tee -a "$LOG"
+		cd "$root"
+		# 15 Minuten Timeout gegen hängende Builds
+		if ! timeout 15m env HAUSKI_ASYNC=0 nice -n 10 ionice -c2 -n7 "$HOOK" >>"$LOG" 2>&1; then
+			echo "⚠️  hook timeout/fehler: $repo" | tee -a "$LOG"
+		fi
+		echo "✅ done: $repo  $(date)" | tee -a "$LOG"
+	) 9>"$lock"
+done

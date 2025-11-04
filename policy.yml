@@ -1,0 +1,11 @@
+allow_dump_merges: false
+allow_docs_only:  false
+allow_devcontainer_only: false
+size_limit_changed_files: 250
+must_touch_paths:
+  - '^bin/'
+  - '^cmd/'
+  - '^scripts/'
+  - '^crates/'
+  - '^packages/'
+  - '^.github/workflows/'
