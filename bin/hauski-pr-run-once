@@ -1,4 +1,29 @@
 #!/usr/bin/env bash
+
+# --- SICHTER FRESH-BRANCH GUARD ---
+ensure_fresh_branch() {
+  local base_remote=origin base_branch=main
+  git fetch "$base_remote" --prune --tags || true
+  git switch --detach "$base_remote/$base_branch" >/dev/null 2>&1 || git checkout --detach "$base_remote/$base_branch"
+  local ts br; ts="$(date +%Y%m%d-%H%M%S)"; br="sichter/autofix-$ts"
+  git switch -C "$br" >/dev/null 2>&1 || git checkout -B "$br"
+  echo "$br"
+}
+
+sichter_auto_pr() {
+  local branch title body repo_name
+  branch="$(git rev-parse --abbrev-ref HEAD)"
+  repo_name="$(basename "$(git rev-parse --show-toplevel)")"
+  title="Sichter: auto PR (${repo_name})"
+  body="Automatischer Vorschlag durch Sichter-Autopilot am $(date -Iseconds)"
+  git push --set-upstream origin "$branch" --force-with-lease || true
+  if gh pr view "$branch" --json number >/dev/null 2>&1; then
+    gh pr comment "$branch" --body "🔁 Update $(date -Iseconds)" || true
+  else
+    gh pr create --base main --fill --title "$title" --body "$body" --label sichter --label automation || true
+  fi
+}
+# --- END SICHTER FRESH-BRANCH GUARD ---
 set -euo pipefail
 LOG="$HOME/sichter/logs/pr-runner.log"
 mkdir -p "$(dirname "$LOG")"
@@ -21,6 +46,7 @@ mapfile -t PRS < <(~/sichter/bin/hauski-pr-watch --once 2>>"$LOG" | grep -E '^\{
 	exit 0
 }
 
+br=$(ensure_fresh_branch)
 for J in "${PRS[@]}"; do
 	repo="$(printf '%s' "$J" | jqget '.repo')"
 	num="$(printf '%s' "$J" | jqget '.number')"
@@ -50,17 +76,19 @@ for J in "${PRS[@]}"; do
 	fi
 
 	# Commit & Push, wenn Änderungen
-	git add -A || true
+	git pull --rebase --autostash origin main || true
+  git add -A || true
 	# Nur committen, wenn etwas gestaged ist
 	if ! git diff --cached --quiet; then
 		git commit -m "hauski: autofix" || true
+  sichter_auto_pr || true
 		# Push: bevorzugt Upstream, sonst origin setzen
 		upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null | cut -d/ -f1 || true)"
 		branch="$(git rev-parse --abbrev-ref HEAD)"
 		if [ -n "$upstream" ]; then
-			git push "$upstream" "$branch" || true
+# SICHTER: disabled legacy push 			git push "$upstream" "$branch" || true
 		else
-			git push --set-upstream origin "$branch" || true
+# SICHTER: disabled legacy push 			git push --set-upstream origin "$branch" || true
 		fi
 	fi
 
