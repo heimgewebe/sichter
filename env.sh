@@ -17,14 +17,14 @@ export HAUSKI_AUTO_PR=1
 
 # danach einfach:
 ~/sichter/hooks/post-run
-export HAUSKI_AUTO_DIRECT=0  # 0 = niemals direkt pushen
+export HAUSKI_AUTO_DIRECT=0 # 0 = niemals direkt pushen
 
 # Contract- und Policy-Defaults (nur setzen, wenn nicht bereits konfiguriert)
 if [ -z "${METAREPO_CONTRACTS:-}" ] && [ -d "$HOME/repos/metarepo/contracts" ]; then
-  export METAREPO_CONTRACTS="$HOME/repos/metarepo/contracts"
+	export METAREPO_CONTRACTS="$HOME/repos/metarepo/contracts"
 fi
 
 # Semgrep kann optional via hauski hooks/CI genutzt werden
 if [ -z "${SEMGREP_RULES:-}" ] && [ -f "$HOME/repos/metarepo/.semgrep.yml" ]; then
-  export SEMGREP_RULES="$HOME/repos/metarepo/.semgrep.yml"
+	export SEMGREP_RULES="$HOME/repos/metarepo/.semgrep.yml"
 fi

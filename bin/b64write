@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # usage: b64write <zielpfad> [mode]
-dst="$1"; mode="${2:-0644}"
+dst="$1"
+mode="${2:-0644}"
 tmp="$(mktemp)"
 cat >"$tmp.b64"
 base64 -d "$tmp.b64" >"$tmp.new"

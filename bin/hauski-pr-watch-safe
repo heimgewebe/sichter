@@ -2,11 +2,14 @@
 set -euo pipefail
 export HAUSKI_DEBUG="${HAUSKI_DEBUG:-0}"
 LOG="${HOME}/sichter/logs/pr-watch-wrapper.log"
-: > "$LOG"
-echo "▶ $(date) start pr-watch-safe" >> "$LOG"
+: >"$LOG"
+echo "▶ $(date) start pr-watch-safe" >>"$LOG"
 
 # Preflight
-~/sichter/bin/hauski-verify-github || { echo "❌ gh check failed"; exit 1; }
+~/sichter/bin/hauski-verify-github || {
+	echo "❌ gh check failed"
+	exit 1
+}
 
 # Lauf in eigener Session; filtere typische Fehlpfade:
 exec ~/sichter/bin/hauski-pr-watch 2> >(tee -a "$LOG" >&2) | awk '
