@@ -9,3 +9,8 @@ Org-weite Auto-Fixes (PR-Bot, Autopilot, Hooks) für Heimgewebe-Repos.
 Quickstart:
   ./install.sh
   systemctl --user enable --now hauski-autopilot.service
+
+### Systemd-Unit installieren/aktualisieren
+```bash
+cd ~/sichter && ./bin/hauski-systemd-sync
+```

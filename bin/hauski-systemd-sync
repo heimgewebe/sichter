@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/pkg/systemd/hauski-autopilot.service"
+DST="$HOME/.config/systemd/user/hauski-autopilot.service"
+mkdir -p "$(dirname "$DST")"
+install -m 0644 "$SRC" "$DST"
+systemctl --user daemon-reload
+echo "✔️  installiert: $DST"
+echo "ℹ️  Start/Stop:"
+echo "   systemctl --user enable --now hauski-autopilot.service"
+echo "   systemctl --user stop        hauski-autopilot.service"

@@ -1,0 +1,27 @@
+[Unit]
+StartLimitIntervalSec=300
+StartLimitBurst=30
+Description=HausKI Autopilot
+After=default.target
+[Unit]
+StartLimitIntervalSec=300
+StartLimitBurst=30
+
+[Service]
+Type=simple
+Environment=HOME=%h
+EnvironmentFile=%h/sichter/autostart.env
+ExecStart=%h/sichter/bin/hauski-autopilot
+Restart=always
+RestartSec=5
+
+TimeoutStartSec=60
+Restart=always
+RestartSec=5
+WorkingDirectory=%h
+# Saubere Logs für journalctl --user -u hauski-autopilot
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
