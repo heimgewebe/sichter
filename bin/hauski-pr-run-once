@@ -86,9 +86,11 @@ for J in "${PRS[@]}"; do
 		upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null | cut -d/ -f1 || true)"
 		branch="$(git rev-parse --abbrev-ref HEAD)"
 		if [ -n "$upstream" ]; then
-			:
+# SICHTER: disabled legacy push 			git push "$upstream" "$branch" || true
+      true
 		else
-			:
+# SICHTER: disabled legacy push 			git push --set-upstream origin "$branch" || true
+      true
 		fi
 	fi
 
