@@ -3,7 +3,7 @@ set -euo pipefail
 ok() { printf "✓ %s\n" "$1"; }
 bad() {
 	printf "✗ %s\n" "$1"
-	echo " continuing..."
+	exit 1
 }
 if systemctl --user is-active hauski-watch >/dev/null; then ok "watcher läuft"; else bad "watcher down"; fi
 if systemctl --user is-active hauski-work >/dev/null; then ok "worker läuft"; else bad "worker down"; fi
