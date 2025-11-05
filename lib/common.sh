@@ -4,7 +4,7 @@
 # Allows alphanumeric characters, hyphens, and underscores
 validate_name() {
     local name="$1"
-    if [[ ! "$name" =~ ^[a-zA-Z0-9_./-]+$ ]]; then
+    if ! echo "$name" | grep -Eq '^[a-zA-Z0-9_./-]+$'; then
         echo "Error: Invalid name \"$name\". Only alphanumeric characters, hyphens, underscores, periods, and forward slashes are allowed." >&2
         exit 1
     fi
