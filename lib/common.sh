@@ -8,7 +8,7 @@ validate_name() {
         echo "Error: Name is empty." >&2
         exit 1
     fi
-    if ! echo "$name" | grep -Eq '^[a-zA-Z0-9_./-]+$'; then
+    if ! echo "$name" | grep -Eq '^[a-zA-Z0-9_.\/-]+$'; then
         echo "Error: Invalid name \"$name\". Only alphanumeric characters, hyphens, underscores, periods, and forward slashes are allowed." >&2
         exit 1
     fi
