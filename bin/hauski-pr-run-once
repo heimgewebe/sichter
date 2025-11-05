@@ -18,15 +18,20 @@ sichter_auto_pr() {
 	repo_name="$(basename "$(git rev-parse --show-toplevel)")"
 	title="Sichter: auto PR (${repo_name})"
 	body="Automatischer Vorschlag durch Sichter-Autopilot am $(date -Iseconds)"
-	git push --set-upstream origin "$branch" --force-with-lease || true
-	if gh pr view "$branch" --json number >/dev/null 2>&1; then
-		gh pr comment "$branch" --body "🔁 Update $(date -Iseconds)" || true
+	git push --set-upstream origin "${branch}" --force-with-lease || true
+	if gh pr view "${branch}" --json number >/dev/null 2>&1; then
+		gh pr comment "${branch}" --body "🔁 Update $(date -Iseconds)" || true
 	else
-		gh pr create --base main --fill --title "$title" --body "$body" --label sichter --label automation || true
+		gh pr create --base main --fill --title "${title}" --body "${body}" --label sichter --label automation || true
 	fi
 }
 # --- END SICHTER FRESH-BRANCH GUARD ---
 set -euo pipefail
+
+# Source the shared library
+# shellcheck source=lib/common.sh
+source "$(dirname "$0")/../lib/common.sh"
+
 LOG="$HOME/sichter/logs/pr-runner.log"
 mkdir -p "$(dirname "$LOG")"
 STATE="$HOME/sichter/review/pr-processed.json"
@@ -53,20 +58,22 @@ for J in "${PRS[@]}"; do
 	repo="$(printf '%s' "$J" | jqget '.repo')"
 	num="$(printf '%s' "$J" | jqget '.number')"
 	[ -z "$repo" ] || [ -z "$num" ] && continue
+	validate_name "$repo"
+	validate_name "$num"
 
-	meta="$(gh pr view -R "$repo" "$num" --json headRefName,headRefOid,headRepository,maintainerCanModify \
+	meta="$(gh pr view -R "${repo}" "${num}" --json headRefName,headRefOid,headRepository,maintainerCanModify \
 		--jq '{headRefName, headRefOid, headRepo:(.headRepository.nameWithOwner//""), maintainerCanModify}')"
 	sha="$(printf '%s' "$meta" | jqget '.headRefOid')"
 	key="${repo}#${num}@${sha}"
 	# schon verarbeitet?
-	if jq -e --arg k "$key" '.[$k]' "$STATE" >/dev/null 2>&1; then
+	if jq -e --arg k "${key}" '.[$k]' "${STATE}" >/dev/null 2>&1; then
 		continue
 	fi
 
 	log "▶ ${repo} #${num} ($(printf '%s' "$meta" | jqget '.headRefName'))"
 
 	# Checkout PR (richtet Remote/Tracking automatisch)
-	if ! gh pr checkout -R "$repo" "$num" -f >/dev/null 2>&1; then
+	if ! gh pr checkout -R "${repo}" "${num}" -f >/dev/null 2>&1; then
 		log "  ⚠️ checkout fehlgeschlagen"
 		continue
 	fi
