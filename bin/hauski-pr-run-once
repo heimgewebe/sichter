@@ -1,39 +1,54 @@
-#!/usr/bin/env bash
+bash -euxo pipefail <<'SH'
+cd "$HOME/sichter"
 
+install -d bin
+cat > bin/hauski-pr-run-once <<"EOF"
+#!/usr/bin/env bash
 # --- SICHTER FRESH-BRANCH GUARD ---
 ensure_fresh_branch() {
-	local base_remote=origin base_branch=main
-	git fetch "$base_remote" --prune --tags || true
-	git switch --detach "$base_remote/$base_branch" >/dev/null 2>&1 || git checkout --detach "$base_remote/$base_branch"
-	local ts br
-	ts="$(date +%Y%m%d-%H%M%S)"
-	br="sichter/autofix-$ts"
-	git switch -C "$br" >/dev/null 2>&1 || git checkout -B "$br"
-	echo "$br"
+  local base_remote=origin base_branch=main
+  git fetch "$base_remote" --prune --tags || true
+  # immer exakt auf origin/main basieren (kein lokaler Drift)
+  git switch --detach "$base_remote/$base_branch" >/dev/null 2>&1 || git checkout --detach "$base_remote/$base_branch"
+  local ts br
+  ts="$(date +%Y%m%d-%H%M%S)"
+  br="sichter/autofix-$ts"
+  git switch -C "$br" >/dev/null 2>&1 || git checkout -B "$br"
+  echo "$br"
 }
 
+# PR-Helfer: erstellt/aktualisiert PR explizit gegen base=main
 sichter_auto_pr() {
-	local branch title body repo_name
-	branch="$(git rev-parse --abbrev-ref HEAD)"
-	repo_name="$(basename "$(git rev-parse --show-toplevel)")"
-	title="Sichter: auto PR (${repo_name})"
-	body="Automatischer Vorschlag durch Sichter-Autopilot am $(date -Iseconds)"
-	git push --set-upstream origin "$branch" --force-with-lease || true
-	if gh pr view "$branch" --json number >/dev/null 2>&1; then
-		gh pr comment "$branch" --body "🔁 Update $(date -Iseconds)" || true
-	else
-		gh pr create --base main --fill --title "$title" --body "$body" --label sichter --label automation || true
-	fi
+  local branch title body repo_name
+  branch="$(git rev-parse --abbrev-ref HEAD)"
+  repo_name="$(basename "$(git rev-parse --show-toplevel)")"
+  title="Sichter: auto PR (${repo_name})"
+  body="Automatischer Vorschlag durch Sichter-Autopilot am $(date -Iseconds)"
+
+  # Push with lease (keine Hard-Force), Branch anlegen falls nötig
+  git push --set-upstream origin "${branch}" --force-with-lease || true
+  if gh pr view "${branch}" --json number >/dev/null 2>&1; then
+    gh pr comment "${branch}" --body "🔁 Update $(date -Iseconds)" || true
+  else
+    gh pr create --base main --fill --title "${title}" --body "${body}" --label sichter --label automation || true
+  fi
 }
 # --- END SICHTER FRESH-BRANCH GUARD ---
+
 set -euo pipefail
+
+# Source the shared library
+# shellcheck source=lib/common.sh
+source "$(dirname "$0")/../lib/common.sh"
+
 LOG="$HOME/sichter/logs/pr-runner.log"
 mkdir -p "$(dirname "$LOG")"
 STATE="$HOME/sichter/review/pr-processed.json"
 [ -f "$STATE" ] || echo '{}' >"$STATE"
-ts() { date -Is; }
+
+ts()  { date -Is; }
 log() { echo "[runner] $*" | tee -a "$LOG"; }
-jqget() { jq -r "$1" 2>/dev/null || echo ""; }
+jqget(){ jq -r "$1" 2>/dev/null || echo ""; }
 
 # ensure WORK is defined
 WORK="${WORK:-$HOME}"
@@ -41,64 +56,67 @@ WORK="${WORK:-$HOME}"
 log "start $(ts)"
 
 # PRs holen (nur echte JSON-Zeilen)
-mapfile -t PRS < <(~/sichter/bin/hauski-pr-watch --once 2>>"$LOG" | grep -E '^\{')
-[ "${#PRS[@]}" -eq 0 ] && {
-	log "ℹ️  keine PRs gefunden"
-	log "done  $(ts)"
-	exit 0
-}
+mapfile -t PRS < <("$HOME/sichter/bin/hauski-pr-watch" --once 2>>"$LOG" | grep -E '^\{')
+if [ "${#PRS[@]}" -eq 0 ]; then
+  log "ℹ️  keine PRs gefunden"
+  log "done  $(ts)"
+  exit 0
+fi
 
-br=$(ensure_fresh_branch)
+br="$(ensure_fresh_branch)"
 for J in "${PRS[@]}"; do
-	repo="$(printf '%s' "$J" | jqget '.repo')"
-	num="$(printf '%s' "$J" | jqget '.number')"
-	[ -z "$repo" ] || [ -z "$num" ] && continue
+  repo="$(printf '%s' "$J" | jqget '.repo')"
+  num="$(printf '%s' "$J" | jqget '.number')"
+  { [ -n "$repo" ] && [ -n "$num" ]; } || continue
+  validate_name "$repo"
+  validate_name "$num"
 
-	meta="$(gh pr view -R "$repo" "$num" --json headRefName,headRefOid,headRepository,maintainerCanModify \
-		--jq '{headRefName, headRefOid, headRepo:(.headRepository.nameWithOwner//""), maintainerCanModify}')"
-	sha="$(printf '%s' "$meta" | jqget '.headRefOid')"
-	key="${repo}#${num}@${sha}"
-	# schon verarbeitet?
-	if jq -e --arg k "$key" '.[$k]' "$STATE" >/dev/null 2>&1; then
-		continue
-	fi
+  meta="$(gh pr view -R "${repo}" "${num}" \
+           --json headRefName,headRefOid,headRepository,maintainerCanModify \
+           --jq '{headRefName, headRefOid, headRepo:(.headRepository.nameWithOwner//""), maintainerCanModify}')"
+  sha="$(printf '%s' "$meta" | jqget '.headRefOid')"
+  key="${repo}#${num}@${sha}"
 
-	log "▶ ${repo} #${num} ($(printf '%s' "$meta" | jqget '.headRefName'))"
+  # schon verarbeitet?
+  if jq -e --arg k "${key}" '.[$k]' "${STATE}" >/dev/null 2>&1; then
+    continue
+  fi
 
-	# Checkout PR (richtet Remote/Tracking automatisch)
-	if ! gh pr checkout -R "$repo" "$num" -f >/dev/null 2>&1; then
-		log "  ⚠️ checkout fehlgeschlagen"
-		continue
-	fi
-	touch "$WORK/sichter-enable"
+  log "▶ ${repo} #${num} ($(printf '%s' "$meta" | jqget '.headRefName'))"
 
-	# Optionaler Auto-Fix-Hook
-	if [ -x "$HOME/sichter/hooks/post-run" ]; then
-		HAUSKI_AUTO_APPLY=1 HAUSKI_AUTO_COMMIT=1 HAUSKI_AUTO_PR=0 "$HOME/sichter/hooks/post-run" || true
-	fi
+  # Checkout PR (richtet Remote/Tracking automatisch)
+  if ! gh pr checkout -R "${repo}" "${num}" -f >/dev/null 2>&1; then
+    log "  ⚠️ checkout fehlgeschlagen"
+    continue
+  fi
 
-	# Commit & Push, wenn Änderungen
-	git pull --rebase --autostash origin main || true
-	git add -A || true
-	# Nur committen, wenn etwas gestaged ist
-	if ! git diff --cached --quiet; then
-		git commit -m "hauski: autofix" || true
-		sichter_auto_pr || true
-		# Push: bevorzugt Upstream, sonst origin setzen
-		upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null | cut -d/ -f1 || true)"
-		branch="$(git rev-parse --abbrev-ref HEAD)"
-		if [ -n "$upstream" ]; then
-			# SICHTER: disabled legacy push 			git push "$upstream" "$branch" || true
-			true
-		else
-			# SICHTER: disabled legacy push 			git push --set-upstream origin "$branch" || true
-			true
-		fi
-	fi
+  # Sichter-Autofix-Trigger (optional)
+  touch "$WORK/sichter-enable"
+  if [ -x "$HOME/sichter/hooks/post-run" ]; then
+    HAUSKI_AUTO_APPLY=1 HAUSKI_AUTO_COMMIT=1 HAUSKI_AUTO_PR=0 "$HOME/sichter/hooks/post-run" || true
+  fi
 
-	# State-Cache aktualisieren
-	tmp="$(mktemp)"
-	jq --arg k "$key" --arg t "$(ts)" '.[$k]=$t' "$STATE" >"$tmp" && mv "$tmp" "$STATE"
+  # Commit & PR nur bei Änderungen
+  git pull --rebase --autostash origin main || true
+  git add -A || true
+  if ! git diff --cached --quiet; then
+    git commit -m "hauski: autofix" || true
+    sichter_auto_pr || true
+  fi
+
+  # State-Cache aktualisieren
+  tmp="$(mktemp)"
+  jq --arg k "$key" --arg t "$(ts)" '.[$k]=$t' "$STATE" >"$tmp" && mv "$tmp" "$STATE"
 done
 
 log "done  $(ts)"
+EOF
+
+chmod +x bin/hauski-pr-run-once
+
+# optional: minimale Lint-Fixups (wenn vorhanden)
+command -v shfmt >/dev/null 2>&1 && shfmt -w bin/hauski-pr-run-once || true
+command -v shellcheck >/dev/null 2>&1 && shellcheck bin/hauski-pr-run-once || true
+
+echo "✅ hauski-pr-run-once aktualisiert."
+SH

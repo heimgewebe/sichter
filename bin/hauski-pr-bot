@@ -4,7 +4,10 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 [ -n "$ROOT" ] || exit 0
 REPO_NAME="$(basename "$ROOT")"
 REPORT_DIR="$HOME/sichter/review/$REPO_NAME"
-LAST="$(ls -1t "$REPORT_DIR"/*-review.md 2>/dev/null | head -n1 || true)"
+LAST=""
+if [ -d "$REPORT_DIR" ]; then
+	LAST="$(find "$REPORT_DIR" -name '*-review.md' -type f -print0 | xargs -0 ls -1t 2>/dev/null | head -n1 || true)"
+fi
 [ -n "$LAST" ] || exit 0
 
 command -v gh >/dev/null 2>&1 || {
