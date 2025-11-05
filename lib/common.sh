@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Function to validate repository and branch names
-# Allows alphanumeric characters, hyphens, and underscores
+# Allows alphanumeric characters, hyphens, underscores, periods, and forward slashes
 validate_name() {
     local name="$1"
     if [[ -z "$name" ]]; then
