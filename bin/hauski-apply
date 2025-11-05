@@ -1,21 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
+# Source the shared library
+# shellcheck source=lib/common.sh
+source "$(dirname "$0")/../lib/common.sh"
+
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 [ -n "$ROOT" ] || {
 	echo "⏭️  kein Git-Repo"
 	exit 0
 }
 REPO="$(basename "$ROOT")"
-REPORT_DIR="$HOME/sichter/review/$REPO"
+validate_name "$REPO"
+REPORT_DIR="${HOME}/sichter/review/${REPO}"
 # Portabel: neueste Datei anhand ls -t; robust mit -print0/xargs -0 (macOS & Linux)
-LAST="$(find "$REPORT_DIR" -maxdepth 1 -name '*-review.md' -type f -print0 | xargs -0 ls -1t 2>/dev/null | head -n1 || true)"
+LAST="$(find "${REPORT_DIR}" -maxdepth 1 -name '*-review.md' -type f -print0 | xargs -0 ls -1t 2>/dev/null | head -n1 || true)"
 [ -n "$LAST" ] || {
 	echo "ℹ️  kein Report"
 	exit 0
 }
 
-cd "$ROOT"
+cd "${ROOT}"
 TMP="$(mktemp)"
+trap 'rm -f "${TMP}"' EXIT
 EXTRACTED=0
 
 # Patch/Diff-Fences robust extrahieren (Variable nicht 'in' nennen)
@@ -24,12 +31,12 @@ awk '
   /^```(patch|diff)/{INSIDE=1; next}
   /^```[[:space:]]*$/ && INSIDE==1 {INSIDE=0; print ""; next}
   INSIDE==1 {print}
-' "$LAST" >"$TMP"
+' "${LAST}" >"${TMP}"
 
-if [ -s "$TMP" ]; then
+if [ -s "${TMP}" ]; then
 	EXTRACTED=1
 	echo "🧩 Patches gefunden – apply (3-way)…"
-	if git apply --3way --index "$TMP"; then
+	if git apply --3way --index "${TMP}"; then
 		echo "✅ Patches angewendet."
 	else
 		echo "⚠️  Patch-Apply teilweise fehlgeschlagen (Conflicts möglich)."

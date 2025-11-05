@@ -1,17 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
+# Source the shared library
+# shellcheck source=lib/common.sh
+source "$(dirname "$0")/../lib/common.sh"
+
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 [ -n "$ROOT" ] || exit 0
 cd "$ROOT"
 
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)"
+validate_name "$BRANCH"
 STAMP="$(date +%Y-%m-%dT%H:%M:%S)"
 STAMP_SAFE="$(date +%Y%m%d-%H%M%S)"
 REPO="$(basename "$ROOT")"
-REPORT_DIR="$HOME/sichter/review/$REPO"
+validate_name "$REPO"
+REPORT_DIR="${HOME}/sichter/review/${REPO}"
 LAST=""
 if [ -d "$REPORT_DIR" ]; then
-	LAST="$(find "$REPORT_DIR" -name '*-review.md' -type f -print0 | xargs -0 ls -1t 2>/dev/null | head -n1 || true)"
+	LAST="$(find "${REPORT_DIR}" -name '*-review.md' -type f -print0 | xargs -0 ls -1t 2>/dev/null | head -n1 || true)"
 fi
 
 # Abbrechen, wenn nichts geändert wurde
@@ -23,7 +30,7 @@ fi
 # Default-Branch ermitteln (Fallback: main)
 DEFAULT_REMOTE_HEAD="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || echo origin/main)"
 DEFAULT_BASE="${DEFAULT_REMOTE_HEAD#origin/}"
-BASE_BRANCH="${HAUSKI_BASE_BRANCH:-$DEFAULT_BASE}"
+BASE_BRANCH="${HAUSKI_BASE_BRANCH:-${DEFAULT_BASE}}"
 
 TARGET_BRANCH="$BRANCH"
 CREATED_BRANCH=0
@@ -32,21 +39,18 @@ FORCE_KEEP_BRANCH="${HAUSKI_FORCE_KEEP_BRANCH:-0}"
 
 if [ "$FORCE_KEEP_BRANCH" != "1" ]; then
 	if [ "$BRANCH" = "HEAD" ]; then
-		TARGET_BRANCH="hauski/$REPO-$STAMP_SAFE"
+		TARGET_BRANCH="hauski/${REPO}-${STAMP_SAFE}"
 		CREATED_BRANCH=1
-		if ! git switch -c "$TARGET_BRANCH" >/dev/null 2>&1; then
-			git checkout -b "$TARGET_BRANCH"
+		if ! git switch -c "${TARGET_BRANCH}" >/dev/null 2>&1; then
+			git checkout -b "${TARGET_BRANCH}"
 		fi
 		BRANCH="$TARGET_BRANCH"
 	elif [ "$BRANCH" = "$BASE_BRANCH" ] || [ "$BRANCH" = "main" ] || [ "$BRANCH" = "master" ]; then
 		SAFE_REPO="$(printf '%s' "$REPO" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-')"
-		TARGET_BRANCH="hauski/${SAFE_REPO}-${STAMP_SAFE}"
+		TARGET_BRANCH="hauski/${SAFE_REPO}-${STAMP_SAFE}-$$"
 		CREATED_BRANCH=1
-		if git rev-parse --verify "$TARGET_BRANCH" >/dev/null 2>&1; then
-			TARGET_BRANCH="${TARGET_BRANCH}-$$"
-		fi
-		if ! git switch -c "$TARGET_BRANCH" >/dev/null 2>&1; then
-			git checkout -b "$TARGET_BRANCH"
+		if ! git switch -c "${TARGET_BRANCH}" >/dev/null 2>&1; then
+			git checkout -b "${TARGET_BRANCH}"
 		fi
 		BRANCH="$TARGET_BRANCH"
 	fi
@@ -66,30 +70,30 @@ FORCE_PUSH_REF="${HAUSKI_FORCE_PUSH_REF:-}"
 FORCE_PUSH_SET_UPSTREAM="${HAUSKI_FORCE_PUSH_SET_UPSTREAM:-0}"
 
 if [ -n "$FORCE_PUSH_REMOTE" ] && [ -n "$FORCE_PUSH_REF" ]; then
-	git push "$FORCE_PUSH_REMOTE" "$BRANCH:$FORCE_PUSH_REF" || true
+	git push "${FORCE_PUSH_REMOTE}" "${BRANCH}:${FORCE_PUSH_REF}" || true
 elif git rev-parse --symbolic-full-name --verify "@{u}" >/dev/null 2>&1; then
 	git push || true
 else
 	if [ "$FORCE_PUSH_SET_UPSTREAM" = "1" ] && [ -n "$FORCE_PUSH_REMOTE" ]; then
-		git push -u "$FORCE_PUSH_REMOTE" "$BRANCH:$FORCE_PUSH_REF" || true
+		git push -u "${FORCE_PUSH_REMOTE}" "${BRANCH}:${FORCE_PUSH_REF}" || true
 	else
-		git push -u origin "$BRANCH" || true
+		git push -u origin "${BRANCH}" || true
 	fi
 fi
 
 # Optional: PR erstellen, wenn keiner offen (opt-in per HAUSKI_AUTO_PR=1)
 if [ "${HAUSKI_AUTO_PR:-0}" = "1" ] && command -v gh >/dev/null 2>&1; then
-	OPEN="$(gh pr list --state open --head "$BRANCH" --json number -q 'length' 2>/dev/null || echo 0)"
+	OPEN="$(gh pr list --state open --head "${BRANCH}" --json number -q 'length' 2>/dev/null || echo 0)"
 	if [ "$OPEN" -eq 0 ]; then
-		BASE_FOR_PR="$BASE_BRANCH"
-		gh pr create --title "HausKI fixes ($STAMP)" --body "Auto-applied fixes." --base "$BASE_FOR_PR" --head "$BRANCH" >/dev/null 2>&1 || true
+		BASE_FOR_PR="${BASE_BRANCH}"
+		gh pr create --title "HausKI fixes (${STAMP})" --body "Auto-applied fixes." --base "${BASE_FOR_PR}" --head "${BRANCH}" >/dev/null 2>&1 || true
 		gh pr ready --yes >/dev/null 2>&1 || true
-		echo "📝 Draft-PR erstellt für $BRANCH."
+		echo "📝 Draft-PR erstellt für ${BRANCH}."
 	fi
 fi
 
 if [ "$CREATED_BRANCH" -eq 1 ] && [ -n "$ORIG_BRANCH" ] && [ "$ORIG_BRANCH" != "$BRANCH" ]; then
-	if git rev-parse --verify "$ORIG_BRANCH" >/dev/null 2>&1; then
-		git switch "$ORIG_BRANCH" >/dev/null 2>&1 || git checkout "$ORIG_BRANCH" >/dev/null 2>&1 || true
+	if git rev-parse --verify "${ORIG_BRANCH}" >/dev/null 2>&1; then
+		git switch "${ORIG_BRANCH}" >/dev/null 2>&1 || git checkout "${ORIG_BRANCH}" >/dev/null 2>&1 || true
 	fi
 fi
