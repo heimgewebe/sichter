@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ts(){ date -Is; }
+MODE="--changed"
+[[ "${1:-}" == "--all" ]] && MODE="--all"
+
+LOGD="${LOGD:-$HOME/sichter/logs}"
+mkdir -p "$LOGD"
+RUNLOG="$LOGD/omnicheck-${MODE#--}-$(date +%Y%m%d-%H%M%S).log"
+REPORT="$LOGD/omnicheck-${MODE#--}-$(date +%Y%m%d-%H%M%S).md"
+
+echo "[$(ts)] Omnicheck $MODE" | tee -a "$RUNLOG"
+
+# nur Liste zeigen (Scanner-Kopf), kein Lärm; eigentliche Arbeit macht der Sweep
+ORG="${ORG:-heimgewebe}"
+if command -v gh >/dev/null 2>&1; then
+  gh repo list "$ORG" --limit 100 --json name -q '.[].name' | while read -r r; do
+    echo "[$(ts)] ▶ $r" | tee -a "$RUNLOG"
+  done
+fi
+
+# Sweep im selben Modus
+MODE="$MODE" "$HOME/sichter/bin/sichter-pr-sweep" "$MODE" | tee -a "$RUNLOG"
+
+{ echo '```'; tail -n 120 "$RUNLOG" || true; echo '```'; } >"$REPORT"
+echo "Report: $REPORT" | tee -a "$RUNLOG"

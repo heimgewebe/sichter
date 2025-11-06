@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+set -euo pipefail
+MODE="${MODE:---changed}"
+if [[ "${1:-}" == "--all" ]]; then MODE="--all"; fi
+if [[ "${1:-}" == "--changed" ]]; then MODE="--changed"; fi
+
+LOG="${LOG:-$HOME/sichter/logs/pr-actions.log}"
+ORG="${ORG:-heimgewebe}"
+AUTO_PR="${SICHTER_AUTO_PR:-1}"
+
+ts(){ date -Is; }
+say(){ echo "[$(ts)] $*"; }
+
+say "===== Sichter PR Sweep start (${MODE}) =====" | tee -a "$LOG"
+
+# Kandidaten
+if [[ "$MODE" == "--all" ]]; then
+  mapfile -t REPOS < <(gh repo list "$ORG" --limit 100 --json name -q '.[].name' || true)
+else
+  mapfile -t REPOS < <(find "$HOME/repos" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null || true)
+  [[ "${#REPOS[@]}" -eq 0 ]] && mapfile -t REPOS < <(gh repo list "$ORG" --limit 50 --json name -q '.[].name' || true)
+fi
+[[ "${#REPOS[@]}" -gt 0 ]] || { say "Keine Ziel-Repos"; exit 0; }
+
+for r in "${REPOS[@]}"; do
+  REPO_PATH="$HOME/repos/$r"
+  if [[ ! -d "$REPO_PATH/.git" ]]; then
+    gh repo clone "$ORG/$r" "$REPO_PATH" >/dev/null 2>&1 || true
+    [[ ! -d "$REPO_PATH/.git" ]] && continue
+  fi
+  pushd "$REPO_PATH" >/dev/null || continue
+
+  git fetch origin --prune --tags >/dev/null 2>&1 || true
+  git switch --detach "origin/main" >/dev/null 2>&1 || git checkout --detach "origin/main" >/dev/null 2>&1
+  BR="sichter/autofix-$(date +%Y%m%d-%H%M%S)"
+  git switch -C "$BR" >/dev/null 2>&1 || git checkout -B "$BR" >/dev/null 2>&1
+
+  if [[ -x "$HOME/sichter/hooks/post-run" ]]; then
+    HAUSKI_AUTO_APPLY=1 HAUSKI_AUTO_COMMIT=0 HAUSKI_AUTO_PR=0 "$HOME/sichter/hooks/post-run" >/dev/null 2>&1 || true
+  fi
+
+  # Stage
+  git add -A || true
+  if ! git diff --cached --quiet; then
+    git commit -m "hauski: autofix" >/dev/null 2>&1 || true
+    if [[ "$AUTO_PR" == "1" ]]; then
+      git push --set-upstream origin "$BR" --force-with-lease >/dev/null 2>&1 || true
+      URL="$(gh pr view "$BR" --json url -q .url 2>/dev/null || true)"
+      if [[ -z "$URL" ]]; then
+        gh pr create --base main --fill --title "Sichter: auto PR ($r)" \
+          --label sichter --label automation >/dev/null 2>&1 || true
+        URL="$(gh pr view "$BR" --json url -q .url 2>/dev/null || true)"
+        [[ -n "$URL" ]] && say "CREATE   $(printf '%-22s' "$r")  $BR -> $URL" | tee -a "$LOG" \
+                         || say "CREATE?  $r  $BR (URL n/a)" | tee -a "$LOG"
+      else
+        say "UPDATE   $(printf '%-22s' "$r")  $BR -> $URL" | tee -a "$LOG"
+      fi
+    else
+      say "COMMIT   $(printf '%-22s' "$r")  $BR (Auto-PR=off)" | tee -a "$LOG"
+    fi
+  else
+    say "NOCHANGE $(printf '%-22s' "$r")  $BR" | tee -a "$LOG"
+  fi
+  popd >/dev/null || true
+done
+
+say "===== Sichter PR Sweep done  (${MODE}) =====" | tee -a "$LOG"

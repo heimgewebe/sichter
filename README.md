@@ -1,11 +1,9 @@
-# Sichter
+# Sichter – Omnicheck & PR-Sweep
+- `bin/omnicheck` — scan & trigger sweep (`--all`/`--changed`)
+- `bin/sichter-pr-sweep` — erstellt Auto-PRs repo-weit
+- `.config/omnipull/hooks/*` — Hooks nach jedem `omnipull`
+- `policy/policy.env.example` — Beispiel-Policy
 
-Org-weite Auto-Fixes (PR-Bot, Autopilot, Hooks) für Heimgewebe-Repos.
-
-- Service: hauski-autopilot (systemd --user)
-- Konfig:  ~/sichter/autostart.env  (siehe .env.example)
-- Befehle: bin/hauski-*, hooks/post-run
-
-Quickstart:
-  ./install.sh
-  systemctl --user enable --now hauski-autopilot.service
+## Installation (lokal)
+```bash
+make install   # optional, sonst manuell in $HOME kopieren
