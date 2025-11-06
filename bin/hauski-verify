@@ -5,8 +5,12 @@ bad() {
 	printf "✗ %s\n" "$1"
 	exit 1
 }
-if systemctl --user is-active hauski-watch >/dev/null; then ok "watcher läuft"; else bad "watcher down"; fi
-if systemctl --user is-active hauski-work >/dev/null; then ok "worker läuft"; else bad "worker down"; fi
+if [ -n "${HAUSKI_VERIFY_NO_SYSTEMCTL:-}" ] || ! command -v systemctl >/dev/null; then
+  echo "ℹ systemctl not found, skipping systemd checks."
+else
+  if systemctl --user is-active hauski-watch >/dev/null; then ok "watcher läuft"; else bad "watcher down"; fi
+  if systemctl --user is-active hauski-work >/dev/null; then ok "worker läuft"; else bad "worker down"; fi
+fi
 if [ -x "$HOME/sichter/hooks/post-run" ]; then ok "hook vorhanden"; else bad "hook fehlt"; fi
 if command -v pr-review >/dev/null; then ok "pr-review im PATH"; else echo "⚠ pr-review nicht im PATH (Stub nutzbar)"; fi
 if [ -f "$HOME/sichter/review/index.json" ]; then ok "index.json vorhanden"; else echo "ℹ index.json wird beim nächsten Lauf gebaut"; fi
