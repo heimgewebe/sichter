@@ -92,7 +92,7 @@ def api_repos():
 def api_report(repo: str):
     # Validate: repo name must not contain path separators or traversal
     import re
-    INVALID = re.compile(r'[\\/]|^\.\.?$|^\.\.|^/|^$')
+    INVALID = re.compile(r'[\\/]|^\.\.?$|^$')
     if INVALID.search(repo):
         raise HTTPException(403, "Invalid repo name")
     repo_dir = (REVIEW_ROOT / repo).resolve()
