@@ -1,2 +1,48 @@
 #!/usr/bin/env bash
-echo "sichter post-run ok"
+set -euo pipefail
+ROOT="$(pwd)"
+in_repo(){ test -d .git; }
+has(){ command -v "$1" >/dev/null 2>&1; }
+
+# Baselines
+[ -f .yamllint ] || cp -a "$HOME/repos/sichter/.yamllint" .yamllint 2>/dev/null || true
+[ -f .editorconfig ] || cp -a "$HOME/repos/sichter/.editorconfig" .editorconfig 2>/dev/null || true
+
+# SHELL
+if has shfmt; then
+  find . -type f -name '*.sh' -not -path './.venv/*' -not -path './venv/*' -not -path './node_modules/*' -not -path './target/*' \
+    -print0 | xargs -0 -r shfmt -w
+fi
+
+# YAML/JSON/MD
+if has prettier; then
+  git ls-files '*.yml' '*.yaml' '*.json' '*.md' 2>/dev/null \
+   | grep -Ev '^(\.venv|venv|node_modules|target)/' \
+   | xargs -r prettier -w
+fi
+
+# TOML
+if has taplo; then taplo fmt -o || true; fi
+
+# RUST
+if [ -f Cargo.toml ] || [ -d crates ]; then
+  if has cargo; then
+    cargo fmt || true
+    cargo clippy --fix -Z unstable-options --allow-dirty --allow-staged || true
+  fi
+fi
+
+# PYTHON
+if compgen -G "*.py" >/dev/null || [ -f pyproject.toml ] || [ -d .venv ]; then
+  has ruff && ruff check --fix . || true
+  has black && black . || true
+fi
+
+# JS/TS
+if [ -f package.json ]; then
+  if has eslint; then npx -y eslint . --ext .js,.jsx,.ts,.tsx --fix || true; fi
+  if has prettier; then npx -y prettier -w . || true; fi
+fi
+
+# GHA Bericht
+if has actionlint; then actionlint -format sarif -out .sichter_actionlint.sarif || true; fi

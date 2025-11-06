@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+MODE="--changed"
+if [[ "${1:-}" == "--all" ]]; then MODE="--all"; fi
+
+LOGD="$HOME/sichter/logs"
+mkdir -p "$LOGD"
+ts(){ date -Is; }
+RUNLOG="$LOGD/omnicheck-${MODE#--}-$(date +%Y%m%d-%H%M%Si 's/^SICHTER_AUTO_PR=.*/SICHTER_AUTO_PR=0/' "$auto_pr_file"
+    echo "[OFF] Auto-PR"
+  else
+    if grep -q '^SICHTER_AUTO_PR=' "$auto_pr_file"; then
+      sed -i 's/^SICHTER_AUTO_PR=.*/SICHTER_AUTO_PR=1/' "$auto_pr_file"
+    else
+      echo 'SICHTER_AUTO_PR=1' >> "$auto_pr_file"
+    fi
+    echo "[ON]  Auto-PR"
+  fi
+}
+while true; do
+  CHOICE="$(menu | fzf --prompt='Sichter › ' --height=10 --border --exit-0 || true)"
+  case "$CHOICE" in
+    "Omnicheck (changed)") "$HOME/sichter/bin/omnicheck" ;; 
+    "Omnicheck (all)")     "$HOME/sichter/bin/omnicheck" --all ;;
+    "Toggle Auto-PR")      toggle_auto_pr ;;
+    "Open PR-Log")         ${PAGER:-less} "$LOGD/pr-actions.log" ;;
+    *) exit 0 ;;
+  esac
+done
