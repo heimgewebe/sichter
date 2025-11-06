@@ -50,8 +50,11 @@ for r in "${REPOS[@]}"; do
         gh pr create --base main --fill --title "Sichter: auto PR ($r)" \
           --label sichter --label automation >/dev/null 2>&1 || true
         URL="$(gh pr view "$BR" --json url -q .url 2>/dev/null || true)"
-        [[ -n "$URL" ]] && say "CREATE   $(printf '%-22s' "$r")  $BR -> $URL" | tee -a "$LOG" \
-                         || say "CREATE?  $r  $BR (URL n/a)" | tee -a "$LOG"
+        if [[ -n "$URL" ]]; then
+            say "CREATE   $(printf '%-22s' "$r")  $BR -> $URL" | tee -a "$LOG"
+        else
+            say "CREATE?  $r  $BR (URL n/a)" | tee -a "$LOG"
+        fi
       else
         say "UPDATE   $(printf '%-22s' "$r")  $BR -> $URL" | tee -a "$LOG"
       fi

@@ -37,7 +37,9 @@ inotifywait -mr -e close_write,modify,create,move,moved_to --format '%w%f' "$WAT
 
 		dir="$(dirname "$file")"
 		root="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || true)"
-		[ -n "$root" ] && [ -d "$root/.git" ] || continue
+		if [ -z "$root" ] || [ ! -d "$root/.git" ]; then
+			continue
+		fi
 		repo="$(basename "$root")"
 
 		now=$(date +%s)

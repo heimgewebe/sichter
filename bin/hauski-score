@@ -9,7 +9,7 @@ f="${1:?report.md}"
 score=100
 
 lower() { tr '[:upper:]' '[:lower:]'; }
-body="$(cat "$f" | lower)"
+body="$(lower < "$f")"
 
 dec() {
 	local n="$1"
