@@ -43,5 +43,7 @@ mv -f "$INDEX.tmp" "$INDEX"
 rm -f "$TMP"
 
 # 4) still Dashboard rebuild
-[ -x "$HOME/sichter/bin/hauski-dashboard-build" ] && "$HOME/sichter/bin/hauski-dashboard-build" --no-open >/dev/null 2>&1 || true
+if [ -x "$HOME/sichter/bin/hauski-dashboard-build" ]; then
+    "$HOME/sichter/bin/hauski-dashboard-build" --no-open >/dev/null 2>&1 || true
+fi
 echo "✅ migrate done."
