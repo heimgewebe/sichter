@@ -23,7 +23,7 @@ LOCK_FILE="${REQUIREMENTS_LOCK_FILE:-requirements.lock}"
 PY="${PYTHON3:-python3}"
 command -v "$PY" >/dev/null 2>&1 || die "python3 nicht gefunden"
 
-if [ ! -d ".venv" ]; then
+if [ ! -d ".venv" ] || [ ! -f ".venv/bin/activate" ]; then
   if command -v uv >/dev/null 2>&1; then
     log "Erzeuge venv mit uv"
     uv venv .venv
@@ -33,6 +33,7 @@ if [ ! -d ".venv" ]; then
   fi
 fi
 
+# shellcheck disable=SC1091  # Datei wird ggf. erst zur Laufzeit erzeugt
 if [ ! -f ".venv/bin/activate" ]; then
   die "Fehler: .venv/bin/activate nicht vorhanden (defektes venv?)"
 fi
