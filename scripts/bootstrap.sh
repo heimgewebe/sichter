@@ -86,10 +86,15 @@ else
 fi
 # --- systemd (user) Units deployen ---
 UNIT_DIR="$HOME/.config/systemd/user"
-install -D -m0644 pkg/systemd/sichter-api.service    "$UNIT_DIR/sichter-api.service"
-install -D -m0644 pkg/systemd/sichter-worker.service "$UNIT_DIR/sichter-worker.service"
-install -D -m0644 pkg/systemd/sichter-sweep.service  "$UNIT_DIR/sichter-sweep.service"
-install -D -m0644 pkg/systemd/sichter-sweep.timer    "$UNIT_DIR/sichter-sweep.timer"
+for unit in sichter-api.service sichter-worker.service sichter-sweep.service sichter-sweep.timer; do
+  src="pkg/systemd/$unit"
+  dest="$UNIT_DIR/$unit"
+  if [ -f "$src" ]; then
+    install -D -m0644 "$src" "$dest"
+  else
+    warn "systemd unit file fehlt: $src (übersprungen)"
+  fi
+done
 
 # systemd optional abschaltbar (z. B. CI/Container)
 if [ "${BOOTSTRAP_NO_SYSTEMD:-0}" = "1" ]; then
