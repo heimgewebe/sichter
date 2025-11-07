@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+MODE="changed"; [[ "${1:-}" == "--all" ]] && MODE="all"
+curl -sS -X POST http://127.0.0.1:5055/jobs/submit \
+  -H 'content-type: application/json' \
+  -d "{\"type\":\"PRSweep\",\"mode\":\"$MODE\",\"auto_pr\":true}" \
+  | jq -r '.enqueued'

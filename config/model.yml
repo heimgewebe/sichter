@@ -1,0 +1,11 @@
+primary:
+  provider: ollama
+  model: qwen2.5-coder
+  max_tokens: 2048
+  temperature: 0.2
+fallback:
+  provider: openai
+  model: gpt-4o-mini
+limits:
+  per_run_tokens: 8000
+  per_repo_tokens: 20000

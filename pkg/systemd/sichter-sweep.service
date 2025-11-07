@@ -1,0 +1,6 @@
+[Unit]
+Description=Sichter PR Sweep (oneshot)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash -lc '%h/sichter/cli/sweep --changed'
