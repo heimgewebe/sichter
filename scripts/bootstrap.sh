@@ -14,7 +14,7 @@ if [ "${BOOTSTRAP_DEBUG:-0}" = "1" ]; then set -x; fi
 umask 022
 
 STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/sichter"
-mkdir -p "$STATE_ROOT"/{logs,events} || true
+mkdir -p "$STATE_ROOT"/{logs,events}
 
 REQ_FILE="${REQUIREMENTS_FILE:-requirements.txt}"
 LOCK_FILE="${REQUIREMENTS_LOCK_FILE:-requirements.lock}"
@@ -83,15 +83,20 @@ for f in cli/omnicheck cli/sweep hooks/omnipull/100-sichter-always-post.sh; do
 done
 
 # --- Omnipull Hook installieren ---
-install -D -m0755 hooks/omnipull/100-sichter-always-post.sh \
-  "$HOME/.config/omnipull/hooks/100-sichter-always-post.sh"
+if [ -f "hooks/omnipull/100-sichter-always-post.sh" ]; then
+  install -D -m0755 "hooks/omnipull/100-sichter-always-post.sh" \
+    "$HOME/.config/omnipull/hooks/100-sichter-always-post.sh"
+fi
 
 # --- systemd (user) Units deployen ---
 UNIT_DIR="$HOME/.config/systemd/user"
-install -D -m0644 pkg/systemd/sichter-api.service    "$UNIT_DIR/sichter-api.service"
-install -D -m0644 pkg/systemd/sichter-worker.service "$UNIT_DIR/sichter-worker.service"
-install -D -m0644 pkg/systemd/sichter-sweep.service  "$UNIT_DIR/sichter-sweep.service"
-install -D -m0644 pkg/systemd/sichter-sweep.timer    "$UNIT_DIR/sichter-sweep.timer"
+for unit in sichter-api.service sichter-worker.service sichter-sweep.service sichter-sweep.timer; do
+  if [ -f "pkg/systemd/$unit" ]; then
+    install -D -m0644 "pkg/systemd/$unit" "$UNIT_DIR/$unit"
+  else
+    warn "systemd unit file not found: pkg/systemd/$unit"
+  fi
+done
 
 # systemd optional abschaltbar (z. B. CI/Container)
 SYSTEMD_HINT=0
