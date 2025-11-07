@@ -8,7 +8,7 @@ die() { printf '[bootstrap:err] %s\n' "$*" >&2; exit 1; }
 
 # --- Python venv + deps (pref: uv, fallback: pip) ---
 PY="${PYTHON3:-python3}"
-command -v "$PY" >/dev/null 2>&1 || die "python3 nicht gefunden"
+command -v "$PY" >/dev/null 2>&1 || die "python3 not found"
 
 if [ ! -d ".venv" ]; then
   if command -v uv >/dev/null 2>&1; then
