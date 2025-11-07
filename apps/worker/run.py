@@ -60,7 +60,7 @@ def yamllint(repo_dir: Path):
              r"find . -type f \( -name '*.yml' -o -name '*.yaml' \) -not -path './.venv/*' -not -path './venv/*' -not -path './node_modules/*' -print0 | xargs -0 -r yamllint -s || true"],
             cwd=repo_dir)
 
-def commit_if_changes(repo_dir:Path):
+def commit_if_changes(repo_dir: Path):
     run(["git","add","-A"], cwd=repo_dir)
     r = run(["git","diff","--cached","--quiet"], cwd=repo_dir)
     if r.returncode != 0:
