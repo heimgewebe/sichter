@@ -130,6 +130,6 @@ echo "  • curl -fsS 127.0.0.1:5055/healthz || echo 'healthz nicht erreichbar'"
 echo "  • systemctl --user status sichter-api.service    || true"
 echo "  • systemctl --user status sichter-worker.service || true"
 echo "  • systemctl --user list-timers | grep sichter    || true"
-if [ "$SYSTEMD_HINT" -eq 1 ]; then
+if [ "$SYSTEMD_HINT" = "1" ]; then
   echo "Tipp: sudo loginctl enable-linger $USER && neue Session starten"
 fi
