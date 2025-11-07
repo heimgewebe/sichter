@@ -48,7 +48,7 @@ def fresh_branch(repo_dir:Path):
         run(["git","checkout","-B",br], cwd=repo_dir)
     return br
 
-def shellcheck(repo_dir:Path):
+def shellcheck(repo_dir: Path):
     if shutil.which("shellcheck"):
         run(["bash","-lc",
              r"find . -type f -name '*.sh' -not -path './.venv/*' -not -path './venv/*' -not -path './node_modules/*' -print0 | xargs -0 -r shellcheck -x || true"],
