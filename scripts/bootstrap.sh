@@ -27,7 +27,7 @@ fi
 
 # Sanity: funktioniert Python im venv?
 if ! python -c 'import sys; sys.exit(0)' >/dev/null 2>&1; then
-  warn "venv wirkt defekt – erstelle neu"
+  warn "venv appears broken - recreating"
   rm -rf .venv
   if command -v uv >/dev/null 2>&1; then
     uv venv .venv
