@@ -43,7 +43,9 @@ def tail_events(n: int = 200):
     for fp in files:
         try:
             lines += fp.read_text().splitlines()[-n:]
-        except: pass
+        except (OSError, UnicodeDecodeError) as e:
+            # Skip files that cannot be read or decoded; continue with others.
+            pass
     return "\n".join(lines)
 
 @app.post("/settings/policy")
