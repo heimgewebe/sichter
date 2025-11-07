@@ -14,7 +14,8 @@ def log(line: str, file_name="worker.log"):
     ts = datetime.now().isoformat()
     out = f"[{ts}] {line}"
     print(out, flush=True)
-    (EVENTS/file_name).open("a").write(out+"\n")
+    with (EVENTS/file_name).open("a") as f:
+        f.write(out + "\n")
 
 def run(cmd, cwd=None, check=False):
     return subprocess.run(cmd, cwd=cwd, text=True, capture_output=True, check=check)
