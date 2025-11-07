@@ -3,7 +3,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # Python venv + deps
-python3 -m venv .venv
+if [ ! -f ".venv/bin/activate" ]; then
+  python3 -m venv .venv
+fi
 . .venv/bin/activate
 pip install -U pip
 pip install -r requirements.txt
