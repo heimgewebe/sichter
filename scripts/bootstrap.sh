@@ -3,10 +3,17 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # Python venv + deps
-if [ ! -f ".venv/bin/activate" ]; then
+if [ ! -d ".venv" ]; then
   python3 -m venv .venv
 fi
 . .venv/bin/activate
+# Check if venv is functional
+if ! python --version >/dev/null 2>&1; then
+  echo "Virtual environment appears broken, recreating..."
+  rm -rf .venv
+  python3 -m venv .venv
+  . .venv/bin/activate
+fi
 pip install -U pip
 pip install -r requirements.txt
 
