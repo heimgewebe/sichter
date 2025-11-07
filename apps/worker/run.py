@@ -124,7 +124,7 @@ def main():
                 log(f"error processing {jobfile.name}: {e}")
             finally:
                 try: jobfile.unlink()
-                except: pass
+                except (FileNotFoundError, OSError): pass
         time.sleep(2)
 
 if __name__ == "__main__":
