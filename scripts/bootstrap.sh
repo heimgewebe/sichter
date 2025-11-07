@@ -81,9 +81,9 @@ if systemctl --user show-environment >/dev/null 2>&1; then
   log "systemd --user erkannt – (re)load & enable"
   systemctl --user daemon-reload
   # enable + now; Fehler nicht verschlucken, sondern melden
-  systemctl --user enable --now sichter-api.service    || warn "enable/start: sichter-api.service fehlgeschlagen"
-  systemctl --user enable --now sichter-worker.service || warn "enable/start: sichter-worker.service fehlgeschlagen"
-  systemctl --user enable --now sichter-sweep.timer    || warn "enable/start: sichter-sweep.timer fehlgeschlagen"
+  systemctl --user enable --now sichter-api.service    || warn "enable/start: sichter-api.service failed"
+  systemctl --user enable --now sichter-worker.service || warn "enable/start: sichter-worker.service failed"
+  systemctl --user enable --now sichter-sweep.timer    || warn "enable/start: sichter-sweep.timer failed"
 else
   warn "systemd --user scheint nicht aktiv. Hinweise:"
   warn "  • Graphische Session nutzen ODER 'loginctl enable-linger $USER' (root) setzen,"
