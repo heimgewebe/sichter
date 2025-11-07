@@ -82,7 +82,7 @@ def create_or_update_pr(repo: str, repo_dir: Path, br: str, auto_pr: bool):
     url = v.stdout.strip() if v.stdout else "n/a"
     log(f"CREATE  {repo:<22} {br} -> {url}", "pr.log")
 
-def handle_job(job:dict):
+def handle_job(job: dict):
     jtype = job.get("type")
     mode  = job.get("mode","changed")
     org   = job.get("org","heimgewebe")
