@@ -20,7 +20,7 @@ def log(line: str, file_name="worker.log"):
 def run(cmd, cwd=None, check=False):
     return subprocess.run(cmd, cwd=cwd, text=True, capture_output=True, check=check)
 
-def repos_for_mode(org:str, mode:str, single_repo:str|None):
+def repos_for_mode(org: str, mode: str, single_repo: str | None):
     base = HOME/"repos"
     if single_repo: return [single_repo]
     if mode == "all":
