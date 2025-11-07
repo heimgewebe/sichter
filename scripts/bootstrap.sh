@@ -15,7 +15,7 @@ if [ ! -d ".venv" ]; then
     log "Creating venv with uv"
     uv venv .venv
   else
-    log "Erzeuge venv mit python3 -m venv"
+    log "Creating venv with python3 -m venv"
     "$PY" -m venv .venv
   fi
 fi
