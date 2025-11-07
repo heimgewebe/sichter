@@ -12,7 +12,7 @@ command -v "$PY" >/dev/null 2>&1 || die "python3 not found"
 
 if [ ! -d ".venv" ]; then
   if command -v uv >/dev/null 2>&1; then
-    log "Erzeuge venv mit uv"
+    log "Creating venv with uv"
     uv venv .venv
   else
     log "Erzeuge venv mit python3 -m venv"
