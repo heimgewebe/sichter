@@ -54,7 +54,7 @@ def shellcheck(repo_dir: Path):
              r"find . -type f -name '*.sh' -not -path './.venv/*' -not -path './venv/*' -not -path './node_modules/*' -print0 | xargs -0 -r shellcheck -x || true"],
             cwd=repo_dir)
 
-def yamllint(repo_dir:Path):
+def yamllint(repo_dir: Path):
     if shutil.which("yamllint"):
         run(["bash","-lc",
              r"find . -type f \( -name '*.yml' -o -name '*.yaml' \) -not -path './.venv/*' -not -path './venv/*' -not -path './node_modules/*' -print0 | xargs -0 -r yamllint -s || true"],
