@@ -30,7 +30,7 @@ def repos_for_mode(org:str, mode:str, single_repo:str|None):
         try:
             r = run(["gh","repo","list",org,"--limit","100","--json","name","-q",".[].name"])
             return [x for x in r.stdout.splitlines() if x.strip()]
-        except: return []
+        except Exception: return []
     else:
         # "changed": simplest heuristic = all local repos
         if base.exists():
