@@ -78,9 +78,12 @@ for f in cli/omnicheck cli/sweep hooks/omnipull/100-sichter-always-post.sh; do
 done
 
 # --- Omnipull Hook installieren ---
-install -D -m0755 hooks/omnipull/100-sichter-always-post.sh \
-  "$HOME/.config/omnipull/hooks/100-sichter-always-post.sh"
-
+if [ -f hooks/omnipull/100-sichter-always-post.sh ]; then
+  install -D -m0755 hooks/omnipull/100-sichter-always-post.sh \
+    "$HOME/.config/omnipull/hooks/100-sichter-always-post.sh"
+else
+  warn "Omnipull-Hook fehlt: hooks/omnipull/100-sichter-always-post.sh (Überspringe Installation)"
+fi
 # --- systemd (user) Units deployen ---
 UNIT_DIR="$HOME/.config/systemd/user"
 install -D -m0644 pkg/systemd/sichter-api.service    "$UNIT_DIR/sichter-api.service"
