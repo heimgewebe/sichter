@@ -85,9 +85,9 @@ if systemctl --user show-environment >/dev/null 2>&1; then
   systemctl --user enable --now sichter-worker.service || warn "enable/start: sichter-worker.service failed"
   systemctl --user enable --now sichter-sweep.timer    || warn "enable/start: sichter-sweep.timer failed"
 else
-  warn "systemd --user scheint nicht aktiv. Hinweise:"
-  warn "  • Graphische Session nutzen ODER 'loginctl enable-linger $USER' (root) setzen,"
-  warn "    dann neu einloggen und erneut bootstrap ausführen."
+  warn "systemd --user appears not active. Hints:"
+  warn "  • Use graphical session OR set loginctl enable-linger \$USER (as root),"
+  warn "    then log in again and re-run bootstrap."
 fi
 
 echo
