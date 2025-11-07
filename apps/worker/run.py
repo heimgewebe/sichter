@@ -68,7 +68,7 @@ def commit_if_changes(repo_dir:Path):
         return True
     return False
 
-def create_or_update_pr(repo:str, repo_dir:Path, br:str, auto_pr:bool):
+def create_or_update_pr(repo: str, repo_dir: Path, br: str, auto_pr: bool):
     if not auto_pr:
         log(f"COMMIT {repo:<22} {br} (auto_pr=off)", "pr.log");
         return
