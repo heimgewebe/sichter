@@ -1,29 +1,33 @@
 #!/usr/bin/env bash
 set -euo pipefail
-ROOT="$HOME/sichter"
-LOG="$ROOT/logs/bootstrap.log"
-mkdir -p "$ROOT/logs"
-echo "[BOOTSTRAP] $(date)" >>"$LOG"
+cd "$(dirname "$0")/.."
 
-if ! pgrep -f "ollama serve" >/dev/null; then
-	nohup ollama serve >/dev/null 2>&1 &
-	echo "Ollama gestartet" >>"$LOG"
-fi
+# Python venv + deps
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -U pip
+pip install -r requirements.txt
 
-MODEL="${HAUSKI_OLLAMA_MODEL:-qwen2.5-coder:7b}"
-if ! ollama list | grep -q "$MODEL"; then
-	echo "Lade Modell $MODEL ..." >>"$LOG"
-	ollama pull "$MODEL" >>"$LOG" 2>&1
-fi
+# Executables
+chmod +x cli/omnicheck cli/sweep hooks/omnipull/100-sichter-always-post.sh
 
-for w in hauski-watch hauski-work hauski-pr-watch; do
-	path="$ROOT/bin/$w"
-	[ -x "$path" ] || {
-		printf '#!/usr/bin/env bash\nsleep infinity\n' >"$path"
-		chmod +x "$path"
-		echo "Stub $w erzeugt" >>"$LOG"
-	}
-done
+# Hook nach ~/.config/omnipull/hooks/
+mkdir -p "$HOME/.config/omnipull/hooks"
+install -m0755 hooks/omnipull/100-sichter-always-post.sh "$HOME/.config/omnipull/hooks/100-sichter-always-post.sh"
 
-systemctl --user enable --now hauski-autopilot.service
-echo "Autopilot aktiv." >>"$LOG"
+# systemd (user)
+mkdir -p "$HOME/.config/systemd/user"
+install -m0644 pkg/systemd/sichter-api.service    "$HOME/.config/systemd/user/"
+install -m0644 pkg/systemd/sichter-worker.service "$HOME/.config/systemd/user/"
+install -m0644 pkg/systemd/sichter-sweep.service  "$HOME/.config/systemd/user/"
+install -m0644 pkg/systemd/sichter-sweep.timer    "$HOME/.config/systemd/user/"
+
+systemctl --user daemon-reload
+systemctl --user enable --now sichter-api.service
+systemctl --user enable --now sichter-worker.service
+systemctl --user enable --now sichter-sweep.timer || true
+
+echo "✅ Sichter installiert. Test:"
+echo "  • curl -s 127.0.0.1:5055/healthz"
+echo "  • $HOME/sichter/cli/omnicheck --all"
+echo "Logs: ~/.local/state/sichter/{events,logs}"

@@ -1,0 +1,13 @@
+[Unit]
+Description=Sichter Worker
+After=sichter-api.service
+
+[Service]
+Type=simple
+Environment=PYTHONUNBUFFERED=1
+WorkingDirectory=%h/sichter
+ExecStart=%h/sichter/.venv/bin/python apps/worker/run.py
+Restart=always
+
+[Install]
+WantedBy=default.target

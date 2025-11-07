@@ -1,0 +1,7 @@
+run_policy:
+  sweep_on_omnipull: true
+  auto_pr: true
+  max_parallel_jobs: 4
+repos:
+  allowlist: []    # leer == alle der Org/alle lokal vorhandenen
+  denylist: []

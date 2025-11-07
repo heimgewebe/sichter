@@ -1,0 +1,13 @@
+[Unit]
+Description=Sichter API (FastAPI)
+After=network-online.target
+
+[Service]
+Type=simple
+Environment=PYTHONUNBUFFERED=1
+WorkingDirectory=%h/sichter
+ExecStart=%h/sichter/.venv/bin/uvicorn apps.api.main:app --host 127.0.0.1 --port 5055
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
