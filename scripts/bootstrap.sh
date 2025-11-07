@@ -21,7 +21,7 @@ if [ ! -d ".venv" ]; then
 fi
 
 if [ ! -f ".venv/bin/activate" ]; then
-  die "Fehler: .venv/bin/activate nicht vorhanden (defektes venv?)"
+  die "Error: .venv/bin/activate not found (broken venv?)"
 fi
 . .venv/bin/activate
 
