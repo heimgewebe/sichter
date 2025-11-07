@@ -74,7 +74,7 @@ def create_or_update_pr(repo:str, repo_dir:Path, br:str, auto_pr:bool):
         return
     run(["git","push","--set-upstream","origin",br,"--force-with-lease"], cwd=repo_dir)
     # try view; if none → create
-    v = run(["gh","pr","view",br,"--json","url","-q",".url"])
+    v = run(["gh","pr","view",br,"--json","url","-q",".url"], cwd=repo_dir)
     if v.returncode != 0 or not v.stdout.strip():
         run(["gh","pr","create","--base","main","--fill","--title",f"Sichter: auto PR ({repo})",
              "--label","sichter","--label","automation"], cwd=repo_dir)
