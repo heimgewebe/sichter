@@ -91,8 +91,8 @@ else
 fi
 
 echo
-echo "✅ Sichter installiert."
-echo "Nützliche Checks:"
+echo "✅ Sichter installed."
+echo "Useful checks:"
 echo "  • curl -fsS 127.0.0.1:5055/healthz || echo 'healthz nicht erreichbar'"
 echo "  • systemctl --user status sichter-api.service    || true"
 echo "  • systemctl --user status sichter-worker.service || true"
