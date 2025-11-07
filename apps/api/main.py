@@ -32,7 +32,7 @@ def healthz():
 
 @app.post("/jobs/submit")
 def submit(job: Job):
-    jid = _enqueue(job.dict())
+    jid = _enqueue(job.model_dump())
     return {"enqueued": jid, "queue_dir": str(QUEUE)}
 
 @app.get("/events/tail", response_class=PlainTextResponse)
