@@ -51,9 +51,6 @@ if ! python -c 'import sys; sys.exit(0)' >/dev/null 2>&1; then
   else
     "$PY" -m venv .venv
   fi
-  if [ ! -f ".venv/bin/activate" ]; then
-    "$PY" -m venv .venv
-  fi
   [ -f ".venv/bin/activate" ] || die "venv Re-Creation gescheitert"
   . .venv/bin/activate
 fi
