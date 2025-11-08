@@ -11,7 +11,7 @@ ENV_SNAPSHOT="$HOME/sichter/logs/omnidebug-$(date +%Y%m%d-%H%M%S).log"
  echo
  echo "# API health"
  if command -v curl >/dev/null 2>&1; then
- curl -fsS "${SICHT-R_API_BASE:-http://127.0.0.1:8000}/healthz" || true
+ curl -fsS "${SICHTER_API_BASE:-http://127.0.0.1:8000}/healthz" || true
  echo
  curl -fsS "${SICHTER_API_BASE:-http://127.0.0.1:8000}/readyz" || true
  else
