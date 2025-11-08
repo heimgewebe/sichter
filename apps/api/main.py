@@ -106,6 +106,7 @@ def _write_policy(values: Dict[str, Any]) -> Dict[str, Any]:
     This uses a temporary file and atomic rename to avoid race conditions
     and corruption.
     """
+    temp_path = None
     try:
         if yaml is not None:
             text = yaml.safe_dump(values, sort_keys=False, allow_unicode=True)
@@ -129,7 +130,7 @@ def _write_policy(values: Dict[str, Any]) -> Dict[str, Any]:
     except (OSError, TypeError):
         logging.exception("Failed to write policy file to %s", POLICY_PATH)
         # Clean up the temporary file if the rename failed
-        if "temp_path" in locals() and temp_path.exists():
+        if temp_path is not None and temp_path.exists():
             temp_path.unlink()
         raise
 
