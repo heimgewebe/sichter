@@ -189,20 +189,42 @@ def tail_events(
     since: float | None = None,
     _: None = Depends(rate_limiter),
 ) -> str:
-    """Return up to *n* newest events as JSONL."""
+    """
+    Return up to *n* newest events as JSONL.
+
+    Parameters:
+        n: Maximum number of events to return.
+        since: If provided, only events with a timestamp greater than this value
+            (seconds since epoch, UTC) will be returned.
+    """
     files = sorted(EVENTS.glob("*.jsonl"), key=os.path.getmtime, reverse=True)
-    lines: list[str] = []
+    events: list[dict] = []
     for fp in files:
-        if since and fp.stat().st_mtime < since:
-            continue
         try:
             chunk = fp.read_text(encoding="utf-8").splitlines()
         except (OSError, UnicodeDecodeError):
             continue
-        lines.extend(chunk)
-        if len(lines) >= n:
+        for line in chunk:
+            try:
+                event = json.loads(line)
+            except Exception:
+                continue
+            # Expect event to have a 'timestamp' field in seconds since epoch
+            event_ts = event.get("timestamp")
+            if since is not None:
+                try:
+                    if event_ts is None or float(event_ts) < since:
+                        continue
+                except Exception:
+                    continue
+            events.append(event)
+            if len(events) >= n:
+                break
+        if len(events) >= n:
             break
-    snippet = lines[-n:]
+    # Sort events by timestamp descending
+    events_sorted = sorted(events, key=lambda e: e.get("timestamp", 0), reverse=True)
+    snippet = [json.dumps(e, ensure_ascii=False) for e in events_sorted[:n]]
     return "\n".join(snippet)
 
 
