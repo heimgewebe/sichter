@@ -235,8 +235,6 @@ def read_policy(_: None = Depends(rate_limiter)) -> Dict[str, Any]:
 
 @app.put("/policy")
 def write_policy(update: PolicyUpdate, _: None = Depends(rate_limiter)) -> Dict[str, Any]:
-    if not isinstance(update.values, dict):
-        raise HTTPException(status_code=400, detail="Invalid policy format")
     values = _write_policy(update.values)
     return {"path": str(POLICY_PATH), "values": values}
 
