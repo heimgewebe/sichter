@@ -3,9 +3,16 @@ set -euo pipefail
 # Bootstrap-Skript für Sichter-Dev-Setup
 
 LOG_PREFIX="[bootstrap]"
-log(){ printf "%s %s\n" "$LOG_PREFIX" "$*"; }
-warn(){ printf "%s warn: %s\n" "$LOG_PREFIX" "$*" >&2; }
-die(){ printf "%s error: %s\n" "$LOG_PREFIX" "$*" >&2; exit 1; }
+log() {
+  printf "%s %s\n" "$LOG_PREFIX" "$*"
+}
+warn() {
+  printf "%s warn: %s\n" "$LOG_PREFIX" "$*" >&2
+}
+die() {
+  printf "%s error: %s\n" "$LOG_PREFIX" "$*" >&2
+  exit 1
+}
 
 # In Repo-Root wechseln
 cd "$(dirname "$0")/.."
