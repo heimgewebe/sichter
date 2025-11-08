@@ -3,11 +3,20 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LOG_PREFIX="[install]"
-log(){ printf "%s %s\n" "$LOG_PREFIX" "$*"; }
-warn(){ printf "%s warn: %s\n" "$LOG_PREFIX" "$*" >&2; }
-die(){ printf "%s error: %s\n" "$LOG_PREFIX" "$*" >&2; exit 1; }
+log() {
+  printf "%s %s\n" "$LOG_PREFIX" "$*"
+}
+warn() {
+  printf "%s warn: %s\n" "$LOG_PREFIX" "$*" >&2
+}
+die() {
+  printf "%s error: %s\n" "$LOG_PREFIX" "$*" >&2
+  exit 1
+}
 
-need_cmd(){ command -v "$1" >/dev/null 2>&1 || die "Benötigtes Programm '$1' fehlt"; }
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || die "Benötigtes Programm '$1' fehlt"
+}
 
 log "Prüfe Abhängigkeiten"
 for cmd in gh git python3 pip shellcheck yamllint; do
