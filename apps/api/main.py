@@ -5,7 +5,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 from pathlib import Path
 from datetime import datetime
-import json, time, uuid, os, subprocess
+import json, time, uuid, os, subprocess, tempfile
 
 STATE = Path.home()/".local/state/sichter"
 QUEUE = STATE/"queue"
@@ -102,9 +102,9 @@ def _collect_events(limit: int = 200) -> list[dict[str, str | dict]]:
     # Bevorzuge .jsonl (neues Format), fallback .log (alt)
     # Erst alle Dateien sammeln, dann die Zeilen limitieren. Sonst werden
     # die neuesten Events ggf. verworfen.
-    files = sorted(EVENTS.glob("*.jsonl"), key=os.path.getmtime, reverse=True)
+    files = sorted(EVENTS.glob("*.jsonl"), key=os.path.getmtime, reverse=False)
     if not files:
-        files = sorted(EVENTS.glob("*.log"), key=os.path.getmtime, reverse=True)
+        files = sorted(EVENTS.glob("*.log"), key=os.path.getmtime, reverse=False)
     lines: list[str] = []
     for fp in files:
         try:
@@ -221,7 +221,7 @@ def repos_status():
         )
     return {"repos": results}
 
-import tempfile
+
 @app.post("/settings/policy")
 def write_policy(content: dict = Body(...)):
     # stores to ~/.config/sichter/policy.yml
