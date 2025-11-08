@@ -1,15 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# This test verifies that the hauski-verify script correctly handles cases
-# where the 'systemctl' command is not available.
+# --------------------------------------------------------------------
+# Test: hauski-verify sollte korrekt reagieren, wenn 'systemctl'
+#       nicht verfügbar ist (z. B. in minimalen Containern).
+#
+# Erwartung: Die Ausgabe enthält die Meldung
+#            "systemctl not found, skipping systemd checks."
+# --------------------------------------------------------------------
 
-# We temporarily disable pipefail because we expect hauski-verify to fail for other reasons,
-# but we only care about what it prints to stdout for this test.
-if bash -c 'set +o pipefail; env HAUSKI_VERIFY_NO_SYSTEMCTL=1 ./bin/hauski-verify | grep -q "systemctl not found, skipping systemd checks."'; then
-    echo "Test passed: The script correctly handled the missing systemctl."
-    exit 0
+# Temporär pipefail deaktivieren, da wir nur stdout prüfen wollen
+set +o pipefail
+
+OUTPUT="$(env HAUSKI_VERIFY_NO_SYSTEMCTL=1 ./bin/hauski-verify 2>/dev/null || true)"
+
+set -o pipefail  # wieder aktivieren für nachfolgende Tests
+
+if grep -q "systemctl not found, skipping systemd checks." <<<"$OUTPUT"; then
+  echo "✅ Test passed: The script correctly handled the missing systemctl."
+  exit 0
 else
-    echo "Test failed: The script did not handle the missing systemctl as expected."
-    exit 1
+  echo "❌ Test failed: The script did not handle the missing systemctl as expected."
+  echo "---- Output ----"
+  echo "$OUTPUT"
+  echo "----------------"
+  exit 1
 fi
