@@ -36,9 +36,6 @@ if [ ! -d ".venv" ] || [ ! -f ".venv/bin/activate" ]; then
 fi
 
 # shellcheck disable=SC1091  # Datei wird ggf. erst zur Laufzeit erzeugt
-if [ ! -f ".venv/bin/activate" ]; then
-  "$PY" -m venv .venv
-fi
 [ -f ".venv/bin/activate" ] || die "Fehler: .venv/bin/activate nicht vorhanden (defektes venv?)"
 . .venv/bin/activate
 
