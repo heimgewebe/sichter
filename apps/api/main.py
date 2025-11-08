@@ -32,7 +32,7 @@ QUEUE = STATE / "queue"
 EVENTS = STATE / "events"
 LOGS = STATE / "logs"
 POLICY_PATH = Path.home() / ".config/sichter/policy.yml"
-REPO_PATTERN = re.compile(r"^[a-zA-Z0-9_-][a-zA-Z0-9_.-]*/[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$")
+REPO_PATTERN = re.compile(r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$")
 _LOCK = threading.Lock()
 
 for directory in (QUEUE, EVENTS, LOGS, POLICY_PATH.parent):
