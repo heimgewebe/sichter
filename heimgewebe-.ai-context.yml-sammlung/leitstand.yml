@@ -16,7 +16,7 @@ dependencies:
         - proto
   external:
     - name: tokio
-      version: "1.x"
+      version: "^1"
     - name: serde
     - name: serde_json
     - name: tracing
