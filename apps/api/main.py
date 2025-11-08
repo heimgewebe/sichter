@@ -113,7 +113,7 @@ app.add_middleware(
 
 
 class EnqueuePayload(BaseModel):
-    repo: str = Field(..., description="Repository in")
+    repo: str = Field(..., description="Repository name")
     mode: Literal["deep", "light", "changed", "all"] = Field(
         "changed", description="Requested inspection mode"
     )
