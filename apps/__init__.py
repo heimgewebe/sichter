@@ -1,1 +1,1 @@
-# makes "apps" a package
+# package marker
