@@ -78,7 +78,7 @@ git add -A || true
  continue
  fi
 
- if ! git commit -m "sichter: automated sweep" >/dev/null 2_dev_null 2>&1; then
+ if ! git commit -m "sichter: automated sweep" >/dev/null 2>&1; then
  RESULT "ERROR" "$r" "$BR" "commit failed"
  popd >/dev/null || true
  continue
