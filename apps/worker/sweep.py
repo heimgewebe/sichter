@@ -75,12 +75,12 @@ def run_post_hook() -> None:
  hook = ROOT / "hooks/post-run"
  if hook.exists():
   os.environ.setdefault("SICHTER_REPO_ROOT", str(ROOT))
-        try:
-            import subprocess
-            subprocess.run([str(hook)], check=False)
-        except Exception:
-            # Hook ist optional – niemals den Sweep crashen lassen
-            pass
+  try:
+   import subprocess
+   subprocess.run([str(hook)], check=False)
+  except Exception:
+   # Hook ist optional – niemals den Sweep crashen lassen
+   pass
 
 
 def main(argv: list[str] | None = None) -> int:
