@@ -143,7 +143,7 @@ raw_origins = os.environ.get("SICHTER_DASHBOARD_ORIGINS")
 allowed_origins = (
     [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
     if raw_origins
-    else ["*"]
+    else ["http://localhost:3000"]
 )
 
 app.add_middleware(
