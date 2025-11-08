@@ -6,7 +6,8 @@ set -euo pipefail
 
 # We temporarily disable pipefail because we expect hauski-verify to fail for other reasons,
 # but we only care about what it prints to stdout for this test.
-if (set +o pipefail; env HAUSKI_VERIFY_NO_SYSTEMCTL=1 ./bin/hauski-verify | grep -q "systemctl not found, skipping systemd checks."); then
+set +o pipefail
+if env HAUSKI_VERIFY_NO_SYSTEMCTL=1 ./bin/hauski-verify | grep -q "systemctl not found, skipping systemd checks."; then
     echo "Test passed: The script correctly handled the missing systemctl."
     exit 0
 else
