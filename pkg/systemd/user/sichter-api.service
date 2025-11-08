@@ -1,0 +1,12 @@
+[Unit]
+Description=Sichter API
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/sichter/bin/uvicorn-app
+Restart=on-failure
+Environment=SICHTER_APP=api
+
+[Install]
+WantedBy=default.target

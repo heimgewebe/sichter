@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+PYTHON="${PYTHON3:-python3}"
+exec "$PYTHON" -m apps.worker.sweep "$@"

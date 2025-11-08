@@ -1,54 +1,49 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# Bootstrap-Skript für Sichter-Dev-Setup
 
-log() { printf '[bootstrap] %s\n' "$*" >&2; }
-warn() { printf '[bootstrap:warn] %s\n' "$*" >&2; }
-die() { printf '[bootstrap:err] %s\n' "$*" >&2; exit 1; }
+LOG_PREFIX="[bootstrap]"
+log(){ printf "%s %s\n" "$LOG_PREFIX" "$*"; }
+warn(){ printf "%s warn: %s\n" "$LOG_PREFIX" "$*" >&2; }
+die(){ printf "%s error: %s\n" "$LOG_PREFIX" "$*" >&2; exit 1; }
 
-rc=0
-
-set -E
-trap 'rc=$?; warn "Abbruch in Zeile $LINENO (rc=$rc)"; exit $rc' ERR
-
+# In Repo-Root wechseln
 cd "$(dirname "$0")/.."
 
-if [ "${BOOTSTRAP_DEBUG:-0}" = "1" ]; then set -x; fi
-umask 022
+# --- VENV ---
+VENV_DIR=".venv"
+REQ_FILE="requirements.txt"
+LOCK_FILE="requirements.lock"
 
-STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/sichter"
-mkdir -p "$STATE_ROOT"/{logs,events}
+# Python-Version ermitteln
+PYTHON="python"
+if command -v python3 >/dev/null 2>&1; then
+  PYTHON="python3"
+fi
+log "Nutze '$PYTHON' für Python-Aufrufe"
 
-REQ_FILE="${REQUIREMENTS_FILE:-requirements.txt}"
-LOCK_FILE="${REQUIREMENTS_LOCK_FILE:-requirements.lock}"
-
-# --- Python venv + deps (pref: uv, fallback: pip) ---
-PY="${PYTHON3:-python3}"
-command -v "$PY" >/dev/null 2>&1 || die "python3 nicht gefunden"
-
-if [ ! -d ".venv" ] || [ ! -f ".venv/bin/activate" ]; then
-  if command -v uv >/dev/null 2>&1; then
-    log "Erzeuge venv mit uv"
-    uv venv .venv
-  else
-    log "Erzeuge venv mit python3 -m venv"
-    "$PY" -m venv .venv
-  fi
+# Prüfen, ob venv Modul da ist
+if ! "$PYTHON" -m venv --help >/dev/null 2>&1; then
+  warn "Python-Modul 'venv' fehlt. Bitte nachinstallieren:"
+  warn " • sudo apt install python3-venv (Debian/Ubuntu)"
+  warn " • sudo dnf install python3-virtualenv (Fedora)"
+  die "'venv' nicht verfügbar"
 fi
 
-# shellcheck disable=SC1091  # Datei wird ggf. erst zur Laufzeit erzeugt
-[ -f ".venv/bin/activate" ] || die "Fehler: .venv/bin/activate nicht vorhanden (defektes venv?)"
-. .venv/bin/activate
+# Venv erstellen/aktivieren
+if [ ! -d "$VENV_DIR" ]; then
+  log "Erstelle Python venv in '$VENV_DIR'"
+  "$PYTHON" -m venv "$VENV_DIR"
+fi
+# shellcheck source=.venv/bin/activate
+. "$VENV_DIR/bin/activate"
 
-# Sanity: funktioniert Python im venv?
+# Kompatibilitätscheck für gebrochene venvs in manchen Umgebungen
 if ! python -c 'import sys; sys.exit(0)' >/dev/null 2>&1; then
-  warn "venv wirkt defekt – erstelle neu"
-  rm -rf .venv
-  if command -v uv >/dev/null 2>&1; then
-    uv venv .venv
-  else
-    "$PY" -m venv .venv
-  fi
-  [ -f ".venv/bin/activate" ] || die "venv Re-Creation gescheitert"
+  warn "Venv scheint defekt. Lösche und erstelle es neu."
+  rm -rf "$VENV_DIR"
+  "$PYTHON" -m venv "$VENV_DIR"
+  # shellcheck source=.venv/bin/activate
   . .venv/bin/activate
 fi
 
@@ -74,28 +69,25 @@ else
 fi
 
 # --- Executables (defensiv) ---
-for f in cli/omnicheck cli/sweep hooks/omnipull/100-sichter-always-post.sh; do
-  if [ -f "$f" ]; then
+for f in bin/omnicheck bin/sichter-pr-sweep bin/sichter-dashboard bin/sweep hooks/post-run hooks/omnipull/*.sh; do
+  if [ -e "$f" ]; then
     chmod +x "$f" || die "chmod +x fehlgeschlagen für $f"
-  else
-    warn "Datei fehlt: $f (übersprungen)"
   fi
 done
 
 # --- Omnipull Hook installieren ---
-if [ -f "hooks/omnipull/100-sichter-always-post.sh" ]; then
-  install -D -m0755 "hooks/omnipull/100-sichter-always-post.sh" \
-    "$HOME/.config/omnipull/hooks/100-sichter-always-post.sh"
+if compgen -G "hooks/omnipull/*.sh" >/dev/null; then
+  mkdir -p "$HOME/.config/omnipull/hooks"
+  for hook in hooks/omnipull/*.sh; do
+    install -D -m0755 "$hook" "$HOME/.config/omnipull/hooks/$(basename "$hook")"
+  done
 fi
 
 # --- systemd (user) Units deployen ---
 UNIT_DIR="$HOME/.config/systemd/user"
-for unit in sichter-api.service sichter-worker.service sichter-sweep.service sichter-sweep.timer; do
-  if [ -f "pkg/systemd/$unit" ]; then
-    install -D -m0644 "pkg/systemd/$unit" "$UNIT_DIR/$unit"
-  else
-    warn "systemd unit file not found: pkg/systemd/$unit"
-  fi
+for unit in pkg/systemd/user/*.{service,timer}; do
+  [ -f "$unit" ] || continue
+  install -D -m0644 "$unit" "$UNIT_DIR/$(basename "$unit")"
 done
 
 # systemd optional abschaltbar (z. B. CI/Container)
@@ -112,14 +104,13 @@ else
   if systemctl --user show-environment >/dev/null 2>&1; then
     log "systemd --user erkannt – (re)load & enable"
     systemctl --user daemon-reload
-    # enable + now; Fehler nicht verschlucken, sondern melden
-    systemctl --user enable --now sichter-api.service    || warn "enable/start: sichter-api.service fehlgeschlagen"
+    systemctl --user enable --now sichter-api.service || warn "enable/start: sichter-api.service fehlgeschlagen"
     systemctl --user enable --now sichter-worker.service || warn "enable/start: sichter-worker.service fehlgeschlagen"
-    systemctl --user enable --now sichter-sweep.timer    || warn "enable/start: sichter-sweep.timer fehlgeschlagen"
+    systemctl --user enable --now sichter-autoreview.timer || warn "enable/start: sichter-autoreview.timer fehlgeschlagen"
   else
     warn "systemd --user scheint nicht aktiv. Hinweise:"
-    warn "  • Graphische Session nutzen ODER 'loginctl enable-linger $USER' (root) setzen,"
-    warn "    dann neu einloggen und erneut bootstrap ausführen."
+    warn " • Graphische Session nutzen ODER 'loginctl enable-linger $USER' (root) setzen,"
+    warn " dann neu einloggen und erneut bootstrap ausführen."
     SYSTEMD_HINT=1
   fi
 fi
@@ -127,10 +118,10 @@ fi
 echo
 echo "✅ Sichter installiert."
 echo "Nützliche Checks:"
-echo "  • curl -fsS 127.0.0.1:5055/healthz || echo 'healthz nicht erreichbar'"
-echo "  • systemctl --user status sichter-api.service    || true"
-echo "  • systemctl --user status sichter-worker.service || true"
-echo "  • systemctl --user list-timers | grep sichter    || true"
+echo " • curl -fsS 127.0.0.1:5055/healthz || echo 'healthz nicht erreichbar'"
+echo " • systemctl --user status sichter-api.service || true"
+echo " • systemctl --user status sichter-worker.service || true"
+echo " • systemctl --user list-timers | grep sichter || true"
 if [ "$SYSTEMD_HINT" = "1" ]; then
   echo "Tipp: sudo loginctl enable-linger $USER && neue Session starten"
 fi

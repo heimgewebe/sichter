@@ -1,0 +1,11 @@
+[Unit]
+Description=Sichter Deep Review (12h)
+
+[Timer]
+OnBootSec=10m
+OnUnitActiveSec=12h
+Unit=sichter-autoreview.service
+AccuracySec=1m
+
+[Install]
+WantedBy=timers.target

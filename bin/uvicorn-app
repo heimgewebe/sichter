@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+APP="apps.api.main:app"
+PORT="${PORT:-5055}"
+HOST="${HOST:-127.0.0.1}"
+UVICORN="${UVICORN_BIN:-uvicorn}"
+exec "$UVICORN" "$APP" --host "$HOST" --port "$PORT"

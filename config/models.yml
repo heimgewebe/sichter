@@ -1,0 +1,11 @@
+# Modellkonfiguration für sichter
+models:
+ primary:
+  provider: ollama
+  name: qwen2.5-coder
+  size: 7b
+  base_url: http://localhost:11434
+ fallback:
+  provider: openai
+  name: gpt-4o-mini
+  api_base: https://api.openai.com/v1

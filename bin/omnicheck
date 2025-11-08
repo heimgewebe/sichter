@@ -1,32 +1,51 @@
 #!/usr/bin/env bash
 set -euo pipefail
-MODE="--changed"
-if [[ "${1:-}" == "--all" ]]; then MODE="--all"; fi
-
-LOGD="$HOME/sichter/logs"
-mkdir -p "$LOGD"
-ts(){ date -Is; }
-toggle_auto_pr() {
-  local auto_pr_file="$HOME/.config/sichter/autostart.env"
-  if grep -q '^SICHTER_AUTO_PR=1' "$auto_pr_file" 2>/dev/null; then
-    sed -i 's/^SICHTER_AUTO_PR=.*/SICHTER_AUTO_PR=0/' "$auto_pr_file"
-    echo "[OFF] Auto-PR"
-  else
-    if grep -q '^SICHTER_AUTO_PR=' "$auto_pr_file" 2>/dev/null; then
-      sed -i 's/^SICHTER_AUTO_PR=.*/SICHTER_AUTO_PR=1/' "$auto_pr_file"
-    else
-      echo 'SICHTER_AUTO_PR=1' >> "$auto_pr_file"
-    fi
-    echo "[ON]  Auto-PR"
-  fi
-}
-while true; do
-  CHOICE="$(menu | fzf --prompt='Sichter › ' --height=10 --border --exit-0 || true)"
-  case "$CHOICE" in
-    "Omnicheck (changed)") "$HOME/sichter/bin/omnicheck" ;; 
-    "Omnicheck (all)")     "$HOME/sichter/bin/omnicheck" --all ;;
-    "Toggle Auto-PR")      toggle_auto_pr ;;
-    "Open PR-Log")         ${PAGER:-less} "$LOGD/pr-actions.log" ;;
-    *) exit 0 ;;
-  esac
+MODE="changed"
+REPORT_FILE=""
+while [ $# -gt 0 ]; do
+ case "$1" in
+ --all)
+ MODE="all"
+ ;;
+ --changed)
+ MODE="changed"
+ ;;
+ --report)
+ REPORT_FILE="$2"
+ shift
+ ;;
+ *)
+ break
+ ;;
+ esac
+ shift || true
 done
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+LOG_DIR="$HOME/sichter/logs"
+mkdir -p "$LOG_DIR"
+TS="$(date +%Y%m%d-%H%M%S)"
+LOG_FILE="$LOG_DIR/omnicheck-${MODE}-${TS}.log"
+if [ -z "$REPORT_FILE" ]; then
+ REPORT_FILE="$LOG_DIR/omnicheck-${MODE}-${TS}.md"
+fi
+
+POLICY_PATH="${XDG_CONFIG_HOME:-$HOME/.config}/sichter/policy.yml"
+if [ ! -f "$POLICY_PATH" ]; then
+ POLICY_PATH="$ROOT/config/policy.yml"
+fi
+
+SWEEP="$ROOT/bin/sweep"
+if [ ! -x "$SWEEP" ]; then
+ echo "sweep helper nicht gefunden" >&2
+ exit 1
+fi
+
+echo "# Omnicheck (${MODE})" >"$REPORT_FILE"
+echo "Start: $(date -Is)" | tee "$LOG_FILE" >>"$REPORT_FILE"
+"$SWEEP" --mode "$MODE" --policy "$POLICY_PATH" "$@" \
+ | tee -a "$LOG_FILE" | sed 's/^/ /' >>"$REPORT_FILE"
+echo "Ende: $(date -Is)" | tee -a "$LOG_FILE" >>"$REPORT_FILE"
+
+echo "Log: $LOG_FILE"
+echo "Report: $REPORT_FILE"
