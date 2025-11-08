@@ -188,8 +188,8 @@ def ensure_repo(repo: str) -> Path | None:
  return repo_dir
 
 
-def create_or_update_pr(repo: str, repo_dir: Path, branch: str) -> None:
- if not POLICY.auto_pr:
+def create_or_update_pr(repo: str, repo_dir: Path, branch: str, auto_pr: bool) -> None:
+ if not auto_pr:
   log(f"Auto-PR deaktiviert, Änderungen verbleiben lokal ({repo})")
   append_event({"type": "commit", "repo": repo, "branch": branch, "auto_pr": False})
   return
@@ -222,7 +222,8 @@ def create_or_update_pr(repo: str, repo_dir: Path, branch: str) -> None:
 def handle_job(job: dict) -> None:
  mode = job.get("mode", "changed")
  repo_one = job.get("repo")
- log(f"Job erhalten: mode={mode} repo={repo_one}")
+ auto_pr = job.get("auto_pr", POLICY.auto_pr)
+ log(f"Job erhalten: mode={mode} repo={repo_one} auto_pr={auto_pr}")
 
  repos: Iterable[str]
  if repo_one:
@@ -241,7 +242,7 @@ def handle_job(job: dict) -> None:
   run_yamllint(repo_dir)
   llm_review(repo, repo_dir)
   if commit_if_changes(repo_dir):
-   create_or_update_pr(repo, repo_dir, branch)
+   create_or_update_pr(repo, repo_dir, branch, auto_pr)
   else:
    log(f"Keine Änderungen für {repo}")
    append_event({"type": "noop", "repo": repo, "branch": branch})
