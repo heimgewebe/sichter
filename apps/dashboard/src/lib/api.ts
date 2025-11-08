@@ -70,23 +70,23 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
-export const fetchOverview = () => request<OverviewResponse>('/overview');
+export const fetchOverview = () => request<OverviewResponse>('/api/overview');
 
-export const fetchRepos = () => request<ReposResponse>('/repos/status');
+export const fetchRepos = () => request<ReposResponse>('/api/repos/status');
 
 export const fetchEvents = (limit = 200) =>
-  request<{ events: EventEntry[] }>(`/events/recent?n=${limit}`);
+  request<{ events: EventEntry[] }>(`/api/events/recent?n=${limit}`);
 
 export const submitJob = (payload: Record<string, unknown>) =>
-  request<{ enqueued: string }>('/jobs/submit', {
+  request<{ enqueued: string }>('/api/jobs/submit', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
 
-export const fetchPolicy = () => request<PolicyResponse>('/settings/policy');
+export const fetchPolicy = () => request<PolicyResponse>('/api/settings/policy');
 
 export const updatePolicy = (content: Record<string, unknown>) =>
-  request<{ written: string }>('/settings/policy', {
+  request<{ written: string }>('/api/settings/policy', {
     method: 'POST',
     body: JSON.stringify(content),
   });

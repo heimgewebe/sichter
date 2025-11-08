@@ -29,3 +29,6 @@ Diese Anleitung beschreibt die ersten Schritte nach dem Klonen des Repositories.
 
  Der Befehl startet die TUI-Variante des Dashboards. Sobald die Web-UI verfügbar ist,
  öffnet der gleiche Befehl diese Version.
+
+ > **Hinweis:** Die Web-UI nutzt aktuell HTTP-Polling zur Aktualisierung der Event-Anzeige.
+ > Eine WebSocket-basierte Echtzeit-Ansicht ist für eine spätere Version geplant.
