@@ -243,7 +243,7 @@ def write_policy(content: dict = Body(...)):
         fd, tmp_path = tempfile.mkstemp(dir=cfg, prefix=".policy.yml.tmp-")
         with os.fdopen(fd, "w") as f:
             f.write(text)
-        os.rename(tmp_path, target)
+        os.rename(tmp_path, str(target))
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
