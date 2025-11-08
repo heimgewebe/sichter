@@ -5,6 +5,8 @@ log() { printf '[bootstrap] %s\n' "$*" >&2; }
 warn() { printf '[bootstrap:warn] %s\n' "$*" >&2; }
 die() { printf '[bootstrap:err] %s\n' "$*" >&2; exit 1; }
 
+rc=0
+
 set -E
 trap 'rc=$?; warn "Abbruch in Zeile $LINENO (rc=$rc)"; exit $rc' ERR
 
@@ -35,8 +37,9 @@ fi
 
 # shellcheck disable=SC1091  # Datei wird ggf. erst zur Laufzeit erzeugt
 if [ ! -f ".venv/bin/activate" ]; then
-  die "Fehler: .venv/bin/activate nicht vorhanden (defektes venv?)"
+  "$PY" -m venv .venv
 fi
+[ -f ".venv/bin/activate" ] || die "Fehler: .venv/bin/activate nicht vorhanden (defektes venv?)"
 . .venv/bin/activate
 
 # Sanity: funktioniert Python im venv?
