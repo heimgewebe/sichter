@@ -1,294 +1,243 @@
-"""FastAPI entry-point for the Sichter control plane."""
-from __future__ import annotations
-
-import heapq
-import json
-import logging
-import os
-import re
-import tempfile
-import threading
-import time
-import uuid
-from collections import defaultdict, deque
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Deque, Dict, Literal
-
-from fastapi import Depends, FastAPI, HTTPException, Request
+# apps/api/main.py
+from fastapi import FastAPI, Body, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+from pathlib import Path
+from datetime import datetime
+import json, time, uuid, os, subprocess
 
-try:  # optional
-    import yaml  # type: ignore
-except ModuleNotFoundError:
-    yaml = None
+STATE = Path.home()/".local/state/sichter"
+QUEUE = STATE/"queue"
+EVENTS = STATE/"events"
+LOGS  = STATE/"logs"
+for p in (QUEUE, EVENTS, LOGS):
+    p.mkdir(parents=True, exist_ok=True)
 
-from lib import simpleyaml
-
-STATE = Path.home() / ".local/state/sichter"
-QUEUE = STATE / "queue"
-EVENTS = STATE / "events"
-LOGS = STATE / "logs"
-POLICY_PATH = Path.home() / ".config/sichter/policy.yml"
-REPO_PATTERN = re.compile(r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$")
-_LOCK = threading.Lock()
-
-for directory in (QUEUE, EVENTS, LOGS, POLICY_PATH.parent):
-    directory.mkdir(parents=True, exist_ok=True)
-
-app = FastAPI(title="Sichter API", version="0.2.0")
-
-# --- simple rate limiter ---------------------------------------------------
-RATE_LIMIT_MAX_REQUESTS = int(os.environ.get("SICHTER_RATE_LIMIT", "120"))
-RATE_LIMIT_WINDOW_SECONDS = 60
-_request_log: Dict[str, Deque[float]] = defaultdict(deque)
-
-
-def rate_limiter(request: Request) -> None:
-    """Simple fixed-window rate limiter per client host."""
-    now = time.time()
-    client = request.client.host if request.client else "unknown"
-    with _LOCK:
-        bucket = _request_log[client]
-
-        while bucket and now - bucket[0] > RATE_LIMIT_WINDOW_SECONDS:
-            bucket.popleft()
-
-        if len(bucket) >= RATE_LIMIT_MAX_REQUESTS:
-            raise HTTPException(status_code=429, detail="rate limit exceeded")
-
-        bucket.append(now)
-
-
-# --- helpers ----------------------------------------------------------------
-
-
-def _timestamp() -> str:
-    return datetime.now(tz=timezone.utc).isoformat()
-
-
-def _enqueue(job: Dict[str, Any]) -> str:
-    job = dict(job)
-    job.setdefault("ts", _timestamp())
-    job.setdefault("job_id", f"{int(time.time())}-{uuid.uuid4().hex}")
-    job_id = job["job_id"]
-    (QUEUE / f"{job_id}.json").write_text(json.dumps(job, ensure_ascii=False, indent=2))
-    _write_event({"type": "queue", "job_id": job_id, "payload": job})
-    return job_id
-
-
-def _write_event(event: Dict[str, Any]) -> None:
-    payload = dict(event)
-    payload.setdefault("ts", _timestamp())
-    day_file = EVENTS / f"{payload['ts'][:10].replace('-', '')}.jsonl"
-    try:
-        with day_file.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
-    except OSError:
-        logging.exception("Failed to write API event to %s", day_file)
-
-
-def _read_policy() -> Dict[str, Any]:
-    if not POLICY_PATH.exists():
-        return {}
-    text = POLICY_PATH.read_text(encoding="utf-8")
-    if yaml is not None:
-        return yaml.safe_load(text) or {}
-    return simpleyaml.load(POLICY_PATH)
-
-
-def _write_policy(values: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Atomically overwrite policy.yml with structured YAML.
-
-    This uses a temporary file and atomic rename to avoid race conditions
-    and corruption.
-    """
-    temp_path = None
-    try:
-        if yaml is not None:
-            text = yaml.safe_dump(values, sort_keys=False, allow_unicode=True)
-        else:
-            text = simpleyaml.dump(values)
-
-        with _LOCK:
-            # Create a temporary file in the same directory to ensure atomic move
-            with tempfile.NamedTemporaryFile(
-                "w",
-                dir=POLICY_PATH.parent,
-                encoding="utf-8",
-                delete=False,
-                prefix=f"{POLICY_PATH.name}-",
-            ) as handle:
-                handle.write(text)
-                temp_path = Path(handle.name)
-            # Atomically replace the original file with the new content
-            temp_path.rename(POLICY_PATH)
-
-    except (OSError, TypeError):
-        logging.exception("Failed to write policy file to %s", POLICY_PATH)
-        # Clean up the temporary file if the rename failed
-        if temp_path is not None and temp_path.exists():
-            temp_path.unlink()
-        raise
-
-    _write_event({"type": "policy", "action": "write", "values": values})
-    return values
-
-
-# --- middleware -------------------------------------------------------------
-
-raw_origins = os.environ.get("SICHTER_DASHBOARD_ORIGINS")
-allowed_origins = (
-    [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
-    if raw_origins
-    else ["http://localhost:3000"]
-)
-
+app = FastAPI(title="Sichter API", version="0.1.1")
+# CORS für Dashboard (Vite etc.)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+class Job(BaseModel):
+    type: str              # "ScanAll" | "ScanChanged" | "PRSweep"
+    mode: str = "changed"  # "all" | "changed"
+    org: str = "heimgewebe"
+    repo: str | None = None
+    auto_pr: bool = True
 
-# --- models -----------------------------------------------------------------
-
-
-class EnqueuePayload(BaseModel):
-    repo: str = Field(..., description="Repository name")
-    mode: Literal["deep", "light", "changed", "all"] = Field(
-        "changed", description="Requested inspection mode"
-    )
-    auto_pr: bool = Field(True, description="Whether automated PRs should be opened")
-
-
-class SweepPayload(BaseModel):
-    mode: Literal["all", "changed"] = Field(
-        "changed", description="Scope of the sweep execution"
-    )
-
-
-class PolicyUpdate(BaseModel):
-    values: Dict[str, Any]
-
-
-# --- endpoints ---------------------------------------------------------------
-
+def _enqueue(job: dict) -> str:
+    jid = f"{int(time.time())}-{uuid.uuid4().hex[:8]}"
+    f = (QUEUE/f"{jid}.json")
+    f.write_text(json.dumps(job, ensure_ascii=False, indent=2))
+    return jid
 
 @app.get("/healthz", response_class=PlainTextResponse)
-def healthz() -> str:
-    """Liveness probe."""
+def healthz():
     return "ok"
 
+@app.post("/jobs/submit")
+def submit(job: Job):
+    jid = _enqueue(job.model_dump())
+    return {"enqueued": jid, "queue_dir": str(QUEUE)}
 
-@app.get("/readyz")
-def readyz() -> Dict[str, Any]:
-    """Readiness probe ensuring state directories are reachable."""
-    status = {
-        "queue": QUEUE.is_dir(),
-        "events": EVENTS.is_dir(),
-        "logs": LOGS.is_dir(),
+def _systemctl_show(service: str) -> dict[str, str]:
+    try:
+        env = dict(os.environ)
+        env["SYSTEMD_PAGER"] = ""
+        raw = subprocess.check_output(
+            ["systemctl", "--user", "show", service, "--property", "ActiveState,SubState,ExecMainStartTimestamp,ActiveEnterTimestamp,InactiveExitTimestamp,MainPID"],
+            text=True,
+            env=env,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, PermissionError):
+        return {}
+    result: dict[str, str] = {}
+    for line in raw.splitlines():
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        result[key] = value
+    return result
+
+
+def _parse_timestamp(value: str | None) -> str | None:
+    if not value:
+        return None
+    # systemd liefert menschenlesbare Strings; ohne Format robust nicht parsbar.
+    # Gib den Originalwert zurück, aber fang alle Fehler ab.
+    try:
+        # Versuche nichts zu parsen, reiche roh durch:
+        return value
+    except Exception:
+        return value
+
+
+def _queue_state(limit: int = 10) -> dict:
+    items = []
+    for fp in sorted(QUEUE.glob("*.json"), key=os.path.getmtime):
+        try:
+            payload = json.loads(fp.read_text())
+        except (OSError, json.JSONDecodeError):
+            payload = {}
+        items.append(
+            {
+                "id": fp.stem,
+                "path": str(fp),
+                "type": payload.get("type"),
+                "mode": payload.get("mode"),
+                "repo": payload.get("repo"),
+                "enqueuedAt": datetime.fromtimestamp(fp.stat().st_mtime).isoformat(),
+            }
+        )
+    return {
+        "size": len(items),
+        "items": items[-limit:],
     }
-    ready = all(status.values())
-    if not ready:
-        raise HTTPException(status_code=503, detail=status)
-    return {"status": "ready", **status}
 
 
-@app.post("/enqueue", dependencies=[Depends(rate_limiter)])
-def enqueue(payload: EnqueuePayload) -> Dict[str, Any]:
-    if not REPO_PATTERN.match(payload.repo):
-        raise HTTPException(status_code=400, detail="Invalid repo name format")
-    job = {
-        "type": "repository",
-        "mode": payload.mode,
-        "repo": payload.repo,
-        "auto_pr": payload.auto_pr,
-    }
-    job_id = _enqueue(job)
-    return {"enqueued": job_id, "queued": job}
+def _collect_events(limit: int = 200) -> list[dict[str, str | dict]]:
+    # Bevorzuge .jsonl (neues Format), fallback .log (alt)
+    files = sorted(EVENTS.glob("*.jsonl"), key=os.path.getmtime, reverse=True)[:5]
+    if not files:
+        files = sorted(EVENTS.glob("*.log"), key=os.path.getmtime, reverse=True)[:5]
+    lines: list[str] = []
+    for fp in files:
+        try:
+            lines.extend(fp.read_text().splitlines())
+        except (OSError, UnicodeDecodeError):
+            continue
+    events: list[dict[str, str | dict]] = []
+    for raw in lines[-limit:]:
+        entry: dict[str, str | dict] = {"line": raw}
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            data = None
+        if isinstance(data, dict):
+            entry["payload"] = data
+            entry["ts"] = data.get("ts") or data.get("payload", {}).get("ts")
+            entry["kind"] = data.get("event") or data.get("kind")
+        events.append(entry)
+    return events
+
+
+def _policy_path() -> Path:
+    return Path.home() / ".config/sichter/policy.yml"
+
+
+def _read_policy() -> dict:
+    policy_file = _policy_path()
+    candidates = [policy_file]
+    repo_policy = Path(__file__).resolve().parent.parent.parent / "config" / "policy.yml"
+    if repo_policy not in candidates:
+        candidates.append(repo_policy)
+    for candidate in candidates:
+        if not candidate.exists():
+            continue
+        try:
+            return {"path": str(candidate), "content": candidate.read_text()}
+        except OSError:
+            continue
+    return {"path": str(policy_file), "content": ""}
+
+
+def _resolve_repos() -> list[str]:
+    repos: list[str] = []
+    local_policy = Path(__file__).resolve().parent.parent.parent / "config" / "policy.yml"
+    if local_policy.exists():
+        try:
+            for line in local_policy.read_text().splitlines():
+                stripped = line.strip()
+                if stripped.startswith("#") or not stripped:
+                    continue
+                if stripped.startswith("allowlist:") and "[]" in stripped:
+                    repos.clear()
+                    break
+                if stripped.startswith("-"):
+                    candidate = stripped.split("-", 1)[1].strip()
+                    if candidate:
+                        repos.append(candidate)
+        except OSError:
+            repos = []
+    if repos:
+        return repos
+    org = os.environ.get("HAUSKI_ORG")
+    remote_base = os.environ.get("HAUSKI_REMOTE_BASE")
+    if org and remote_base:
+        base = Path(os.path.expandvars(remote_base)).expanduser()
+        if base.exists():
+            repos = [f"{org}/{entry.name}" for entry in base.iterdir() if entry.is_dir()]
+    if not repos:
+        repo = os.environ.get("GITHUB_REPOSITORY")
+        if repo:
+            repos = [repo]
+    return sorted(repos)
 
 
 @app.get("/events/tail", response_class=PlainTextResponse)
-def tail_events(
-    n: int = 200,
-    since: float | None = None,
-    _: None = Depends(rate_limiter),
-) -> str:
-    """
-    Return up to *n* newest events as JSONL, memory-efficiently.
-
-    Parameters:
-        n: Maximum number of events to return.
-        since: If provided, only events with a timestamp greater than this value
-            (seconds since epoch, UTC) will be returned.
-    """
-    files = sorted(EVENTS.glob("*.jsonl"), key=os.path.getmtime, reverse=True)
-    heap = []
-
-    for fp in files:
-        if since and fp.stat().st_mtime < since:
-            continue
-        try:
-            with fp.open("r", encoding="utf-8") as handle:
-                for line in handle:
-                    try:
-                        event = json.loads(line)
-                        ts_str = event.get("ts")
-                        if not ts_str:
-                            continue
-                        ts = datetime.fromisoformat(ts_str).timestamp()
-                        if since and ts < since:
-                            continue
-                        item = (ts, uuid.uuid4().hex, event)
-                        if len(heap) < n:
-                            heapq.heappush(heap, item)
-                        elif ts > heap[0][0]:
-                            heapq.heapreplace(heap, item)
-                    except (json.JSONDecodeError, ValueError, TypeError):
-                        continue
-        except OSError:
-            logging.warning("Could not process event file %s", fp)
-            continue
-
-    sorted_events = sorted([item[2] for item in heap], key=lambda e: e["ts"], reverse=True)
-    return "\n".join(json.dumps(e, ensure_ascii=False) for e in sorted_events)
+def tail_events(n: int = 200):
+    events = _collect_events(n)
+    return "\n".join(entry.get("line", "") for entry in events if entry.get("line"))
 
 
-@app.get("/policy")
-def read_policy(_: None = Depends(rate_limiter)) -> Dict[str, Any]:
-    return {"path": str(POLICY_PATH), "values": _read_policy()}
+@app.get("/events/recent")
+def recent_events(n: int = 200):
+    return {"events": _collect_events(n)}
 
 
-@app.put("/policy")
-def write_policy(update: PolicyUpdate, _: None = Depends(rate_limiter)) -> Dict[str, Any]:
-    values = _write_policy(update.values)
-    return {"path": str(POLICY_PATH), "values": values}
-
-
-@app.get("/logs/latest", response_class=PlainTextResponse)
-def latest_log(_: None = Depends(rate_limiter)) -> str:
-    """Convenience endpoint to fetch the newest log snippet."""
-    files = sorted(LOGS.glob("*.log"), key=os.path.getmtime, reverse=True)
-    if not files:
-        return ""
-    latest = files[0]
-    try:
-        return latest.read_text(encoding="utf-8")
-    except OSError:
-        raise HTTPException(status_code=500, detail=f"failed to read log: {latest}")
-
-
-@app.post("/sweep", dependencies=[Depends(rate_limiter)])
-def sweep(payload: SweepPayload) -> Dict[str, Any]:
-    job = {
-        "type": "sweep",
-        "mode": payload.mode,
+@app.get("/overview")
+def overview():
+    worker = _systemctl_show("sichter-worker.service")
+    return {
+        "worker": {
+            "activeState": worker.get("ActiveState", "unknown"),
+            "subState": worker.get("SubState", "unknown"),
+            "mainPID": worker.get("MainPID"),
+            "since": _parse_timestamp(worker.get("ActiveEnterTimestamp") or worker.get("ExecMainStartTimestamp")),
+            "lastExit": _parse_timestamp(worker.get("InactiveExitTimestamp")),
+        },
+        "queue": _queue_state(),
+        "events": _collect_events(50),
     }
-    job_id = _enqueue(job)
-    return {"enqueued": job_id, "queued": job}
+
+
+@app.get("/repos/status")
+def repos_status():
+    repos = _resolve_repos()
+    events = _collect_events(200)
+    results: list[dict] = []
+    for repo in repos:
+        latest = next((evt for evt in reversed(events) if repo in json.dumps(evt, ensure_ascii=False)), None)
+        results.append(
+            {
+                "name": repo,
+                "lastEvent": latest,
+            }
+        )
+    return {"repos": results}
+
+@app.post("/settings/policy")
+def write_policy(content: dict = Body(...)):
+    # stores to ~/.config/sichter/policy.yml
+    cfg = Path.home()/".config/sichter"
+    cfg.mkdir(parents=True, exist_ok=True)
+    target = cfg/"policy.yml"
+    raw = content.get("raw") if isinstance(content, dict) else None
+    if isinstance(raw, str) and raw.strip():
+        text = raw if raw.endswith("\n") else raw + "\n"
+    else:
+        lines = [f"{k}: {v}" for k, v in content.items()]
+        text = "\n".join(lines) + ("\n" if lines else "")
+    target.write_text(text)
+    return {"written": str(target)}
+
+
+@app.get("/settings/policy")
+def read_policy():
+    return _read_policy()

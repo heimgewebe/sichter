@@ -1,11 +1,213 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-LOG_DIR="$HOME/sichter/logs"
-mkdir -p "$LOG_DIR"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LOG_DIR="${SICHTER_LOG_DIR:-$HOME/.local/state/sichter/events}"
+PR_LOG="$LOG_DIR/pr.log"
+WORKER_LOG="$LOG_DIR/worker.log"
+WORKER_SERVICE="sichter-worker.service"
+OMNICHECK_CLI="$ROOT_DIR/bin/omnicheck"
+SICHTER_ENV_FILE="$ROOT_DIR/autostart.env"
 
-echo "Sichter Dashboard (TUI)" | tee -a "$LOG_DIR/dashboard.log"
-echo "==========================" | tee -a "$LOG_DIR/dashboard.log"
-echo "API Status: $(curl -fsS localhost:5055/healthz 2>/dev/null || echo offline)" | tee -a "$LOG_DIR/dashboard.log"
-echo "Worker Queue: $(find "${XDG_STATE_HOME:-$HOME/.local/state}/sichter/queue" -type f 2>/dev/null | wc -l)" | tee -a "$LOG_DIR/dashboard.log"
-echo "Events: $(find "${XDG_STATE_HOME:-$HOME/.local/state}/sichter/events" -type f 2>/dev/null | wc -l)" | tee -a "$LOG_DIR/dashboard.log"
+print_header() {
+  clear
+  cat <<'BANNER'
+┌───────────────────────────────┐
+│       Sichter Dashboard       │
+└───────────────────────────────┘
+BANNER
+}
+
+pause() {
+  echo
+  read -rp "Weiter mit [Enter]" _
+}
+
+require_command() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "Fehlender Befehl: $1" >&2
+    pause
+    return 1
+  fi
+}
+
+run_omnicheck() {
+  local mode="$1"
+  print_header
+  echo "Starte Omnicheck ($mode)…"
+  echo
+  if [[ "$mode" == "all" ]]; then
+    "$OMNICHECK_CLI" --all || true
+  else
+    "$OMNICHECK_CLI" --changed || true
+  fi
+  pause
+}
+
+control_worker() {
+  local action="$1"
+  local verb
+  case "$action" in
+    start) verb="starten" ;;
+    stop)  verb="anhalten" ;;
+    status) verb="Status" ;;
+    *) echo "Unbekannte Aktion: $action"; return 1 ;;
+  esac
+  print_header
+  echo "Worker $verb…"
+  echo
+  systemctl --user "$action" "$WORKER_SERVICE" || true
+  pause
+}
+
+resolve_repos() {
+  ROOT_DIR="$ROOT_DIR" python3 <<'PY'
+import os
+from pathlib import Path
+
+root_env = os.environ.get("ROOT_DIR")
+root = Path(root_env) if root_env else Path.cwd()
+policy_path = root / "config" / "policy.yml"
+allowlist: list[str] = []
+current = None
+if policy_path.exists():
+    for raw in policy_path.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("allowlist:"):
+            if "[]" in line:
+                allowlist = []
+            current = "allowlist"
+            continue
+        if current == "allowlist":
+            if line.startswith("denylist:"):
+                current = None
+                continue
+            if line.startswith("-"):
+                allowlist.append(line.split("-", 1)[1].strip())
+
+if allowlist:
+    for repo in allowlist:
+        if repo:
+            print(repo)
+else:
+    remote_base = os.environ.get("HAUSKI_REMOTE_BASE")
+    org = os.environ.get("HAUSKI_ORG")
+    repos: list[str] = []
+    if remote_base and org:
+        base = Path(os.path.expandvars(remote_base)).expanduser()
+        if base.exists():
+            for entry in sorted(base.iterdir()):
+                if entry.is_dir():
+                    repos.append(f"{org}/{entry.name}")
+    if not repos:
+        repo = os.environ.get("GITHUB_REPOSITORY")
+        if repo:
+            repos.append(repo)
+    for repo in repos:
+        print(repo)
+PY
+}
+
+show_prs() {
+  require_command gh || return
+  print_header
+  echo "Letzte Pull Requests (offen)"
+  echo "=============================="
+  echo
+  mapfile -t repos < <(ROOT_DIR="$ROOT_DIR" resolve_repos)
+  if [[ "${#repos[@]}" -eq 0 ]]; then
+    echo "Keine Repositories konfiguriert. Ergänze allowlist in config/policy.yml oder HAUSKI_REMOTE_BASE."
+    pause
+    return
+  fi
+  for repo in "${repos[@]}"; do
+    [[ -z "$repo" ]] && continue
+    echo "Repo: $repo"
+    echo "------------------------------"
+    gh pr list --repo "$repo" --state open --limit "${SICHTER_PR_LIMIT:-5}" || echo "(Fehler bei gh pr list)"
+    echo
+  done
+  pause
+}
+
+choose_log() {
+  print_header
+  echo "Logs"
+  echo "===="
+  echo "1) PR-Events ($PR_LOG)"
+  echo "2) Worker ($WORKER_LOG)"
+  echo "3) Eigene Pfad-Eingabe"
+  echo "q) Zurück"
+  echo
+  read -rp "Auswahl: " choice
+  case "$choice" in
+    1) tail_log "$PR_LOG" ;;
+    2) tail_log "$WORKER_LOG" ;;
+    3) read -rp "Pfad: " custom; tail_log "$custom" ;;
+    q|Q) return ;;
+    *) echo "Ungültig"; sleep 1 ;;
+  esac
+}
+
+tail_log() {
+  local file="$1"
+  print_header
+  if [[ -z "$file" ]]; then
+    echo "Kein Logpfad angegeben."
+    pause
+    return
+  fi
+  if [[ ! -f "$file" ]]; then
+    echo "Logdatei nicht gefunden: $file"
+    pause
+    return
+  fi
+  echo "Folge Log: $file"
+  echo "(Beenden mit q)"
+  sleep 1
+  less +F "$file"
+}
+
+show_env_info() {
+  if [[ -f "$SICHTER_ENV_FILE" ]]; then
+    echo "Konfiguration: $SICHTER_ENV_FILE"
+    echo "--------------------------------"
+    grep -E '^(HAUSKI_|SICHTER_)' "$SICHTER_ENV_FILE" || true
+    echo
+  fi
+}
+
+main_menu() {
+  while true; do
+    print_header
+    show_env_info
+    cat <<'MENU'
+Menü
+----
+1) Omnicheck (changed)
+2) Omnicheck (all)
+3) Worker Start
+4) Worker Stop
+5) Worker Status
+6) Letzte PRs anzeigen
+7) Logs öffnen
+q) Beenden
+MENU
+    read -rp "Auswahl: " answer
+    case "$answer" in
+      1) run_omnicheck "changed" ;;
+      2) run_omnicheck "all" ;;
+      3) control_worker start ;;
+      4) control_worker stop ;;
+      5) control_worker status ;;
+      6) show_prs ;;
+      7) choose_log ;;
+      q|Q) clear; exit 0 ;;
+      *) echo "Ungültige Eingabe"; sleep 1 ;;
+    esac
+  done
+}
+
+main_menu
