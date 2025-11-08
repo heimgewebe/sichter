@@ -5,17 +5,24 @@ from pydantic import BaseModel
 from pathlib import Path
 import json, time, uuid, os
 
+try: # pragma: no cover
+ import yaml
+except ModuleNotFoundError: # pragma: no cover
+ yaml = None
+
+from lib import simpleyaml
+
 STATE = Path.home()/".local/state/sichter"
 QUEUE = STATE/"queue"
 EVENTS = STATE/"events"
-LOGS  = STATE/"logs"
+LOGS = STATE/"logs"
 for p in (QUEUE, EVENTS, LOGS): p.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Sichter API", version="0.1.0")
 
 class Job(BaseModel):
-    type: str                # "ScanAll" | "ScanChanged" | "PRSweep"
-    mode: str = "changed"    # "all" | "changed"
+    type: str # "ScanAll" | "ScanChanged" | "PRSweep"
+    mode: str = "changed" # "all" | "changed"
     org: str = "heimgewebe"
     repo: str | None = None
     auto_pr: bool = True
@@ -38,7 +45,7 @@ def submit(job: Job):
 @app.get("/events/tail", response_class=PlainTextResponse)
 def tail_events(n: int = 200):
     # concat newest event files (very simple)
-    files = sorted(EVENTS.glob("*.log"), key=os.path.getmtime, reverse=True)[:3]
+    files = sorted(EVENTS.glob("*.jsonl"), key=os.path.getmtime, reverse=True)[:3]
     lines = []
     for fp in files:
         try:
@@ -53,7 +60,9 @@ def write_policy(content: dict = Body(...)):
     # stores to ~/.config/sichter/policy.yml
     cfg = Path.home()/".config/sichter"
     cfg.mkdir(parents=True, exist_ok=True)
-    (cfg/"policy.yml").write_text(
-        "\n".join([f"{k}: {v}" for k,v in content.items()]) + "\n"
-    )
+    if yaml is not None:
+        text = yaml.safe_dump(content, sort_keys=False, allow_unicode=True)
+    else:
+        text = simpleyaml.dump(content)
+    (cfg/"policy.yml").write_text(text)
     return {"written": str(cfg/"policy.yml")}

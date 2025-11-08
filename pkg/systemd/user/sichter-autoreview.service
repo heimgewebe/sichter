@@ -1,0 +1,9 @@
+[Unit]
+Description=Sichter Deep Review Sweep
+
+[Service]
+Type=oneshot
+ExecStart=%h/sichter/bin/sichter-pr-sweep --all
+
+[Install]
+WantedBy=default.target
