@@ -38,10 +38,10 @@ class TestWorkerRun(unittest.TestCase):
         # Test case 3: job without auto_pr (fallback to policy)
         job_none = {'repo': 'test_repo'}
         with patch('apps.worker.run.POLICY.auto_pr', True):
-             worker_run.handle_job(job_none)
-             mock_create_or_update_pr.assert_called_with(
+            worker_run.handle_job(job_none)
+            mock_create_or_update_pr.assert_called_with(
                 'test_repo', mock_ensure_repo.return_value, mock_fresh_branch.return_value, True
-             )
+            )
 
         with patch('apps.worker.run.POLICY.auto_pr', False):
             worker_run.handle_job(job_none)
