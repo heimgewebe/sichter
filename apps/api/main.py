@@ -71,11 +71,8 @@ def _parse_timestamp(value: str | None) -> str | None:
         return None
     # systemd liefert menschenlesbare Strings; ohne Format robust nicht parsbar.
     # Gib den Originalwert zurück, aber fang alle Fehler ab.
-    try:
-        # Versuche nichts zu parsen, reiche roh durch:
-        return value
-    except Exception:
-        return value
+    # Versuche nichts zu parsen, reiche roh durch:
+    return value
 
 
 def _queue_state(limit: int = 10) -> dict:
