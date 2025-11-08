@@ -100,9 +100,11 @@ def _queue_state(limit: int = 10) -> dict:
 
 def _collect_events(limit: int = 200) -> list[dict[str, str | dict]]:
     # Bevorzuge .jsonl (neues Format), fallback .log (alt)
-    files = sorted(EVENTS.glob("*.jsonl"), key=os.path.getmtime, reverse=True)[:5]
+    # Erst alle Dateien sammeln, dann die Zeilen limitieren. Sonst werden
+    # die neuesten Events ggf. verworfen.
+    files = sorted(EVENTS.glob("*.jsonl"), key=os.path.getmtime, reverse=True)
     if not files:
-        files = sorted(EVENTS.glob("*.log"), key=os.path.getmtime, reverse=True)[:5]
+        files = sorted(EVENTS.glob("*.log"), key=os.path.getmtime, reverse=True)
     lines: list[str] = []
     for fp in files:
         try:
@@ -219,6 +221,7 @@ def repos_status():
         )
     return {"repos": results}
 
+import tempfile
 @app.post("/settings/policy")
 def write_policy(content: dict = Body(...)):
     # stores to ~/.config/sichter/policy.yml
@@ -231,7 +234,20 @@ def write_policy(content: dict = Body(...)):
     else:
         lines = [f"{k}: {v}" for k, v in content.items()]
         text = "\n".join(lines) + ("\n" if lines else "")
-    target.write_text(text)
+
+    # Atomares Schreiben: In temporäre Datei schreiben, dann verschieben
+    # um korrupte policy.yml zu vermeiden, wenn der Schreibvorgang
+    # unterbrochen wird.
+    tmp_path = None
+    try:
+        fd, tmp_path = tempfile.mkstemp(dir=cfg, prefix=".policy.yml.tmp-")
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+        os.rename(tmp_path, str(target))
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
     return {"written": str(target)}
 
 
