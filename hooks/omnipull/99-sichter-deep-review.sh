@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/sichter"
-QUEUE_DIR="$STATE_DIR/queue"
-mkdir -p "$QUEUE_DIR"
+LOG="$HOME/sichter/logs/omnipull.log"
+mkdir -p "$(dirname "$LOG")"
+echo "[hook 99] $(date -Is) deep review sweep" >>"$LOG"
 
-job_file="$QUEUE_DIR/$(date +%s)-deep-review.json"
-cat >"$job_file" <<'JSON'
-{
- "type": "ScanAll",
- "mode": "all",
- "auto_pr": true
-}
-JSON
+if [[ "${SICHTER_DEEP_REVIEW:-1}" != "1" ]]; then
+ echo "[hook 99] skipped (SICHTER_DEEP_REVIEW!=1)" >>"$LOG"
+ exit 0
+fi
+
+{ echo "[hook 99] run ${SICHTER_DEEP_REVIEW_MODE:---changed} (deep)"; SICHTER_RUN_MODE=deep "$HOME/sichter/bin/sichter-pr-sweep" "${SICHTER_DEEP_REVIEW_MODE:---changed}"; } >>"$LOG" 2>&1 || true

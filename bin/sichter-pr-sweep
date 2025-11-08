@@ -1,109 +1,107 @@
 #!/usr/bin/env bash
 set -euo pipefail
-MODE="changed"
+
+MODE="${MODE:---changed}"
 if [[ "${1:-}" == "--all" ]]; then
- MODE="all"
- shift || true
+ MODE="--all"
 elif [[ "${1:-}" == "--changed" ]]; then
- MODE="changed"
- shift || true
+ MODE="--changed"
 fi
-
-POLICY_PATH="${XDG_CONFIG_HOME:-$HOME/.config}/sichter/policy.yml"
-if [[ ! -f "$POLICY_PATH" ]]; then
- POLICY_PATH="$(cd "$(dirname "$0")/.." && pwd)/config/policy.yml"
-fi
-
-eval "$(python3 - <<'PY'
-import pathlib
-import sys
-try:
- import yaml
-except ModuleNotFoundError:
- print('ORG=heimgewebe')
- print('AUTO_PR=1')
- sys.exit(0)
-policy_path = pathlib.Path(r"$POLICY_PATH")
-policy = yaml.safe_load(policy_path.read_text()) if policy_path.exists() else {}
-org = policy.get("org", "heimgewebe")
-auto = 1 if policy.get("auto_pr", True) else 0
-print(f"ORG={org}")
-print(f"AUTO_PR={auto}")
-PY
-)"
 
 LOG_DIR="$HOME/sichter/logs"
 mkdir -p "$LOG_DIR"
-LOG="$LOG_DIR/pr-actions.log"
+LOG="${LOG:-$LOG_DIR/pr-actions.log}"
+ORG="${ORG:-heimgewebe}"
+AUTO_PR="${SICHTER_AUTO_PR:-1}"
+RUN_MODE="${SICHTER_RUN_MODE:-light}"
 
-ts(){ date -Is; }
-say(){ echo "[$(ts)] $*" | tee -a "$LOG"; }
-
-say "===== Sichter PR Sweep start (${MODE}) ====="
-
-collect_repos() {
- if [[ "$MODE" == "all" ]]; then
-  gh repo list "$ORG" --limit 100 --json name -q '.[].name' 2>/dev/null || true
- else
-  local repos
-  repos=$(find "$HOME/repos" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null)
-  if [[ -n "$repos" ]]; then
-   printf '%s\n' "$repos"
-  else
-   gh repo list "$ORG" --limit 50 --json name -q '.[].name' 2>/dev/null || true
-  fi
- fi
+TS() { date -Is; }
+SAY() { echo "[$(TS)] $*"; }
+LOG_LINE() { SAY "$*" | tee -a "$LOG"; }
+RESULT() {
+ local action="$1" repo="$2" branch="$3" detail="${4:--}"
+ LOG_LINE "[RESULT][$action] repo=$repo branch=$branch detail=$detail"
 }
 
-mapfile -t REPOS < <(collect_repos)
+LOG_LINE "===== Sichter PR Sweep start (${MODE} / run_mode=${RUN_MODE}) ====="
+
+# Kandidaten
+if [[ "$MODE" == "--all" ]]; then
+mapfile -t REPOS < <(gh repo list "$ORG" --limit 100 --json name -q '.[].name' || true)
+else
+mapfile -t REPOS < <(find "$HOME/repos" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null || true)
+ if [[ "${#REPOS[@]}" -eq 0 ]]; then
+ mapfile -t REPOS < <(gh repo list "$ORG" --limit 50 --json name -q '.[].name' || true)
+ fi
+fi
 
 if [[ "${#REPOS[@]}" -eq 0 ]]; then
- say "Keine Ziel-Repos"
+ LOG_LINE "Keine Ziel-Repos"
+ LOG_LINE "===== Sichter PR Sweep done (${MODE}) ====="
  exit 0
 fi
 
-for repo in "${REPOS[@]}"; do
- [[ -n "$repo" ]] || continue
- REPO_PATH="$HOME/repos/$repo"
- if [[ ! -d "$REPO_PATH/.git" ]]; then
-  gh repo clone "$ORG/$repo" "$REPO_PATH" >>"$LOG" 2>&1 || true
- fi
- [[ -d "$REPO_PATH/.git" ]] || { say "skip $repo (kein git)"; continue; }
+for r in "${REPOS[@]}"; do
+ [[ -z "$r" ]] && continue
+REPO_PATH="$HOME/repos/$r"
+if [[ ! -d "$REPO_PATH/.git" ]]; then
+ LOG_LINE "Cloning missing repo $ORG/$r"
+gh repo clone "$ORG/$r" "$REPO_PATH" >/dev/null 2>&1 || true
+ [[ ! -d "$REPO_PATH/.git" ]] && { LOG_LINE "Skipping $r (clone failed)"; continue; }
+fi
 
- pushd "$REPO_PATH" >/dev/null || continue
- git fetch origin --prune --tags >>"$LOG" 2>&1 || true
- git switch --detach origin/main >>"$LOG" 2>&1 || git checkout --detach origin/main >>"$LOG" 2>&1 || true
- BR="sichter/autofix-$(date +%Y%m%d-%H%M%S)"
- git switch -C "$BR" >>"$LOG" 2>&1 || git checkout -B "$BR" >>"$LOG" 2>&1 || true
+ pushd "$REPO_PATH" >/dev/null || { LOG_LINE "Skipping $r (cannot enter repo)"; continue; }
 
- if [[ -x "$HOME/sichter/hooks/post-run" ]]; then
-  SICHTER_REPO_ROOT="$REPO_PATH" "$HOME/sichter/hooks/post-run" >>"$LOG" 2>&1 || true
+git fetch origin --prune --tags >/dev/null 2>&1 || true
+ if ! git switch --detach "origin/main" >/dev/null 2>&1; then
+ git checkout --detach "origin/main" >/dev/null 2>&1 || true
  fi
 
- git add -A >>"$LOG" 2>&1 || true
- if ! git diff --cached --quiet; then
-  git commit -m "hauski: autofix" >>"$LOG" 2>&1 || true
-  if [[ "$AUTO_PR" == "1" ]]; then
-   git push --set-upstream origin "$BR" --force-with-lease >>"$LOG" 2>&1 || true
-   URL="$(gh pr view "$BR" --json url -q .url 2>/dev/null || true)"
-   if [[ -z "$URL" ]]; then
-    gh pr create --base main --fill --title "Sichter: auto PR ($repo)" \
-    --label sichter --label automation >>"$LOG" 2>&1 || true
-    URL="$(gh pr view "$BR" --json url -q .url 2>/dev/null || true)"
-   fi
-   if [[ -n "$URL" ]]; then
-    say "PR ${repo} -> $URL"
-   else
-    say "PR ${repo} erstellt (URL unbekannt)"
-   fi
-  else
-   say "Commit ${repo} (Auto-PR deaktiviert)"
-  fi
- else
-  say "Keine Änderungen in ${repo}"
+BR="sichter/autofix-$(date +%Y%m%d-%H%M%S)"
+git switch -C "$BR" >/dev/null 2>&1 || git checkout -B "$BR" >/dev/null 2>&1
+
+ export SICHTER_RUN_MODE="$RUN_MODE"
+if [[ -x "$HOME/sichter/hooks/post-run" ]]; then
+ LOG_LINE "Running repo hook for $r"
+HAUSKI_AUTO_APPLY=1 HAUSKI_AUTO_COMMIT=0 HAUSKI_AUTO_PR=0 "$HOME/sichter/hooks/post-run" >/dev/null 2>&1 || true
+fi
+
+ # Light integrated check for visibility
+ if [[ "$RUN_MODE" == "light" ]]; then
+ git status --short >/dev/null 2>&1 || true
  fi
+
+git add -A || true
+ if git diff --cached --quiet; then
+ RESULT "NOCHANGE" "$r" "$BR" "no staged updates"
  popd >/dev/null || true
+ continue
+ fi
+
+ if ! git commit -m "sichter: automated sweep" >/dev/null 2_dev_null 2>&1; then
+ RESULT "ERROR" "$r" "$BR" "commit failed"
+ popd >/dev/null || true
+ continue
+ fi
+
+ if [[ "$AUTO_PR" == "1" ]]; then
+ git push --set-upstream origin "$BR" --force-with-lease >/dev/null 2>&1 || true
+ URL="$(gh pr view "$BR" --json url -q .url 2>/dev/null || true)"
+ if [[ -z "$URL" ]]; then
+ gh pr create --base main --fill --title "Sichter: auto PR ($r)" --label sichter --label automation >/dev/null 2>&1 || true
+URL="$(gh pr view "$BR" --json url -q .url 2>/dev/null || true)"
+ fi
+ if [[ -n "$URL" ]]; then
+ RESULT "PR" "$r" "$BR" "$URL"
+ else
+ RESULT "PUSH" "$r" "$BR" "pushed (PR n/a)"
+ fi
+ else
+ RESULT "COMMIT" "$r" "$BR" "Auto-PR=off"
+ fi
+
+popd >/dev/null || true
 
 done
 
-say "===== Sichter PR Sweep done (${MODE}) ====="
+LOG_LINE "===== Sichter PR Sweep done (${MODE}) ====="

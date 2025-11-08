@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-CMD="${HOME}/sichter/bin/sichter-pr-sweep"
-if [ ! -x "$CMD" ]; then
- CMD="$ROOT/bin/sichter-pr-sweep"
+LOG="$HOME/sichter/logs/omnipull.log"
+mkdir -p "$(dirname "$LOG")"
+echo "[hook 90] $(date -Is) optional pr-sweep" >>"$LOG"
+
+if [[ "${SICHTER_EXTRA_SWEEP:-0}" != "1" ]]; then
+ echo "[hook 90] skipped (SICHTER_EXTRA_SWEEP!=1)" >>"$LOG"
+ exit 0
 fi
 
-if [ -x "$CMD" ]; then
- "$CMD" >>"${HOME}/sichter/logs/omnipull.log" 2>&1 || true
-fi
+MODE="${SICHTER_EXTRA_SWEEP_MODE:---all}"
+{ echo "[hook 90] run $MODE"; "$HOME/sichter/bin/sichter-pr-sweep" "$MODE"; } >>"$LOG" 2>&1 || true

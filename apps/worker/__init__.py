@@ -1,1 +1,1 @@
-# makes "apps.worker" a package
+# package marker
