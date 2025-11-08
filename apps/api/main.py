@@ -1,16 +1,23 @@
 # apps/api/main.py
-from fastapi import FastAPI, Body
+import asyncio
+import json
+import os
+import subprocess
+import tempfile
+import time
+import uuid
+from datetime import datetime
+from pathlib import Path
+
+from fastapi import Body, FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
-from pathlib import Path
-from datetime import datetime
-import json, time, uuid, os, subprocess, tempfile
 
-STATE = Path.home()/".local/state/sichter"
-QUEUE = STATE/"queue"
-EVENTS = STATE/"events"
-LOGS  = STATE/"logs"
+STATE = Path.home() / ".local/state/sichter"
+QUEUE = STATE / "queue"
+EVENTS = STATE / "events"
+LOGS = STATE / "logs"
 for p in (QUEUE, EVENTS, LOGS):
     p.mkdir(parents=True, exist_ok=True)
 
@@ -24,34 +31,50 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 class Job(BaseModel):
-    type: str              # "ScanAll" | "ScanChanged" | "PRSweep"
+    type: str  # "ScanAll" | "ScanChanged" | "PRSweep"
     mode: str = "changed"  # "all" | "changed"
     org: str = "heimgewebe"
     repo: str | None = None
     auto_pr: bool = True
 
+
 def _enqueue(job: dict) -> str:
     jid = f"{int(time.time())}-{uuid.uuid4().hex[:8]}"
-    f = (QUEUE/f"{jid}.json")
+    f = QUEUE / f"{jid}.json"
     f.write_text(json.dumps(job, ensure_ascii=False, indent=2))
     return jid
+
+
+def _timestamp():
+    return datetime.now().isoformat()
+
 
 @app.get("/healthz", response_class=PlainTextResponse)
 def healthz():
     return "ok"
+
 
 @app.post("/jobs/submit")
 def submit(job: Job):
     jid = _enqueue(job.model_dump())
     return {"enqueued": jid, "queue_dir": str(QUEUE)}
 
+
 def _systemctl_show(service: str) -> dict[str, str]:
     try:
         env = dict(os.environ)
         env["SYSTEMD_PAGER"] = ""
         raw = subprocess.check_output(
-            ["systemctl", "--user", "show", service, "--property", "ActiveState,SubState,ExecMainStartTimestamp,ActiveEnterTimestamp,InactiveExitTimestamp,MainPID"],
+            [
+                "systemctl",
+                "--user",
+                "show",
+                service,
+                "--property",
+                "ActiveState,SubState,ExecMainStartTimestamp,ActiveEnterTimestamp,InactiveExitTimestamp,MainPID",
+            ],
             text=True,
             env=env,
         )
@@ -225,9 +248,9 @@ def repos_status():
 @app.post("/settings/policy")
 def write_policy(content: dict = Body(...)):
     # stores to ~/.config/sichter/policy.yml
-    cfg = Path.home()/".config/sichter"
+    cfg = Path.home() / ".config/sichter"
     cfg.mkdir(parents=True, exist_ok=True)
-    target = cfg/"policy.yml"
+    target = cfg / "policy.yml"
     raw = content.get("raw") if isinstance(content, dict) else None
     if isinstance(raw, str) and raw.strip():
         text = raw if raw.endswith("\n") else raw + "\n"
@@ -254,3 +277,102 @@ def write_policy(content: dict = Body(...)):
 @app.get("/settings/policy")
 def read_policy():
     return _read_policy()
+
+
+# --- websocket: /events/stream ------------------------------------------------
+
+
+def _jsonl_files() -> list[Path]:
+    """Return jsonl event files sorted by mtime ascending."""
+    return sorted(EVENTS.glob("*.jsonl"), key=os.path.getmtime)
+
+
+def _read_last_lines(path: Path, n: int) -> list[str]:
+    try:
+        data = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        return data[-n:]
+    except OSError:
+        return []
+
+
+@app.websocket("/events/stream")
+async def events_stream(ws: WebSocket):
+    """
+    WebSocket-Stream der Event-JSONL-Zeilen.
+    Query-Parameter:
+      - replay: int   (Anzahl letzter Zeilen zu Beginn; Default 50)
+      - heartbeat: int (Sekunden zwischen Heartbeats; Default 15)
+    """
+    await ws.accept()
+    try:
+        replay = int(ws.query_params.get("replay", 50))
+    except (TypeError, ValueError):
+        replay = 50
+    try:
+        heartbeat_sec = max(3, int(ws.query_params.get("heartbeat", 15)))
+    except (TypeError, ValueError):
+        heartbeat_sec = 15
+
+    # Initial replay (letzte Zeilen aus der neuesten Datei)
+    files = _jsonl_files()
+    if files:
+        last_file = files[-1]
+        for line in _read_last_lines(last_file, replay):
+            await ws.send_text(line)
+    else:
+        last_file = None
+
+    # Tail-Loop (Polling + Rotation)
+    # Wir merken uns pro Datei die gelesene Offset-Länge.
+    offsets: dict[str, int] = {}
+    last_heartbeat = time.time()
+
+    while True:
+        try:
+            files = _jsonl_files()
+            # Sicherstellen, dass wir auch Rotationen mitbekommen
+            if not files:
+                await asyncio.sleep(1.0)
+                # Heartbeat
+                if time.time() - last_heartbeat >= heartbeat_sec:
+                    await ws.send_text(json.dumps({"ts": _timestamp(), "type": "heartbeat"}))
+                    last_heartbeat = time.time()
+                continue
+
+            # Lese neue Zeilen aus der aktuellsten Datei; wenn eine neuere auftaucht, wechsle
+            current = files[-1]
+            if last_file is None or current != last_file:
+                last_file = current
+                offsets[str(current)] = 0  # reset offset for new file
+
+            p = current
+            p_key = str(p)
+            try:
+                with p.open("r", encoding="utf-8", errors="ignore") as fh:
+                    if p_key not in offsets:
+                        offsets[p_key] = 0
+                    fh.seek(offsets[p_key])
+                    chunk = fh.read()
+                    offsets[p_key] = fh.tell()
+                    if chunk:
+                        for line in chunk.splitlines():
+                            if line.strip():
+                                await ws.send_text(line)
+            except OSError:
+                # Datei evtl. rotiert oder noch nicht lesbar – ignoriere einmal
+                pass
+
+            # Heartbeat senden
+            if time.time() - last_heartbeat >= heartbeat_sec:
+                await ws.send_text(json.dumps({"ts": _timestamp(), "type": "heartbeat"}))
+                last_heartbeat = time.time()
+
+            await asyncio.sleep(1.0)
+        except WebSocketDisconnect:
+            break
+        except Exception as exc:  # robust bleiben
+            # Fehler ans UI senden, aber Stream nicht abbrechen
+            try:
+                await ws.send_text(json.dumps({"ts": _timestamp(), "type": "error", "detail": str(exc)}))
+            except Exception:
+                break
