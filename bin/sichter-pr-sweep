@@ -80,10 +80,16 @@ for r in "${REPOS[@]}"; do
   if [[ ! -d "$REPO_PATH/.git" ]]; then
     LOG_LINE "Cloning missing repo $ORG/$r"
     gh repo clone "$ORG/$r" "$REPO_PATH" >/dev/null 2>&1 || true
-    [[ ! -d "$REPO_PATH/.git" ]] && { RESULT "ERROR" "$r" "-" "clone failed"; continue; }
+    if [[ ! -d "$REPO_PATH/.git" ]]; then
+      RESULT "ERROR" "$r" "-" "clone failed"
+      continue
+    fi
   fi
 
-  pushd "$REPO_PATH" >/dev/null || { RESULT "ERROR" "$r" "-" "cannot enter repo"; continue; }
+  if ! pushd "$REPO_PATH" >/dev/null; then
+    RESULT "ERROR" "$r" "-" "cannot enter repo"
+    continue
+  fi
 
   git fetch origin --prune --tags >/dev/null 2>&1 || true
   if ! git switch --detach "origin/main" >/dev/null 2>&1; then
