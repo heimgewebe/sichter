@@ -5,11 +5,11 @@ mkdir -p "$(dirname "$LOG")"
 {
 	echo "== $(date) GH verify =="
 	if ! command -v gh >/dev/null 2>&1; then
-		echo "❌ gh (GitHub CLI) fehlt"
+		echo "❌ gh (GitHub CLI) is not installed. Please install it to continue."
 		exit 12
 	fi
 	if ! gh auth status >/dev/null 2>&1; then
-		echo "❌ gh nicht eingeloggt. Bitte: gh auth login"
+		echo "❌ Not logged in to GitHub. Please run 'gh auth login' to authenticate."
 		exit 13
 	fi
 	# Header nötig, um JSON zu erzwingen:
