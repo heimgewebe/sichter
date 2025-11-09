@@ -1,0 +1,12 @@
+[Unit]
+Description=Run WS self-test every 5 minutes
+
+[Timer]
+OnBootSec=2m
+OnUnitActiveSec=5m
+Unit=sichter-ws-selftest.service
+AccuracySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

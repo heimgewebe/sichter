@@ -17,7 +17,7 @@ fi
 echo "▶ worker gestartet: $(date)" | tee -a "$LOG"
 if [ ! -x "$HOOK" ]; then
 	echo "❌ Hook fehlt/ist nicht ausführbar: $HOOK" | tee -a "$LOG"
-	exit 1
+	exit 0
 fi
 
 while true; do

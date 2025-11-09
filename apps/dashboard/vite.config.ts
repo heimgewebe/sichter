@@ -5,7 +5,15 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: parseInt(process.env.PORT ?? '5173', 10),
-    host: '0.0.0.0'
+    host: '0.0.0.0',
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8000',
+        ws: true,
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ''),
+      },
+    },
   },
   preview: {
     port: parseInt(process.env.PORT ?? '4173', 10),

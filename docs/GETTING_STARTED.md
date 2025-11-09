@@ -29,3 +29,15 @@ Diese Anleitung beschreibt die ersten Schritte nach dem Klonen des Repositories.
 
  Der Befehl startet die TUI-Variante des Dashboards. Sobald die Web-UI verfügbar ist,
  öffnet der gleiche Befehl diese Version.
+
+4. **WebSocket-Eventstream testen**
+
+   ```bash
+   bin/ws-selftest --base http://127.0.0.1:5055 --replay 10
+   ```
+
+   Der Test versucht zuerst eine WS-Verbindung (`/events/stream`). Falls kein WebSocket-Client
+   installiert ist, fällt er auf `GET /events/recent` zurück.
+
+ > **Hinweis:** Die Web-UI nutzt aktuell HTTP-Polling zur Aktualisierung der Event-Anzeige.
+ > Eine WebSocket-basierte Echtzeit-Ansicht ist für eine spätere Version geplant.

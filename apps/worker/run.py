@@ -269,7 +269,7 @@ def list_repos_remote() -> list[str]:
 def main() -> int:
  acquire_pid_lock()
  log("Worker gestartet")
- append_event({"type": "start", "pid": os.getpid()})
+ append_event({"type": "start", "message": f"Worker gestartet (pid={os.getpid()})"})
  try:
   while True:
    job_files = sorted(QUEUE.glob("*.json"))
@@ -282,12 +282,14 @@ def main() -> int:
      handle_job(job)
     except Exception as exc: # pragma: no cover
      log(f"Fehler bei {job_file.name}: {exc}")
-     append_event({"type": "error", "job": job_file.name, "error": str(exc)})
+     append_event(
+      {"type": "error", "message": f"Job {job_file.name} failed: {exc}"}
+     )
     finally:
      job_file.unlink(missing_ok=True)
  except KeyboardInterrupt:
   log("Worker beendet (KeyboardInterrupt)")
-  append_event({"type": "stop", "reason": "keyboard"})
+  append_event({"type": "stop", "message": "KeyboardInterrupt"})
   return 0
 
 

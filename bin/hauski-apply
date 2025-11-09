@@ -6,19 +6,22 @@ set -euo pipefail
 source "$(dirname "$0")/../lib/common.sh"
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-[ -n "$ROOT" ] || {
+if [ -z "$ROOT" ]; then
 	echo "⏭️  kein Git-Repo"
 	exit 0
-}
+fi
 REPO="$(basename "$ROOT")"
-validate_name "$REPO"
+if ! validate_name_non_fatal "$REPO"; then
+	echo "Error: Invalid repo name." >&2
+	exit 1
+fi
 REPORT_DIR="${HOME}/sichter/review/${REPO}"
 # Portabel: neueste Datei anhand ls -t; robust mit -print0/xargs -0 (macOS & Linux)
 LAST="$(find "${REPORT_DIR}" -maxdepth 1 -name '*-review.md' -type f -print0 | xargs -0 ls -1t 2>/dev/null | head -n1 || true)"
-[ -n "$LAST" ] || {
+if [ -z "$LAST" ]; then
 	echo "ℹ️  kein Report"
 	exit 0
-}
+fi
 
 cd "${ROOT}"
 TMP="$(mktemp)"

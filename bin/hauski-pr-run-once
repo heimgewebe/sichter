@@ -68,8 +68,14 @@ for J in "${PRS[@]}"; do
   repo="$(printf '%s' "$J" | jqget '.repo')"
   num="$(printf '%s' "$J" | jqget '.number')"
   { [ -n "$repo" ] && [ -n "$num" ]; } || continue
-  validate_name "$repo"
-  validate_name "$num"
+  if ! validate_name_non_fatal "$repo"; then
+    log "  ⚠️ invalid repo name: $repo"
+    continue
+  fi
+  if ! validate_name_non_fatal "$num"; then
+    log "  ⚠️ invalid pr number: $num"
+    continue
+  fi
 
   meta="$(gh pr view -R "${repo}" "${num}" \
            --json headRefName,headRefOid,headRepository,maintainerCanModify \
