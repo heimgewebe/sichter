@@ -67,12 +67,15 @@ br="$(ensure_fresh_branch)"
 for J in "${PRS[@]}"; do
   repo="$(printf '%s' "$J" | jqget '.repo')"
   num="$(printf '%s' "$J" | jqget '.number')"
-  if [[ -z "$repo" || -z "$num" ]]; then
-    log "invalid entry skipped: repo='$repo', num='$num'"
+  { [ -n "$repo" ] && [ -n "$num" ]; } || continue
+  if ! validate_name_non_fatal "$repo"; then
+    log "  ⚠️ invalid repo name: $repo"
     continue
   fi
-  validate_name "$repo"
-  validate_name "$num"
+  if ! validate_name_non_fatal "$num"; then
+    log "  ⚠️ invalid pr number: $num"
+    continue
+  fi
 
   meta="$(gh pr view -R "${repo}" "${num}" \
            --json headRefName,headRefOid,headRepository,maintainerCanModify \

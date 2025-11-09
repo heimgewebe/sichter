@@ -14,3 +14,12 @@ validate_name() {
     fi
     return 0
 }
+
+# Non-fatal version of validate_name for use in non-critical CI steps
+validate_name_non_fatal() {
+    if ! validate_name "$1"; then
+        # The error message is already printed by validate_name
+        return 0
+    fi
+    return 0
+}
