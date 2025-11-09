@@ -54,6 +54,7 @@ async def _ws_run(url: str, limit: int, timeout: float) -> int:
     except Exception:
         websocket = None
     if websocket is not None:
+        import threading
         parsed = urlparse(url)
         ws_scheme = "wss" if parsed.scheme == "https" else "ws"
         ws_url = parsed._replace(scheme=ws_scheme).geturl()
@@ -64,16 +65,22 @@ async def _ws_run(url: str, limit: int, timeout: float) -> int:
             print(message)
             count += 1
         wsapp = websocket.WebSocketApp(ws_url, on_message=on_message)
-        # run_forever is blocking; use a short run window
+
+        # run_forever is blocking, so run it in a thread
+        wst = threading.Thread(target=wsapp.run_forever)
+        wst.daemon = True
+        wst.start()
+
         t0 = time.time()
         while count < limit and (time.time() - t0) < timeout:
-            wsapp.run_forever(dispatcher=None, reconnect=1)
-            # break if reached within one loop
-            if count >= limit:
-                break
+            time.sleep(0.1)
+
+        wsapp.close()
+
         if count >= limit:
             print(f"[ws-selftest] ✅ received {count} messages")
             return 0
+
         print(f"[ws-selftest] ⚠️ timeout, received {count}/{limit}")
         return 2
 
