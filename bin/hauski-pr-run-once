@@ -68,11 +68,11 @@ for J in "${PRS[@]}"; do
   repo="$(printf '%s' "$J" | jqget '.repo')"
   num="$(printf '%s' "$J" | jqget '.number')"
   { [ -n "$repo" ] && [ -n "$num" ]; } || continue
-  if ! validate_name "$repo"; then
+  if ! validate_name_non_fatal "$repo"; then
     log "  ⚠️ invalid repo name: $repo"
     continue
   fi
-  if ! validate_name "$num"; then
+  if ! validate_name_non_fatal "$num"; then
     log "  ⚠️ invalid pr number: $num"
     continue
   fi

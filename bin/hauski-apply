@@ -11,7 +11,7 @@ if [ -z "$ROOT" ]; then
 	exit 0
 fi
 REPO="$(basename "$ROOT")"
-if ! validate_name "$REPO"; then
+if ! validate_name_non_fatal "$REPO"; then
 	echo "Error: Invalid repo name." >&2
 	exit 1
 fi
