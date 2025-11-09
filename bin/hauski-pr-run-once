@@ -67,7 +67,10 @@ br="$(ensure_fresh_branch)"
 for J in "${PRS[@]}"; do
   repo="$(printf '%s' "$J" | jqget '.repo')"
   num="$(printf '%s' "$J" | jqget '.number')"
-  { [ -n "$repo" ] && [ -n "$num" ]; } || continue
+  if [[ -z "$repo" || -z "$num" ]]; then
+    log "invalid entry skipped: repo='$repo', num='$num'"
+    continue
+  fi
   validate_name "$repo"
   validate_name "$num"
 
