@@ -90,7 +90,11 @@ def api_repos():
 
 @app.get("/api/report/{repo}")
 def api_report(repo: str):
-    # Validate: ensure the resolved path is inside the review root
+    # Validate: repo name must not contain path separators or traversal
+    import re
+    INVALID = re.compile(r'[\\/]|^\.\.?$|^$')
+    if INVALID.search(repo):
+        raise HTTPException(403, "Invalid repo name")
     repo_dir = (REVIEW_ROOT / repo).resolve()
     try:
         repo_dir.relative_to(REVIEW_ROOT.resolve())
@@ -100,7 +104,6 @@ def api_report(repo: str):
         raise HTTPException(404, "repo not found")
     rep = collect_repo_report(repo_dir)
     return rep or {}
-
 app.mount("/static", StaticFiles(directory=str(APP_ROOT / "static")), name="static")
 
 @app.get("/")

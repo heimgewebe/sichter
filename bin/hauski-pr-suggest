@@ -9,28 +9,28 @@ set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 [ -n "$ROOT" ] || {
-	echo "⏭️  kein Git-Repo"
-	exit 0
+  echo "⏭️  kein Git-Repo"
+  exit 0
 }
 REPO="$(basename "$ROOT")"
 REPORT_DIR="$HOME/sichter/review/$REPO"
-LAST="$(ls -1t "$REPORT_DIR"/*-review.md 2>/dev/null | head -n1 || true)"
+LAST="$(find "$REPORT_DIR" -maxdepth 1 -name '*-review.md' -type f -print0 | xargs -0 ls -1t 2>/dev/null | head -n1 || true)"
 [ -n "$LAST" ] || {
-	echo "ℹ️  kein Report"
-	exit 0
+  echo "ℹ️  kein Report"
+  exit 0
 }
 
-command -v gh >/dev/null 2>&1 || {
-	echo "⚠️  gh fehlt"
-	exit 0
+command -v gh >/dev/null 2>/dev/null || {
+  echo "⚠️  gh fehlt"
+  exit 0
 }
 
 # 1) Patch/Diff-Blöcke extrahieren
 TMP="$(mktemp)"
 SUG_DIR="$(mktemp -d)"
 cleanup() {
-	rm -f "$TMP"
-	rm -rf "$SUG_DIR"
+  rm -f "$TMP"
+  rm -rf "$SUG_DIR"
 }
 trap cleanup EXIT
 awk '
@@ -41,8 +41,8 @@ awk '
 ' "$LAST" >"$TMP"
 
 if [ ! -s "$TMP" ]; then
-	echo "ℹ️  kein diff/patch Block im Report."
-	exit 0
+  echo "ℹ️  kein diff/patch Block im Report."
+  exit 0
 fi
 
 # 2) Patch ggf. kürzen / splitten in Schnipsel ≤ 6000 Zeichen pro Kommentar
@@ -62,142 +62,143 @@ awk -v max="$MAX" -v dir="$SUG_DIR" '
 ' "$TMP"
 mapfile -t PATCH_FILES < <(ls -1 "$SUG_DIR"/chunk-*.diff 2>/dev/null || true)
 if [ ${#PATCH_FILES[@]} -eq 0 ]; then
-	echo "ℹ️  Patch leer."
-	exit 0
+  echo "ℹ️  Patch leer."
+  exit 0
 fi
 
 # 3) Optional: Gist mit Gesamtsammlung
 GIST_URL=""
 if [ "${HAUSKI_PR_GIST:-0}" = "1" ]; then
-	cp "$TMP" "$SUG_DIR/all.patch"
-	GIST_URL="$(gh gist create -p -d "HausKI suggestions for $REPO ($(date +%F %T))" "$SUG_DIR/all.patch" 2>/dev/null || true)"
+  cp "$TMP" "$SUG_DIR/all.patch"
+  GIST_URL="$(gh gist create -p -d "HausKI suggestions for $REPO ($(date +%F %T))" "$SUG_DIR/all.patch" 2>/dev/null || true)"
 fi
 
 # 4) Kontext vorbereiten
 HEAD_MD="$(sed -n '1,80p' "$LAST")"
 
 if git rev-parse --verify HEAD >/dev/null 2>&1; then
-	if git diff --quiet --ignore-submodules HEAD; then
-		AUTO_STATE="clean"
-	else
-		AUTO_STATE="dirty"
-	fi
+  if git diff --quiet --ignore-submodules HEAD; then
+    AUTO_STATE="clean"
+  else
+    AUTO_STATE="dirty"
+  fi
 else
-	if [ -z "$(git status --porcelain 2>/dev/null)" ]; then
-		AUTO_STATE="clean"
-	else
-		AUTO_STATE="dirty"
-	fi
+  if [ -z "$(git status --porcelain 2>/dev/null)" ]; then
+    AUTO_STATE="clean"
+  else
+    AUTO_STATE="dirty"
+  fi
 fi
 
 AUTO_NOTE="ℹ️ Auto-apply deaktiviert"
 if [ "${HAUSKI_AUTO_APPLY:-0}" = "1" ]; then
-	if [ "$AUTO_STATE" = "clean" ]; then
-		if git rev-parse --verify HEAD >/dev/null 2>&1; then
-			HEAD_HASH="$(git rev-parse --short HEAD 2>/dev/null || echo "?")"
-			HEAD_MSG="$(git log -1 --pretty=%s 2>/dev/null || echo "")"
-		else
-			HEAD_HASH="(kein HEAD)"
-			HEAD_MSG=""
-		fi
-		if [ "${HAUSKI_AUTO_COMMIT:-0}" = "1" ]; then
-			AUTO_NOTE="✅ Auto-apply & Commit erledigt (HEAD $HEAD_HASH – $HEAD_MSG)"
-		else
-			AUTO_NOTE="✅ Auto-apply angewendet (HEAD $HEAD_HASH – $HEAD_MSG)"
-		fi
-	else
-		AUTO_NOTE="⚠️ Auto-apply aktiv, Änderungen noch lokal (siehe Patch)"
-	fi
+  if [ "$AUTO_STATE" = "clean" ]; then
+    if git rev-parse --verify HEAD >/dev/null 2>&1; then
+      HEAD_HASH="$(git rev-parse --short HEAD 2>/dev/null || echo "?")"
+      HEAD_MSG="$(git log -1 --pretty=%s 2>/dev/null || echo "")"
+    else
+      HEAD_HASH="(kein HEAD)"
+      HEAD_MSG=""
+    fi
+    if [ "${HAUSKI_AUTO_COMMIT:-0}" = "1" ]; then
+      AUTO_NOTE="✅ Auto-apply & Commit erledigt (HEAD $HEAD_HASH – $HEAD_MSG)"
+    else
+      AUTO_NOTE="✅ Auto-apply angewendet (HEAD $HEAD_HASH – $HEAD_MSG)"
+    fi
+  else
+    AUTO_NOTE="⚠️ Auto-apply aktiv, Änderungen noch lokal (siehe Patch)"
+  fi
 fi
 
 APPLY_HINT="hauski-auto-here"
 [ -x "$HOME/sichter/bin/hauski-auto-here" ] || APPLY_HINT="hauski-apply"
 
 build_body() {
-	local title="$1"
-	local body_file="$(mktemp)"
+  local title="$1"
+  local body_file
+  body_file="$(mktemp)"
 
-	{
-		echo "### $title"
-		echo "- Repo: \`$REPO\`"
-		echo "- Report: \`$(basename "$LAST")\`"
-		echo "- Auto-Apply: $AUTO_NOTE"
-		if [ -n "$GIST_URL" ]; then
-			echo "- Patch-Gist: $GIST_URL"
-		fi
-		echo "- Anwenden: \`$APPLY_HINT\` oder \`git apply --3way\`"
-		echo
-		echo "<details><summary>Report-Auszug</summary>"
-		echo
-		echo "\`\`\`md"
-		printf '%s\n' "$HEAD_MD"
-		echo "\`\`\`"
-		echo
-		echo "</details>"
-		echo
-		local idx=1
-		for f in "${PATCH_FILES[@]}"; do
-			[ -s "$f" ] || continue
-			echo "<details><summary>Patch $idx</summary>"
-			echo
-			echo "\`\`\`diff"
-			cat "$f"
-			echo "\`\`\`"
-			echo
-			echo "</details>"
-			echo
-			idx=$((idx + 1))
-		done
-	} >"$body_file"
+  {
+    echo "### $title"
+    echo "- Repo: \`$REPO\`"
+    echo "- Report: \`$(basename "$LAST")\`"
+    echo "- Auto-Apply: $AUTO_NOTE"
+    if [ -n "$GIST_URL" ]; then
+      echo "- Patch-Gist: $GIST_URL"
+    fi
+    echo "- Anwenden: \`$APPLY_HINT\` oder \`git apply --3way\`"
+    echo
+    echo "<details><summary>Report-Auszug</summary>"
+    echo
+    echo "\`\`\`md"
+    printf '%s\n' "$HEAD_MD"
+    echo "\`\`\`"
+    echo
+    echo "</details>"
+    echo
+    local idx=1
+    for f in "${PATCH_FILES[@]}"; do
+      [ -s "$f" ] || continue
+      echo "<details><summary>Patch $idx</summary>"
+      echo
+      echo "\`\`\`diff"
+      cat "$f"
+      echo "\`\`\`"
+      echo
+      echo "</details>"
+      echo
+      idx=$((idx + 1))
+    done
+  } >"$body_file"
 
-	echo "$body_file"
+  echo "$body_file"
 }
 
 # 5) Offene PRs bestimmen
 JSN="$(gh pr list --state open --limit 100 --json number,createdAt,title 2>/dev/null || echo '[]')"
 [ -n "$JSN" ] || {
-	echo "ℹ️  keine offenen PRs"
-	exit 0
+  echo "ℹ️  keine offenen PRs"
+  exit 0
 }
 
 # Gewünschte Ziel-PRs aufbauen (Env: HAUSKI_PR_NUMBER="12,34")
 declare -a PR_LIST=()
 if [ -n "${HAUSKI_PR_NUMBER:-}" ]; then
-	IFS=',' read -ra REQ_PR <<<"${HAUSKI_PR_NUMBER// /}"
-	for pr in "${REQ_PR[@]}"; do
-		[ -n "$pr" ] || continue
-		if printf '%s' "$JSN" | jq -e --arg pr "$pr" 'map(.number|tostring)|index($pr)' >/dev/null 2>&1; then
-			PR_LIST+=("$pr")
-		else
-			echo "ℹ️  PR #$pr nicht gefunden oder nicht offen" >&2
-		fi
-	done
-	[ ${#PR_LIST[@]} -gt 0 ] || {
-		echo "ℹ️  keine passenden PR-Ziele" >&2
-		exit 0
-	}
+  IFS=',' read -ra REQ_PR <<<"${HAUSKI_PR_NUMBER// /}"
+  for pr in "${REQ_PR[@]}"; do
+    [ -n "$pr" ] || continue
+    if printf '%s' "$JSN" | jq -e --arg pr "$pr" 'map(.number|tostring)|index($pr)' >/dev/null 2>&1; then
+      PR_LIST+=("$pr")
+    else
+      echo "ℹ️  PR #$pr nicht gefunden oder nicht offen" >&2
+    fi
+  done
+  [ ${#PR_LIST[@]} -gt 0 ] || {
+    echo "ℹ️  keine passenden PR-Ziele" >&2
+    exit 0
+  }
 elif [ "${HAUSKI_PR_ALL:-0}" = "1" ]; then
-	mapfile -t PR_LIST < <(printf '%s' "$JSN" | jq -r 'sort_by(.createdAt)|.[].number')
+  mapfile -t PR_LIST < <(printf '%s' "$JSN" | jq -r 'sort_by(.createdAt)|.[].number')
 else
-	one="$(printf '%s' "$JSN" | jq -r 'sort_by(.createdAt)|.[0].number // empty')"
-	[ -n "$one" ] && PR_LIST=("$one")
+  one="$(printf '%s' "$JSN" | jq -r 'sort_by(.createdAt)|.[0].number // empty')"
+  [ -n "$one" ] && PR_LIST=("$one")
 fi
 
 [ ${#PR_LIST[@]} -gt 0 ] || {
-	echo "ℹ️  kein offener PR"
-	exit 0
+  echo "ℹ️  kein offener PR"
+  exit 0
 }
 
 post_one() {
-	local pr="$1"
-	local title="${HAUSKI_PR_TITLE:-HausKI Auto-Vorschläge}"
-	local body_file
-	body_file="$(build_body "$title")"
-	gh pr comment "$pr" --body-file "$body_file" >/dev/null || true
-	rm -f "$body_file"
-	echo "💬 PR #$pr: Vorschläge gepostet."
+  local pr="$1"
+  local title="${HAUSKI_PR_TITLE:-HausKI Auto-Vorschläge}"
+  local body_file
+  body_file="$(build_body "$title")"
+  gh pr comment "$pr" --body-file "$body_file" >/dev/null || true
+  rm -f "$body_file"
+  echo "💬 PR #$pr: Vorschläge gepostet."
 }
 
 for pr in "${PR_LIST[@]}"; do
-	post_one "$pr"
+  post_one "$pr"
 done

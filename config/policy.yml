@@ -1,0 +1,20 @@
+auto_pr: true
+sweep_on_omnipull: true
+run_mode: deep
+org: heimgewebe
+llm:
+ provider: ollama
+ model: qwen2.5-coder:7b
+ base_url: http://localhost:11434
+checks:
+ shellcheck: true
+ yamllint: true
+ semver: true
+ deadcode: false
+ rust: false
+ python: true
+ js: false
+excludes:
+ - '**/.venv/**'
+ - '**/node_modules/**'
+ - '**/target/**'

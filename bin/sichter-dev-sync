@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ORG="${1:-heimgewebe}"
+REPO="${2:-sichter}"
+TITLE="${3:-Sichter: Dev Sync}"
+LABELS="${4:-sichter,automation}"
+
+# Saubere Basis dokumentieren
+echo "[sichter-dev-sync] branch=$(git rev-parse --abbrev-ref HEAD) head=$(git rev-parse --short HEAD)"
+
+# Commit falls uncommitted
+git add -A
+git diff --cached --quiet || git commit -m "sichter: dev sync" || true
+
+# Push & PR (dedupe: gleicher Titel offen?)
+git push -u origin HEAD || true
+
+open_pr="$(gh pr list --repo "$ORG/$REPO" --state open --json title,number |
+  grep -F "\"title\": \"$TITLE\"" || true)"
+if [ -n "$open_pr" ]; then
+  n="$(echo "$open_pr" | sed -n 's/.*"number": \([0-9]\+\).*/\1/p' | head -n1)"
+  echo "[sichter-dev-sync] Update PR #$n"
+  gh pr comment "$n" --repo "$ORG/$REPO" --body "🔁 Update $(date -Iseconds)" || true
+else
+  echo "[sichter-dev-sync] Create PR"
+  gh pr create --repo "$ORG/$REPO" --fill --title "$TITLE" --label "$LABELS" --base main || true
+fi

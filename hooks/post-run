@@ -1,2 +1,15 @@
 #!/usr/bin/env bash
-echo "sichter post-run ok"
+set -euo pipefail
+
+# Optionaler Autofix-Hook, der nach einem Sweep ausgeführt wird.
+REPO_ROOT="${SICHTER_REPO_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+LOG_DIR="${HOME}/sichter/logs"
+mkdir -p "$LOG_DIR"
+
+echo "[post-run] $(date -Is) -> ${REPO_ROOT}" >>"${LOG_DIR}/post-run.log"
+
+if command -v git >/dev/null 2>&1; then
+  if ! git diff --quiet --exit-code; then
+    git status -sb >>"${LOG_DIR}/post-run.log" 2>&1 || true
+  fi
+fi

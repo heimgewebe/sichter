@@ -5,12 +5,15 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 [ -n "$ROOT" ] || exit 0
 REPO_NAME="$(basename "$ROOT")"
 REPORT_DIR="$HOME/sichter/review/$REPO_NAME"
-LAST="$(ls -1t "$REPORT_DIR"/*-review.md 2>/dev/null | head -n1 || true)"
+LAST=""
+if [ -d "$REPORT_DIR" ]; then
+  LAST="$(find "$REPORT_DIR" -name '*-review.md' -type f -print0 | xargs -0 ls -1t 2>/dev/null | head -n1 || true)"
+fi
 [ -n "$LAST" ] || exit 0
 
 extract_flag() {
-	local patt="$1"
-	grep -Eiq "$patt" "$LAST"
+  local patt="$1"
+  grep -Eiq "$patt" "$LAST"
 }
 
 NEED_ALERT=0
@@ -24,13 +27,13 @@ MSG="HausKI: ⚠️  $REPO_NAME – Review-Alarm ($(basename "$LAST"))"
 
 # Desktop
 if command -v notify-send >/dev/null 2>&1; then
-	notify-send "$MSG" "Siehe Dashboard / Report" || true
+  notify-send "$MSG" "Siehe Dashboard / Report" || true
 fi
 
 # Slack Webhook (optional)
 SLACK_WEBHOOK="$(grep '^SLACK_WEBHOOK=' "$HOME/sichter/secrets.env" | cut -d= -f2-)"
 if [ -n "$SLACK_WEBHOOK" ]; then
-	curl -s -X POST -H 'Content-type: application/json' --data "{\"text\":\"$MSG\"}" "$SLACK_WEBHOOK" >/dev/null || true
+  curl -s -X POST -H 'Content-type: application/json' --data "{\"text\":\"$MSG\"}" "$SLACK_WEBHOOK" >/dev/null || true
 fi
 
 # Matrix (optional)
@@ -38,10 +41,10 @@ MATRIX_HS="$(grep '^MATRIX_HOMESERVER=' "$HOME/sichter/secrets.env" | cut -d= -f
 MATRIX_TOKEN="$(grep '^MATRIX_TOKEN=' "$HOME/sichter/secrets.env" | cut -d= -f2-)"
 MATRIX_ROOM="$(grep '^MATRIX_ROOM=' "$HOME/sichter/secrets.env" | cut -d= -f2-)"
 if [ -n "$MATRIX_HS" ] && [ -n "$MATRIX_TOKEN" ] && [ -n "$MATRIX_ROOM" ]; then
-	curl -s -X POST -H "Authorization: Bearer $MATRIX_TOKEN" \
-		-H "Content-Type: application/json" \
-		--data "{\"msgtype\":\"m.text\",\"body\":\"$MSG\"}" \
-		"$MATRIX_HS/_matrix/client/r0/rooms/$MATRIX_ROOM/send/m.room.message" >/dev/null || true
+  curl -s -X POST -H "Authorization: Bearer $MATRIX_TOKEN" \
+    -H "Content-Type: application/json" \
+    --data "{\"msgtype\":\"m.text\",\"body\":\"$MSG\"}" \
+    "$MATRIX_HS/_matrix/client/r0/rooms/$MATRIX_ROOM/send/m.room.message" >/dev/null || true
 fi
 
 echo "📣 Notify raus: $MSG"

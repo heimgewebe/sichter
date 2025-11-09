@@ -10,9 +10,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install python3-venv
+        run: sudo apt-get update && sudo apt-get install -y python3-venv
+      - name: Create python venv
+        run: python3 -m venv .venv
       - uses: ludeeus/action-shellcheck@master
+        env:
+          SHELLCHECK_OPTS: -x
       - name: shfmt
         run: |
-          curl -sSLo /usr/local/bin/shfmt https://github.com/mvdan/sh/releases/latest/download/shfmt_linux_amd64
-          chmod +x /usr/local/bin/shfmt
+          sudo wget -qO /usr/local/bin/shfmt https://github.com/mvdan/sh/releases/download/v3.7.0/shfmt_v3.7.0_linux_amd64
+          sudo chmod +x /usr/local/bin/shfmt
           shfmt -d .

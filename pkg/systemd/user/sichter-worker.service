@@ -1,0 +1,12 @@
+[Unit]
+Description=Sichter Worker
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/sichter/bin/worker
+Restart=on-failure
+Environment=SICHTER_APP=worker
+
+[Install]
+WantedBy=default.target

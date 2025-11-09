@@ -4,7 +4,7 @@ repo="$1"
 num="$2"
 msgfile="$3"
 if command -v hauski-pr-suggest >/dev/null 2>&1; then
-	HAUSKI_PR_NUMBER="$num" HAUSKI_PR_REPO="$repo" hauski-pr-suggest || gh pr comment "$num" -R "$repo" -F "$msgfile"
+  HAUSKI_PR_NUMBER="$num" HAUSKI_PR_REPO="$repo" hauski-pr-suggest || gh pr comment "$num" -R "$repo" -F "$msgfile"
 else
-	gh pr comment "$num" -R "$repo" -F "$msgfile"
+  gh pr comment "$num" -R "$repo" -F "$msgfile"
 fi

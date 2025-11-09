@@ -1,23 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # Logs klein halten
-find "$HOME/sichter/logs" -type f -name "*.log" -size +2M -print -exec sh -c '> "{}"' \;
+find "$HOME/sichter/logs" -type f -name "*.log" -size +2M -print0 | while IFS= read -r -d '' file; do
+  : >"$file"
+done
 # Reports älter 90 Tage löschen (pro Repo die jüngsten 50 immer behalten)
 for d in "$HOME/sichter/review"/*; do
-	[ -d "$d" ] || continue
+  [ -d "$d" ] || continue
 
-	# Bash nullglob sorgt dafür, dass leere Trefferlisten kein Literal zurückgeben
-	shopt -s nullglob
-	# In ein Array einlesen; ohne Treffer bleibt das Array leer statt einen Fehler zu werfen.
-	mapfile -t files < <(find "$d" -name '*-review.md' -printf '%T@ %p\n' | sort -nr | cut -d' ' -f2-)
-	shopt -u nullglob
+  # Bash nullglob sorgt dafür, dass leere Trefferlisten kein Literal zurückgeben
+  shopt -s nullglob
+  # In ein Array einlesen; ohne Treffer bleibt das Array leer statt einen Fehler zu werfen.
+  mapfile -t files < <(find "$d" -name '*-review.md' -printf '%T@ %p\n' | sort -nr | cut -d' ' -f2-)
+  shopt -u nullglob
 
-	# Keine Dateien → nichts zu tun
-	((${#files[@]})) || continue
+  # Keine Dateien → nichts zu tun
+  ((${#files[@]})) || continue
 
-	for f in "${files[@]:50}"; do
-		if [ "$(date -d '-90 days' +%s)" -gt "$(date -d "$(basename "$f" | sed 's/-review.md$//' | tr T ' ')" +%s 2>/dev/null || echo 0)" ]; then
-			rm -f -- "$f"
-		fi
-	done
+  for f in "${files[@]:50}"; do
+    if [ "$(date -d '-90 days' +%s)" -gt "$(date -d "$(basename "$f" | sed 's/-review.md$//' | tr T ' ')" +%s 2>/dev/null || echo 0)" ]; then
+      rm -f -- "$f"
+    fi
+  done
 done

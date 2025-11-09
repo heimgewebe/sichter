@@ -4,12 +4,15 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 [ -n "$ROOT" ] || exit 0
 REPO_NAME="$(basename "$ROOT")"
 REPORT_DIR="$HOME/sichter/review/$REPO_NAME"
-LAST="$(ls -1t "$REPORT_DIR"/*-review.md 2>/dev/null | head -n1 || true)"
+LAST=""
+if [ -d "$REPORT_DIR" ]; then
+  LAST="$(find "$REPORT_DIR" -name '*-review.md' -type f -print0 | xargs -0 ls -1t 2>/dev/null | head -n1 || true)"
+fi
 [ -n "$LAST" ] || exit 0
 
 command -v gh >/dev/null 2>&1 || {
-	echo "⚠️ gh fehlt"
-	exit 0
+  echo "⚠️ gh fehlt"
+  exit 0
 }
 OPEN_ALL="${HAUSKI_PR_ALL:-0}" # 0=ältester, 1=alle
 JSN="$(gh pr list --state open --limit 100 --json number,createdAt,title 2>/dev/null || echo '[]')"
@@ -18,15 +21,15 @@ JSN="$(gh pr list --state open --limit 100 --json number,createdAt,title 2>/dev/
 HEAD_MD="$(sed -n '1,80p' "$LAST")"
 LEN="$(echo -n "$HEAD_MD" | wc -c | tr -d ' ')"
 [ "$LEN" -gt 15000 ] && HEAD_MD="$(
-	echo "$HEAD_MD" | head -c 15000
-	echo -e "\n\n…(gekürzt)…"
+  echo "$HEAD_MD" | head -c 15000
+  echo -e "\n\n…(gekürzt)…"
 )"
 
 post_comment() { # $1=PR
-	local pr="$1"
-	local COMMENT
-	COMMENT=$(
-		cat <<EOF
+  local pr="$1"
+  local COMMENT
+  COMMENT=$(
+    cat <<EOF
 🧪 **HausKI Review Report** (auto)
 - Repo: \`$REPO_NAME\`
 - Zeitpunkt: \`$(date '+%F %T')\`
@@ -40,13 +43,13 @@ $HEAD_MD
 
 </details>
 EOF
-	)
-	gh pr comment "$pr" --body "$COMMENT" >/dev/null && echo "💬 PR #$pr kommentiert."
+  )
+  gh pr comment "$pr" --body "$COMMENT" >/dev/null && echo "💬 PR #$pr kommentiert."
 }
 
 if [ "$OPEN_ALL" = "1" ]; then
-	echo "$JSN" | jq -r 'sort_by(.createdAt)|.[].number' | while read -r pr; do post_comment "$pr"; done
+  echo "$JSN" | jq -r 'sort_by(.createdAt)|.[].number' | while read -r pr; do post_comment "$pr"; done
 else
-	pr="$(echo "$JSN" | jq -r 'sort_by(.createdAt)|.[0].number // empty')"
-	[ -n "$pr" ] && post_comment "$pr" || echo "ℹ️ keine offenen PRs"
+  pr="$(echo "$JSN" | jq -r 'sort_by(.createdAt)|.[0].number // empty')"
+  [ -n "$pr" ] && post_comment "$pr" || echo "ℹ️ keine offenen PRs"
 fi
