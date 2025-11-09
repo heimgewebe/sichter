@@ -100,9 +100,19 @@ for r in "${REPOS[@]}"; do
   git switch -C "$BR" >/dev/null 2>&1 || git checkout -B "$BR" >/dev/null 2>&1
 
   export SICHTER_RUN_MODE="$RUN_MODE"
-  if [[ -x "$HOME/sichter/hooks/post-run" ]]; then
+  HOOK_SCRIPT="$HOME/sichter/hooks/post-run"
+  if [[ -x "$HOOK_SCRIPT" ]]; then
     LOG_LINE "Running repo hook for $r"
-    HAUSKI_AUTO_APPLY=1 HAUSKI_AUTO_COMMIT=0 HAUSKI_AUTO_PR=0 "$HOME/sichter/hooks/post-run" >/dev/null 2>&1 || true
+    # Run in a subshell to isolate from the main script's error handling
+    (
+      set +e # Temporarily disable exit-on-error
+      HAUSKI_AUTO_APPLY=1 HAUSKI_AUTO_COMMIT=0 HAUSKI_AUTO_PR=0 "$HOOK_SCRIPT" >/dev/null 2>&1
+      hook_status=$?
+      if [[ $hook_status -ne 0 ]]; then
+        LOG_LINE "Hook for $r exited with status $hook_status (non-fatal)"
+      fi
+      exit 0 # Always exit cleanly from the subshell
+    )
   fi
 
   # Light integrated check for visibility
