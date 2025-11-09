@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { EventEntry, fetchEvents } from '../lib/api';
+import { EventEntry, fetchEvents, withBase } from '../lib/api';
 
 function parseLine(line: string): EventEntry {
   try {
@@ -46,7 +46,7 @@ export function useEventStream(pollInterval = 5000) {
 
     const tryWebSocket = () => {
       try {
-        const url = new URL('/events/stream?replay=100&heartbeat=15', base);
+        const url = new URL(withBase('/api/events/stream?replay=100&heartbeat=15'), base);
         url.protocol = url.protocol.replace('http', 'ws');
         const ws = new WebSocket(url);
         wsRef.current = ws;
