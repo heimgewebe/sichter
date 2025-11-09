@@ -10,11 +10,17 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 cd "$ROOT"
 
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)"
-validate_name "$BRANCH"
+if ! validate_name "$BRANCH"; then
+	echo "Error: Invalid branch name." >&2
+	exit 1
+fi
 STAMP="$(date +%Y-%m-%dT%H:%M:%S)"
 STAMP_SAFE="$(date +%Y%m%d-%H%M%S)"
 REPO="$(basename "$ROOT")"
-validate_name "$REPO"
+if ! validate_name "$REPO"; then
+	echo "Error: Invalid repo name." >&2
+	exit 1
+fi
 REPORT_DIR="${HOME}/sichter/review/${REPO}"
 LAST=""
 if [ -d "$REPORT_DIR" ]; then
