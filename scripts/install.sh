@@ -76,7 +76,7 @@ if command -v systemctl >/dev/null 2>&1; then
   systemctl --user enable --now sichter-api.service
   systemctl --user enable --now sichter-worker.service
   systemctl --user enable --now sichter-autoreview.timer
-     systemctl --user enable --now sichter-ws-selftest.timer
+  systemctl --user enable --now sichter-ws-selftest.timer
  else
   warn "systemctl --user nicht aktiv – bitte in Session mit user systemd ausführen"
  fi
