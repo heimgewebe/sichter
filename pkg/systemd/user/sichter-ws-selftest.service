@@ -1,0 +1,12 @@
+[Unit]
+Description=Sichter WS self-test (oneshot)
+After=network-online.target sichter-api.service
+
+[Service]
+Type=oneshot
+Environment=SICHTER_API_BASE=
+# Logziel vorbereiten und ausführen; immer an Log anhängen
+ExecStart=/usr/bin/bash -lc 'mkdir -p %h/sichter/logs && %h/sichter/bin/ws-selftest --base "${SICHTER_API_BASE:-http://127.0.0.1:5055}" --replay "${SICHTER_WS_REPLAY:-8}" >>%h/sichter/logs/ws-selftest.log 2>&1'
+
+[Install]
+WantedBy=default.target
