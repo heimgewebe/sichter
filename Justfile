@@ -22,3 +22,7 @@ all:
     ~/sichter/hooks/post-run
     hauski-status summary
     hauski-dashboard
+default: lint
+lint:
+    bash -n $(git ls-files *.sh *.bash)
+    echo "lint ok"
