@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# --- Konfiguration -----------------------------------------------------------
+API_HOST="${API_HOST:-127.0.0.1}"
+API_PORT="${API_PORT:-5055}"
+API_BASE="http://${API_HOST}:${API_PORT}"
+PY="${PYTHON3:-python3}"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/sichter"
+QUEUE_DIR="$STATE_DIR/queue"
+EVENT_DIR="$STATE_DIR/events"
+LOG_DIR="${ROOT}/.smoke-logs"
+mkdir -p "$LOG_DIR" "$QUEUE_DIR" "$EVENT_DIR"
+
+# Prozesse, die wir beenden müssen
+PIDS=()
+cleanup() {
+  set +e
+  for pid in "${PIDS[@]:-}"; do
+    kill "$pid" >/dev/null 2>&1 || true
+    wait "$pid" 2>/dev/null || true
+  done
+}
+trap cleanup EXIT INT TERM
+
+log() { printf '[smoke] %s\n' "$*"; }
+fail(){ echo "❌ $*"; exit 1; }
+
+# --- API starten -------------------------------------------------------------
+log "starte API auf ${API_BASE}"
+if command -v "$ROOT/bin/uvicorn-app" >/dev/null 2>&1; then
+  PORT="$API_PORT" HOST="$API_HOST" "$ROOT/bin/uvicorn-app" >"$LOG_DIR/api.log" 2>&1 &
+else
+  # Fallback: direkt uvicorn
+  ${UVICORN_BIN:-uvicorn} apps.api.main:app --host "$API_HOST" --port "$API_PORT" >"$LOG_DIR/api.log" 2>&1 &
+fi
+PIDS+=($!)
+
+# Warten bis /healthz antwortet
+for i in {1..60}; do
+  if curl -fsS "$API_BASE/healthz" >/dev/null 2>&1; then
+    log "API erreichbar"
+    break
+  fi
+  sleep 0.5
+  if [[ $i -eq 60 ]]; then
+    tail -n 200 "$LOG_DIR/api.log" || true
+    fail "API wurde nicht rechtzeitig erreichbar"
+  fi
+done
+
+# --- Worker-Stub starten -----------------------------------------------------
+log "starte Worker-Stub (verarbeitet genau 1 Job)"
+"$PY" "$ROOT/scripts/worker_stub.py" >"$LOG_DIR/worker.log" 2>&1 &
+PIDS+=($!)
+
+# --- Job einreihen -----------------------------------------------------------
+log "enqueue job"
+ENQ_JSON='{"type":"ScanChanged","mode":"changed","auto_pr":false}'
+JID="$(curl -fsS -XPOST -H 'content-type: application/json' \
+  "$API_BASE/jobs/submit" -d "$ENQ_JSON" | ${PYTHON3:-python3} -c 'import sys,json;print(json.load(sys.stdin)["enqueued"])')"
+[[ -n "$JID" ]] || fail "Job konnte nicht eingereiht werden"
+log "job id: $JID"
+
+# --- Auf Verarbeitung warten -------------------------------------------------
+log "warte auf Event-Eintrag"
+SEEN=0
+for i in {1..60}; do
+  # wir akzeptieren sowohl /events/tail (text) als auch /events/recent (json)
+  if curl -fsS "$API_BASE/events/recent?n=200" | grep -q "$JID"; then
+    SEEN=1; break
+  fi
+  sleep 0.5
+done
+[[ "$SEEN" -eq 1 ]] || {
+  log "Events (recent):"
+  curl -fsS "$API_BASE/events/recent?n=200" || true
+  tail -n 200 "$LOG_DIR/worker.log" 2>/dev/null || true
+  fail "kein passendes Event zum Job gesehen"
+}
+log "✅ Smoke erfolgreich (Job verarbeitet und Event sichtbar)"
+
+# --- Artefakte zeigen --------------------------------------------------------
+log "Log-Auszug API:"
+tail -n 60 "$LOG_DIR/api.log" || true
+log "Log-Auszug Worker:"
+tail -n 60 "$LOG_DIR/worker.log" || true
+
+exit 0
