@@ -15,6 +15,7 @@ mkdir -p "$LOG_DIR" "$QUEUE_DIR" "$EVENT_DIR"
 
 # Prozesse, die wir beenden müssen
 PIDS=()
+# shellcheck disable=SC2329
 cleanup() {
   set +e
   for pid in "${PIDS[@]:-}"; do
