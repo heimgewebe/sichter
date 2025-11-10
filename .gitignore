@@ -9,3 +9,4 @@ __pycache__/
 # Node
 node_modules/
 .vite/
+metrics.json
