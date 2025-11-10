@@ -21,6 +21,7 @@ jobs:
         run: chmod +x scripts/ci-smoke-sichter.sh || true
       - name: Run smoke
         run: |
+          export PATH="$HOME/.local/bin:$PATH"
           bash scripts/ci-smoke-sichter.sh
       - name: Upload smoke logs
         if: always()
