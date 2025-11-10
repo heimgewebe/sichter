@@ -29,12 +29,7 @@ fail(){ echo "❌ $*"; exit 1; }
 
 # --- API starten -------------------------------------------------------------
 log "starte API auf ${API_BASE}"
-if command -v "$ROOT/bin/uvicorn-app" >/dev/null 2>&1; then
-  PORT="$API_PORT" HOST="$API_HOST" "$ROOT/bin/uvicorn-app" >"$LOG_DIR/api.log" 2>&1 &
-else
-  # Fallback: direkt uvicorn
-  ${UVICORN_BIN:-uvicorn} apps.api.main:app --host "$API_HOST" --port "$API_PORT" >"$LOG_DIR/api.log" 2>&1 &
-fi
+"$PY" -m uvicorn apps.api.main:app --host "$API_HOST" --port "$API_PORT" >"$LOG_DIR/api.log" 2>&1 &
 PIDS+=($!)
 
 # Warten bis /healthz antwortet
