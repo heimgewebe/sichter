@@ -22,7 +22,7 @@ jobs:
       - name: Run smoke
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          bash scripts/ci-smoke-sichter.sh
+          bash scripts/ci-smoke-sichter.sh --output "${RUNNER_TEMP}/sichter-output.json"
       - name: Upload smoke logs
         if: always()
         uses: actions/upload-artifact@v4
