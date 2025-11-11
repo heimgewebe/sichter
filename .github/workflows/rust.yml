@@ -1,0 +1,33 @@
+name: rust
+on:
+  push:
+    branches: [ main ]
+  pull_request: {}
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - name: smoke: run decide example
+        run: cargo run -p heimlern-bandits --example decide --quiet
+      - name: smoke: run integrate_hauski example
+        run: cargo run -p heimlern-bandits --example integrate_hauski --quiet
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - name: build docs
+        run: cargo doc --no-deps --workspace
+      - name: upload docs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustdoc
+          path: target/doc

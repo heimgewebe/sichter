@@ -1,0 +1,39 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build-and-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run tests
+        run: cargo test --all --locked --workspace --verbose
+
+      - name: Build release
+        run: cargo build --release --workspace
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries
+          path: target/release/
+
+      - name: Build docs
+        run: cargo doc --no-deps --workspace
+
+      - name: Upload docs
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustdoc
+          path: target/doc
