@@ -63,6 +63,8 @@ while (($#)); do
   shift || true
 done
 
+: "${output_path:=/tmp/sichter-output.json}"
+
 [[ -n "$output_path" ]] || {
   echo "Der Ausgabe-Pfad darf nicht leer sein" >&2
   exit 1
