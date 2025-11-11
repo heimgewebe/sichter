@@ -26,7 +26,49 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 log() { printf '[smoke] %s\n' "$*"; }
-fail(){ echo "❌ $*"; exit 1; }
+
+fail() {
+  echo "❌ $*"
+  exit 1
+}
+
+usage() {
+  echo "Usage: $0 [--json] [--output PATH]"
+}
+
+# --- Argumente parsen --------------------------------------------------------
+print_json=0
+output_path=""
+while (($#)); do
+  case "$1" in
+  --json) print_json=1 ;;
+  --output)
+    shift
+    [[ $# -gt 0 ]] || {
+      echo "--output braucht einen Pfad" >&2
+      exit 1
+    }
+    output_path="$1"
+    ;;
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  *)
+    echo "Unbekannte Option: $1" >&2
+    usage
+    exit 1
+    ;;
+  esac
+  shift || true
+done
+
+[[ -n "$output_path" ]] || {
+  echo "Der Ausgabe-Pfad darf nicht leer sein" >&2
+  exit 1
+}
+outdir="$(dirname "$output_path")"
+[[ -d "$outdir" ]] || mkdir -p "$outdir"
 
 # --- API starten -------------------------------------------------------------
 log "starte API auf ${API_BASE}"
