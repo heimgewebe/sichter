@@ -25,8 +25,43 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-log() { printf '[smoke] %s\n' "$*"; }
-fail(){ echo "❌ $*"; exit 1; }
+log() {
+  printf '[smoke] %s\n' "$*"
+}
+fail() {
+  echo "❌ $*" >&2
+  exit 1
+}
+
+# --- Argumente parsen ---------------------------------------------------------
+print_json=0
+output_path=""
+usage() {
+  echo "Usage: $0 [--json] [--output <path>] [-h|--help]"
+}
+
+while (($#)); do
+  case "$1" in
+  --json)
+    print_json=1
+    ;;
+  --output)
+    shift
+    if [[ $# -eq 0 ]]; then
+      fail "--output requires a path"
+    fi
+    output_path="$1"
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    fail "Unknown option: $1"
+    ;;
+  esac
+  shift || true
+done
 
 # --- API starten -------------------------------------------------------------
 log "starte API auf ${API_BASE}"

@@ -3,9 +3,9 @@ set -euo pipefail
 
 MODE="${MODE:---changed}"
 if [[ "${1:-}" == "--all" ]]; then
- MODE="--all"
+  MODE="--all"
 elif [[ "${1:-}" == "--changed" ]]; then
- MODE="--changed"
+  MODE="--changed"
 fi
 
 # Setup paths and logging
@@ -75,7 +75,9 @@ if [[ "${#REPOS[@]}" -eq 0 ]]; then
 fi
 
 for r in "${REPOS[@]}"; do
-  [[ -z "$r" ]] && continue
+  if [[ -z "$r" ]]; then
+    continue
+  fi
   REPO_PATH="$HOME/repos/$r"
   if [[ ! -d "$REPO_PATH/.git" ]]; then
     LOG_LINE "Cloning missing repo $ORG/$r"
