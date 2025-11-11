@@ -1,10 +1,10 @@
 ai_context_version: 1.0
 
 project:
-  name: sichter
-  summary: Review/QA gate for content, policies, and outputs.
-  role: gatekeeper_quality_checks
-  primary_language: mixed
+  name: heimlern
+  summary: Reinforcement-/Bandit-Policy-Framework (Rust)
+  role: policy_engine
+  primary_language: rust
   visibility: internal
 
 dependencies:
@@ -23,14 +23,8 @@ dependencies:
 
 architecture:
   entrypoints:
-    - cli/*
-  key_paths:
-    - path: checks/
-      purpose: rulesets & validators
-  data_flow:
-    input: artifacts from repos
-    processing: policy + schema checks
-    output: approve/block
+    - crates/heimlern-bandits/examples/decide.rs
+    - crates/heimlern-bandits/src/lib.rs
 
 conventions:
   branching: "main, feature/*"
