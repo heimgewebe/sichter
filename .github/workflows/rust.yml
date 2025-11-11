@@ -1,4 +1,6 @@
 name: rust (cached)
+permissions:
+  contents: read
 
 on:
   push:
