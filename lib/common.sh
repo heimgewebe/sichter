@@ -34,7 +34,7 @@ exit 1
 }
 output_path="$1"
 ;;
--h | --help)
+-h|--help)
 usage
 exit 0
 ;;
