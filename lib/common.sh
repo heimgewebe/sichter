@@ -26,7 +26,6 @@ validate_name_non_fatal() {
 
 while (($#)); do
 case "$1" in
---json) print_json=1 ;;
 --output)
 shift
 [[ $# -gt 0 ]] || {
