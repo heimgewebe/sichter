@@ -12,6 +12,10 @@ INDEX = REVIEW_ROOT / "index.json"
 
 app = FastAPI(title="Sichter Leitstand", version="0.1.0")
 
+@app.get("/healthz")
+def healthz():
+    return {"ok": True}
+
 @app.get("/api/health")
 def health():
     return {"ok": True, "ts": datetime.utcnow().isoformat(timespec="seconds")+"Z"}
@@ -104,6 +108,7 @@ def api_report(repo: str):
         raise HTTPException(404, "repo not found")
     rep = collect_repo_report(repo_dir)
     return rep or {}
+
 app.mount("/static", StaticFiles(directory=str(APP_ROOT / "static")), name="static")
 
 @app.get("/")
