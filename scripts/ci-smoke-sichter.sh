@@ -70,7 +70,7 @@ outdir="$(dirname "$output_path")"
 
 # --- API starten -------------------------------------------------------------
 log "starte API auf ${API_BASE}"
-"$PY" -m uvicorn apps.api.main:app --host "$API_HOST" --port "$API_PORT" >"$LOG_DIR/api.log" 2>&1 &
+"$PY" -m uvicorn chronik.app.main:app --host "$API_HOST" --port "$API_PORT" >"$LOG_DIR/api.log" 2>&1 &
 PIDS+=($!)
 
 # Warten bis /healthz antwortet

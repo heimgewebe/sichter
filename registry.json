@@ -1,7 +1,7 @@
 {
-  "leitstand": {
+  "chronik": {
     "url": "http://127.0.0.1:8788",
-    "token_env": "LEITSTAND_TOKEN"
+    "token_env": "CHRONIK_TOKEN"
   },
   "mirror": {
     "base": "/home/alex/repos/_mirror",
@@ -12,4 +12,3 @@
   "jq":  { "bin": "/usr/bin/jq", "version": "1.6" },
   "gh":  { "bin": "/usr/bin/gh", "version": ">=2.60" }
 }
-
