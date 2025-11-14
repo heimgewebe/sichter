@@ -100,7 +100,7 @@ API_RESP=$(mktemp)
 trap 'rm -f "$API_RESP"' EXIT
 HTTP_CODE=$(curl -sS -w '%{http_code}' -o "$API_RESP" \
   -XPOST -H 'content-type: application/json' \
-  "$API_BASE/api/jobs/submit" -d "$ENQ_JSON")
+  "$API_BASE/jobs/submit" -d "$ENQ_JSON")
 
 if [[ "$HTTP_CODE" -ge 200 && "$HTTP_CODE" -lt 300 ]]; then
   JID=$("$PY" -c 'import sys,json;print(json.load(sys.stdin).get("enqueued"))' <"$API_RESP")
@@ -118,14 +118,14 @@ log "warte auf Event-Eintrag"
 SEEN=0
 for i in {1..60}; do
   # wir akzeptieren sowohl /events/tail (text) als auch /events/recent (json)
-  if curl -fsS "$API_BASE/api/events/recent?n=200" | grep -q "$JID"; then
+  if curl -fsS "$API_BASE/events/recent?n=200" | grep -q "$JID"; then
     SEEN=1; break
   fi
   sleep 0.5
 done
 [[ "$SEEN" -eq 1 ]] || {
   log "Events (recent):"
-  curl -fsS "$API_BASE/api/events/recent?n=200" || true
+  curl -fsS "$API_BASE/events/recent?n=200" || true
   tail -n 200 "$LOG_DIR/worker.log" 2>/dev/null || true
   fail "kein passendes Event zum Job gesehen"
 }
