@@ -70,7 +70,8 @@ outdir="$(dirname "$output_path")"
 
 # --- API starten -------------------------------------------------------------
 log "starte API auf ${API_BASE}"
-"$PY" -m uvicorn chronik.app.main:app --host "$API_HOST" --port "$API_PORT" >"$LOG_DIR/api.log" 2>&1 &
+rm -rf chronik/app/__pycache__
+"$PY" -m uvicorn chronik.app.main:app --host "$API_HOST" --port "$API_PORT" --reload >"$LOG_DIR/api.log" 2>&1 &
 PIDS+=($!)
 
 # Warten bis /healthz antwortet
@@ -94,24 +95,38 @@ PIDS+=($!)
 # --- Job einreihen -----------------------------------------------------------
 log "enqueue job"
 ENQ_JSON='{"type":"ScanChanged","mode":"changed","auto_pr":false}'
-JID="$(curl -fsS -XPOST -H 'content-type: application/json' \
-  "$API_BASE/jobs/submit" -d "$ENQ_JSON" | ${PYTHON3:-python3} -c 'import sys,json;print(json.load(sys.stdin)["enqueued"])')"
-[[ -n "$JID" ]] || fail "Job konnte nicht eingereiht werden"
-log "job id: $JID"
+# Temp-Datei für die Server-Antwort
+API_RESP=$(mktemp)
+# shellcheck disable=SC2317
+trap 'rm -f "$API_RESP"' EXIT
+HTTP_CODE=$(curl -sS -w '%{http_code}' -o "$API_RESP" \
+  -XPOST -H 'content-type: application/json' \
+  "$API_BASE/api/jobs/submit" -d "$ENQ_JSON")
+
+if [[ "$HTTP_CODE" -ge 200 && "$HTTP_CODE" -lt 300 ]]; then
+  JID=$("$PY" -c 'import sys,json;print(json.load(sys.stdin).get("enqueued"))' <"$API_RESP")
+  if [[ -n "$JID" ]]; then
+    log "job id: $JID"
+  else
+    fail "Job-Einreihung fehlgeschlagen: Kein Job-ID in der Antwort"
+  fi
+else
+  fail "Job-Einreihung fehlgeschlagen: HTTP-Status $HTTP_CODE, Antwort: $(cat "$API_RESP")"
+fi
 
 # --- Auf Verarbeitung warten -------------------------------------------------
 log "warte auf Event-Eintrag"
 SEEN=0
 for i in {1..60}; do
   # wir akzeptieren sowohl /events/tail (text) als auch /events/recent (json)
-  if curl -fsS "$API_BASE/events/recent?n=200" | grep -q "$JID"; then
+  if curl -fsS "$API_BASE/api/events/recent?n=200" | grep -q "$JID"; then
     SEEN=1; break
   fi
   sleep 0.5
 done
 [[ "$SEEN" -eq 1 ]] || {
   log "Events (recent):"
-  curl -fsS "$API_BASE/events/recent?n=200" || true
+  curl -fsS "$API_BASE/api/events/recent?n=200" || true
   tail -n 200 "$LOG_DIR/worker.log" 2>/dev/null || true
   fail "kein passendes Event zum Job gesehen"
 }

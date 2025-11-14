@@ -1,16 +1,28 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pathlib import Path
 from datetime import datetime
-import json, os
+import json, os, uuid, time
 
 APP_ROOT = Path(__file__).resolve().parent
 # Standard: Sichter-Layout
+STATE_ROOT = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state")))
+QUEUE_DIR = STATE_ROOT / "sichter/queue"
+EVENTS_DIR = STATE_ROOT / "sichter/events"
 REVIEW_ROOT = Path(os.environ.get("REVIEW_ROOT", str(Path.home() / "sichter" / "review")))
 INDEX = REVIEW_ROOT / "index.json"
 
 app = FastAPI(title="Sichter Leitstand", version="0.1.0")
+
+@app.on_event("startup")
+async def startup_event():
+    QUEUE_DIR.mkdir(parents=True, exist_ok=True)
+    EVENTS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def is_valid_jid(jid: str):
+    return len(jid) > 8 and all(c in "abcdef0123456789-" for c in jid)
 
 @app.get("/healthz")
 def healthz():
@@ -108,6 +120,55 @@ def api_report(repo: str):
         raise HTTPException(404, "repo not found")
     rep = collect_repo_report(repo_dir)
     return rep or {}
+
+def _collect_events(n=100):
+    if not EVENTS_DIR.exists():
+        return []
+
+    # both json and jsonl are supported
+    files = sorted(EVENTS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    files.extend(sorted(EVENTS_DIR.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True))
+
+    events = []
+    for f in files:
+        if len(events) >= n:
+            break
+        try:
+            if f.suffix == ".jsonl":
+                for line in f.read_text(encoding="utf-8").splitlines():
+                    if line:
+                        events.append(json.loads(line))
+            else:
+                events.append(json.loads(f.read_text(encoding="utf-8")))
+        except Exception:
+            pass # ignore parse errors on best-effort basis
+    return events[:n]
+
+@app.get("/api/events/recent")
+def events_recent(n: int = 100):
+    return _collect_events(n)
+
+@app.post("/api/jobs/submit")
+async def job_submit(req: Request):
+    try:
+        payload = await req.json()
+    except Exception:
+        raise HTTPException(400, "invalid json")
+    if not isinstance(payload, dict) or not payload:
+        raise HTTPException(400, "invalid payload")
+    jid = str(uuid.uuid4())
+    data = {
+        "id": jid,
+        "submitted_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "payload": payload,
+        "status": "pending",
+    }
+    try:
+        (QUEUE_DIR / f"{jid}.json.new").write_text(json.dumps(data, indent=2), encoding="utf-8")
+        (QUEUE_DIR / f"{jid}.json.new").rename(QUEUE_DIR / f"{jid}.json")
+    except IOError as e:
+        raise HTTPException(500, f"failed to write job to queue: {e}")
+    return JSONResponse({"enqueued": jid, "status_url": f"/api/jobs/{jid}"}, 202)
 
 app.mount("/static", StaticFiles(directory=str(APP_ROOT / "static")), name="static")
 
