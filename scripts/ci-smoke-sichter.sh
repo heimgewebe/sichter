@@ -70,8 +70,7 @@ outdir="$(dirname "$output_path")"
 
 # --- API starten -------------------------------------------------------------
 log "starte API auf ${API_BASE}"
-rm -rf chronik/app/__pycache__
-"$PY" -m uvicorn chronik.app.main:app --host "$API_HOST" --port "$API_PORT" --reload >"$LOG_DIR/api.log" 2>&1 &
+"$PY" -m uvicorn apps.api.main:app --host "$API_HOST" --port "$API_PORT" >"$LOG_DIR/api.log" 2>&1 &
 PIDS+=($!)
 
 # Warten bis /healthz antwortet
