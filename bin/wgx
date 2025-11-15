@@ -1,0 +1,27 @@
+#!/bin/bash
+set -euo pipefail
+
+# wgx - The main dispatcher script
+
+# Find the root directory of the wgx installation
+WGX_ROOT=$(cd "$(dirname "$0")/.." && pwd)
+
+# The first argument is the subcommand
+SUBCOMMAND="${1:-}"
+
+if [[ -z "$SUBCOMMAND" ]]; then
+  echo "Usage: wgx <subcommand>" >&2
+  exit 1
+fi
+
+# The path to the subcommand script
+COMMAND_PATH="$WGX_ROOT/wgx/cmd/$SUBCOMMAND"
+
+if [[ ! -f "$COMMAND_PATH" ]]; then
+  echo "Error: Unknown subcommand '$SUBCOMMAND'" >&2
+  exit 1
+fi
+
+# Execute the subcommand script
+shift # remove the subcommand from the arguments
+exec "$COMMAND_PATH" "$@"

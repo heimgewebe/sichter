@@ -1,0 +1,25 @@
+name: WGX Reusable Workflow
+on:
+  workflow_call:
+    inputs:
+      task:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  wgx:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install yq
+        run: sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq && sudo chmod +x /usr/bin/yq
+
+      - name: Run WGX Task
+        run: |
+          chmod +x bin/wgx
+          chmod +x wgx/cmd/*
+          bin/wgx ${{ inputs.task }}

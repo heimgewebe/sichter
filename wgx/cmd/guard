@@ -1,0 +1,23 @@
+#!/bin/bash
+set -euo pipefail
+
+# Find the root directory of the wgx installation
+WGX_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+PROFILE="$WGX_ROOT/.wgx/profile.yml"
+
+# Check for yq
+if ! command -v yq &> /dev/null; then
+    echo "yq could not be found. Please install yq."
+    exit 1
+fi
+
+# Read the task from the profile
+TASK_COMMAND=$(yq e ".tasks.guard" "$PROFILE")
+
+if [[ -z "$TASK_COMMAND" || "$TASK_COMMAND" == "null" ]]; then
+  echo "Error: No guard task defined in $PROFILE" >&2
+  exit 1
+fi
+
+echo "Running guard task from profile..."
+bash -c "$TASK_COMMAND"

@@ -1,0 +1,8 @@
+class: meta
+tasks:
+  smoke: |
+    echo "--- Running smoke test: Checking shell script syntax ---"
+    git ls-files -z -- '*.sh' '*.bash' | xargs -0 -n1 bash -n
+  guard: |
+    echo "--- Running guard task: Linting all shell scripts ---"
+    just lint
