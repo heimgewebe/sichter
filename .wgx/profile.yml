@@ -1,0 +1,6 @@
+class: meta
+tasks:
+  smoke: "bin/wgx smoke"
+  guard: "bin/wgx guard"
+  metrics: "bin/wgx metrics"
+  snapshot: "bin/wgx snapshot"

@@ -1,0 +1,8 @@
+#!/bin/bash
+set -euo pipefail
+
+# Find the root directory of the wgx installation
+WGX_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+source "$WGX_ROOT/wgx/lib/logging.bash"
+
+log "Creating snapshot..."

@@ -1,0 +1,17 @@
+name: wgx-guard
+on:
+  workflow_call:
+    inputs:
+      repo-type:
+        required: true
+        type: string
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run guard task
+        run: |
+          chmod +x bin/wgx
+          chmod +x wgx/cmd/*
+          bin/wgx guard
