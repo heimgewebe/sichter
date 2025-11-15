@@ -1,0 +1,6 @@
+class: meta
+tasks:
+  smoke: "ps aux"
+  guard: "just lint"
+  metrics: "scripts/wgx-metrics-snapshot.sh --json"
+  snapshot: ""

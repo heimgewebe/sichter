@@ -1,0 +1,12 @@
+name: wgx-guard
+on:
+  workflow_call:
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run guard task
+        run: |
+          chmod +x wgx/wgx
+          ./wgx/wgx guard

@@ -1,0 +1,12 @@
+name: wgx-smoke
+on:
+  workflow_call:
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run smoke task
+        run: |
+          chmod +x wgx/wgx
+          ./wgx/wgx smoke
