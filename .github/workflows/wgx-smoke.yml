@@ -1,28 +1,38 @@
-name: sichter-smoke
+name: wgx-smoke
+
 on:
-  push:
-  pull_request:
+  workflow_call:
 
 permissions:
   contents: read
+  actions: write
+
 jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - name: Install uvicorn (api runner)
         run: |
           python -m pip install --upgrade pip
           pip install uvicorn fastapi pydantic
+
       - name: Make scripts executable
         run: chmod +x scripts/ci-smoke-sichter.sh || true
-      - name: Run smoke
-        run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          bash scripts/ci-smoke-sichter.sh --output "${RUNNER_TEMP}/sichter-output.json"
+
+      - name: Make wgx executable
+        run: chmod +x wgx/wgx
+
+      - name: Run smoke task
+        run: ./wgx/wgx smoke
+
       - name: Upload smoke logs
         if: always()
         uses: actions/upload-artifact@v4
