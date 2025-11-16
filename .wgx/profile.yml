@@ -1,0 +1,10 @@
+class: meta
+
+tasks:
+  smoke: "bash scripts/ci-smoke-sichter.sh --output \"${RUNNER_TEMP:-/tmp}/sichter-output.json\""
+
+  guard: "files=\"$(git ls-files '*.sh' '*.bash' || true)\"; if [ -n \"$files\" ]; then bash -n $files; fi; if command -v python3 >/dev/null 2>&1; then python3 -m compileall . || true; fi"
+
+  metrics: "bash scripts/wgx-metrics-snapshot.sh --json"
+
+  snapshot: ""
