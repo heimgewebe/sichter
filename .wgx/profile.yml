@@ -1,0 +1,6 @@
+class: meta
+tasks:
+  smoke: "./scripts/ci-smoke-sichter.sh"
+  guard: "./scripts/ci-smoke-sichter.sh"
+  metrics: "scripts/wgx-metrics-snapshot.sh --json"
+  snapshot: ""
