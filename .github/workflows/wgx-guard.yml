@@ -29,6 +29,9 @@ jobs:
             https://github.com/mvdan/sh/releases/download/v3.7.0/shfmt_v3.7.0_linux_amd64
           chmod +x /usr/local/bin/shfmt
 
+      - name: Install ruff
+        run: pip install ruff
+
       - name: Make wgx executable
         run: chmod +x wgx/wgx
 
