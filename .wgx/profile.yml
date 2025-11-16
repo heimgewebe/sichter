@@ -1,0 +1,8 @@
+class: meta
+
+tasks:
+  smoke: "bash scripts/ci-smoke-sichter.sh --output \"${RUNNER_TEMP:-/tmp}/sichter-output.json\""
+  guard: "bash scripts/wgx-guard-sichter.sh"
+  metrics: "bash scripts/wgx-metrics-snapshot.sh --json"
+  snapshot: ""
+  selftest: "bash scripts/wgx-selftest-sichter.sh"

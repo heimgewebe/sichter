@@ -10,7 +10,7 @@ sys.path.insert(0, str(APP_ROOT.parent))
 os.environ["REVIEW_ROOT"] = str(Path.cwd() / "sichter" / "review")
 
 # IMPORTANT: Import the module *after* setting the env var
-from app import main
+from app import main  # noqa: E402
 
 # a little hack to make sure the test uses the correct REVIEW_ROOT and INDEX
 main.REVIEW_ROOT = Path(os.environ["REVIEW_ROOT"])

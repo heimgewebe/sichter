@@ -1,0 +1,39 @@
+name: wgx-guard
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Install shfmt
+        run: |
+          curl -sSLo /usr/local/bin/shfmt \
+            https://github.com/mvdan/sh/releases/download/v3.7.0/shfmt_v3.7.0_linux_amd64
+          chmod +x /usr/local/bin/shfmt
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Make wgx executable
+        run: chmod +x wgx/wgx
+
+      - name: Run guard task
+        run: ./wgx/wgx guard

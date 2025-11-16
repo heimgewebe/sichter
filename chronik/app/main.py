@@ -3,7 +3,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from pathlib import Path
 from datetime import datetime
-import json, os, uuid, time
+import json
+import os
+import uuid
 
 APP_ROOT = Path(__file__).resolve().parent
 # Standard: Sichter-Layout
@@ -97,7 +99,8 @@ def api_repos():
         updated = None
         try:
             mt = max([p.stat().st_mtime for p in repo_dir.glob("*.json")], default=0)
-            if mt: updated = datetime.utcfromtimestamp(mt).isoformat(timespec="seconds")+"Z"
+            if mt:
+                updated = datetime.utcfromtimestamp(mt).isoformat(timespec="seconds")+"Z"
         except Exception:
             pass
         sev = (rep.get("severity") or rep.get("level") or "").lower() or ("warning" if rep else "ok")

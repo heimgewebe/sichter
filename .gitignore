@@ -11,3 +11,7 @@ node_modules/
 .vite/
 metrics.json
 .venv/
+
+# lokale Build-/Cache-Verzeichnisse, die im Repomerge sichtbar waren
+apps/dashboard/.vite/
+tmp/
