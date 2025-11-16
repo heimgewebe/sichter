@@ -1,0 +1,38 @@
+class: meta
+
+tasks:
+  smoke: "bash scripts/ci-smoke-sichter.sh --output \"${RUNNER_TEMP:-/tmp}/sichter-output.json\""
+
+  guard: |
+    set -euo pipefail
+    files="$(git ls-files '*.sh' '*.bash' || true)"
+
+    if [ -n "$files" ]; then
+      echo "[wgx.guard] Shell-Syntax prüfen…"
+      bash -n $files
+
+      if command -v shellcheck >/dev/null 2>&1; then
+        echo "[wgx.guard] shellcheck läuft…"
+        shellcheck -x $files
+      else
+        echo "[wgx.guard] shellcheck nicht gefunden, überspringe Lint."
+      fi
+
+      if command -v shfmt >/dev/null 2>&1; then
+        echo "[wgx.guard] shfmt (Dry-Run) läuft…"
+        shfmt -d $files
+      else
+        echo "[wgx.guard] shfmt nicht gefunden, überspringe Format-Check."
+      fi
+    else
+      echo "[wgx.guard] Keine Shell-Skripte gefunden."
+    fi
+
+    if command -v python3 >/dev/null 2>&1; then
+      echo "[wgx.guard] Python-Compileall läuft…"
+      python3 -m compileall . || true
+    fi
+
+  metrics: "bash scripts/wgx-metrics-snapshot.sh --json"
+
+  snapshot: ""
