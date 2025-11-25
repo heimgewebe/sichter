@@ -42,7 +42,7 @@ if [ ! -d "$VENV_DIR" ]; then
   log "Erstelle Python venv in '$VENV_DIR'"
   "$PYTHON" -m venv "$VENV_DIR"
 fi
-# shellcheck source=.venv/bin/activate
+# shellcheck source=.venv/bin/activate disable=SC1091
 . "$VENV_DIR/bin/activate"
 
 # Kompatibilitätscheck für gebrochene venvs in manchen Umgebungen
@@ -50,7 +50,7 @@ if ! python -c 'import sys; sys.exit(0)' >/dev/null 2>&1; then
   warn "Venv scheint defekt. Lösche und erstelle es neu."
   rm -rf "$VENV_DIR"
   "$PYTHON" -m venv "$VENV_DIR"
-  # shellcheck source=.venv/bin/activate
+  # shellcheck source=.venv/bin/activate disable=SC1091
   . .venv/bin/activate
 fi
 
