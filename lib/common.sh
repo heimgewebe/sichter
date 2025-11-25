@@ -28,7 +28,7 @@ parse_common_args() {
   while (($#)); do
     case "$1" in
       --json)
-        export print_json=1
+        print_json=1
         ;;
       --output)
         shift
