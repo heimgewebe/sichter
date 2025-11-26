@@ -28,7 +28,7 @@ parse_common_args() {
   while (($#)); do
     case "$1" in
       --json)
-        print_json=1
+        export print_json=1
         ;;
       --output)
         shift
@@ -36,7 +36,7 @@ parse_common_args() {
           echo "--output braucht einen Pfad" >&2
           exit 1
         }
-        output_path="$1"
+        export output_path="$1"
         ;;
       -h | --help)
         usage
@@ -56,5 +56,6 @@ parse_common_args() {
     exit 1
   }
   outdir="$(dirname "$output_path")"
+  export outdir
   [[ -d "$outdir" ]] || mkdir -p "$outdir"
 }
