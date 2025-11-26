@@ -1,3 +1,4 @@
+---
 name: "contracts-validate"
 
 permissions:
@@ -62,13 +63,13 @@ jobs:
             line="${line##+([[:space:]])}"
             line="${line%%+([[:space:]])}"
             if [[ "$line" =~ ^(-[[:space:]]*)?uses:[[:space:]]*'([^']+)' ]]; then
-              echo "${BASHREMATCH[2]}"; return 0
+              echo "${BASH_REMATCH[2]}"; return 0
             fi
             if [[ "$line" =~ ^(-[[:space:]]*)?uses:[[:space:]]*\"([^\"]+)\" ]]; then
-              echo "${BASHREMATCH[2]}"; return 0
+              echo "${BASH_REMATCH[2]}"; return 0
             fi
             if [[ "$line" =~ ^(-[[:space:]]*)?uses:[[:space:]]*([^[:space:]#]+) ]]; then
-              echo "${BASHREMATCH[2]}"; return 0
+              echo "${BASH_REMATCH[2]}"; return 0
             fi
             return 1
           }
@@ -128,7 +129,7 @@ jobs:
           base_src=""
 
           if [[ -n "${GH_PR_BASE_SHA:-}" ]] && git rev-parse --verify "${GH_PR_BASE_SHA}^{commit}" &>/dev/null; then
-            if mb="$(git merge-base "\"$GH_PR_BASE_SHA\"" HEAD 2>/dev/null)"; then
+            if mb="$(git merge-base "$GH_PR_BASE_SHA" HEAD 2>/dev/null)"; then
               base="$mb"; base_src="merge-base(pr_base,HEAD)"
             fi
           fi
