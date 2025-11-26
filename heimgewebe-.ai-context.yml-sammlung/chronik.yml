@@ -2,7 +2,7 @@ ai_context_version: 1.0
 
 project:
   name: chronik
-  summary: Event-Ingest + Persistenz/Audit (vormals leitstand)
+  summary: Event-Ingest + Persistenz/Audit
   role: central_event_store
   primary_language: rust
   visibility: internal
