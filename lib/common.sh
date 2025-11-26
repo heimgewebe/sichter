@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
 # Flag to toggle JSON output, consumed by caller scripts
-print_json=0 # shellcheck disable=SC2034
+# shellcheck disable=SC2034
+print_json=0
 
 # Function to validate repository and branch names
 # Allows alphanumeric characters, hyphens, underscores, periods, and forward slashes
@@ -39,6 +40,7 @@ parse_common_args() {
           echo "--output braucht einen Pfad" >&2
           exit 1
         }
+        # shellcheck disable=SC2034
         output_path="$1"
         ;;
       -h | --help)
