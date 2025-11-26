@@ -61,7 +61,6 @@ parse_common_args() {
     echo "Der Ausgabe-Pfad darf nicht leer sein" >&2
     exit 1
   }
-  # shellcheck disable=SC2034
   outdir="$(dirname "$output_path")"
   [[ -d "$outdir" ]] || mkdir -p "$outdir"
 }
