@@ -15,7 +15,7 @@ EVENTS_DIR = STATE_ROOT / "sichter/events"
 REVIEW_ROOT = Path(os.environ.get("REVIEW_ROOT", str(Path.home() / "sichter" / "review")))
 INDEX = REVIEW_ROOT / "index.json"
 
-app = FastAPI(title="Sichter Leitstand", version="0.1.0")
+app = FastAPI(title="Sichter Chronik", version="0.1.0")
 
 @app.on_event("startup")
 async def startup_event():
