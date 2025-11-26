@@ -36,7 +36,8 @@ parse_common_args() {
           echo "--output braucht einen Pfad" >&2
           exit 1
         }
-        export output_path="$1"
+        output_path="$1"
+        export output_path
         ;;
       -h | --help)
         usage
