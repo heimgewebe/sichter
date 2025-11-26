@@ -1,3 +1,4 @@
+---
 name: review
 
 on:
@@ -85,4 +86,5 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR_NUMBER=$(jq -r .pull_request.number "$GITHUB_EVENT_PATH")
-          gh api repos/${{ github.repository }}/issues/$PR_NUMBER/comments -f body="Automated lint & policy review (ruff, markdownlint, shellcheck, semgrep optional) completed via HausKI CI bridge."
+          BODY="Automated lint & policy review completed via HausKI CI bridge."
+          gh api repos/${{ github.repository }}/issues/$PR_NUMBER/comments -f body="$BODY"
