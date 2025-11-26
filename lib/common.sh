@@ -31,9 +31,7 @@ parse_common_args() {
   while (($#)); do
     case "$1" in
       --json)
-        # shellcheck disable=SC2034
         print_json=1
-        # shellcheck enable=SC2034
         ;;
       --output)
         shift
