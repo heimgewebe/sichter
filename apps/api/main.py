@@ -8,6 +8,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import Body, FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -246,7 +247,7 @@ def repos_status():
 
 
 @app.post("/settings/policy")
-def write_policy(content: dict = Body(...)):
+def write_policy(content: Annotated[dict, Body()]):
     # stores to ~/.config/sichter/policy.yml
     cfg = Path.home() / ".config/sichter"
     cfg.mkdir(parents=True, exist_ok=True)

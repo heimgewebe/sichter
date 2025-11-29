@@ -117,8 +117,8 @@ def iter_paths(repo_dir: Path, pattern: str, excludes: Iterable[str]) -> Iterabl
   yield path
 
 
-def run_cmd(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
- return subprocess.run(cmd, cwd=cwd, text=True, capture_output=True)
+def run_cmd(cmd: list[str], cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
+ return subprocess.run(cmd, cwd=cwd, text=True, capture_output=True, check=check)
 
 
 def run_shellcheck(repo_dir: Path) -> None:
@@ -128,7 +128,7 @@ def run_shellcheck(repo_dir: Path) -> None:
   log("shellcheck nicht gefunden – überspringe")
   return
  for script in iter_paths(repo_dir, "*.sh", POLICY.excludes):
-  result = run_cmd(["shellcheck", "-x", str(script)], repo_dir)
+  result = run_cmd(["shellcheck", "-x", str(script)], repo_dir, check=False)
   if result.returncode != 0:
    log(f"shellcheck: {script}: {result.stdout or result.stderr}")
 
@@ -140,11 +140,11 @@ def run_yamllint(repo_dir: Path) -> None:
   log("yamllint nicht gefunden – überspringe")
   return
  for doc in iter_paths(repo_dir, "*.yml", POLICY.excludes):
-  result = run_cmd(["yamllint", "-s", str(doc)], repo_dir)
+  result = run_cmd(["yamllint", "-s", str(doc)], repo_dir, check=False)
   if result.returncode != 0:
    log(f"yamllint: {doc}: {result.stdout or result.stderr}")
  for doc in iter_paths(repo_dir, "*.yaml", POLICY.excludes):
-  result = run_cmd(["yamllint", "-s", str(doc)], repo_dir)
+  result = run_cmd(["yamllint", "-s", str(doc)], repo_dir, check=False)
   if result.returncode != 0:
    log(f"yamllint: {doc}: {result.stdout or result.stderr}")
 
@@ -159,11 +159,11 @@ def llm_review(repo: str, repo_dir: Path) -> None:
 
 def fresh_branch(repo_dir: Path) -> str:
  run_cmd(["git", "fetch", "origin", "--prune", "--tags"], repo_dir)
- result = run_cmd(["git", "switch", "--detach", "origin/main"], repo_dir)
+ result = run_cmd(["git", "switch", "--detach", "origin/main"], repo_dir, check=False)
  if result.returncode != 0:
   run_cmd(["git", "checkout", "--detach", "origin/main"], repo_dir)
  branch = f"sichter/autofix-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
- result = run_cmd(["git", "switch", "-C", branch], repo_dir)
+ result = run_cmd(["git", "switch", "-C", branch], repo_dir, check=False)
  if result.returncode != 0:
   run_cmd(["git", "checkout", "-B", branch], repo_dir)
  return branch
@@ -171,7 +171,7 @@ def fresh_branch(repo_dir: Path) -> str:
 
 def commit_if_changes(repo_dir: Path) -> bool:
  run_cmd(["git", "add", "-A"], repo_dir)
- result = run_cmd(["git", "diff", "--cached", "--quiet"], repo_dir)
+ result = run_cmd(["git", "diff", "--cached", "--quiet"], repo_dir, check=False)
  if result.returncode != 0:
   run_cmd(["git", "commit", "-m", "hauski: autofix"], repo_dir)
   return True
@@ -181,7 +181,7 @@ def commit_if_changes(repo_dir: Path) -> bool:
 def ensure_repo(repo: str) -> Path | None:
  repo_dir = HOME / "repos" / repo
  if not (repo_dir / ".git").exists():
-  result = run_cmd(["gh", "repo", "clone", f"{POLICY.org}/{repo}", str(repo_dir)], HOME)
+  result = run_cmd(["gh", "repo", "clone", f"{POLICY.org}/{repo}", str(repo_dir)], HOME, check=False)
   if result.returncode != 0:
    log(f"clone fehlgeschlagen für {repo}")
    return None
@@ -194,7 +194,7 @@ def create_or_update_pr(repo: str, repo_dir: Path, branch: str, auto_pr: bool) -
   append_event({"type": "commit", "repo": repo, "branch": branch, "auto_pr": False})
   return
  run_cmd(["git", "push", "--set-upstream", "origin", branch, "--force-with-lease"], repo_dir)
- view = run_cmd(["gh", "pr", "view", branch, "--json", "url", "-q", ".url"], repo_dir)
+ view = run_cmd(["gh", "pr", "view", branch, "--json", "url", "-q", ".url"], repo_dir, check=False)
  if view.returncode != 0 or not view.stdout.strip():
   run_cmd(
    [
@@ -213,7 +213,7 @@ def create_or_update_pr(repo: str, repo_dir: Path, branch: str, auto_pr: bool) -
    ],
    repo_dir,
   )
- view = run_cmd(["gh", "pr", "view", branch, "--json", "url", "-q", ".url"], repo_dir)
+ view = run_cmd(["gh", "pr", "view", branch, "--json", "url", "-q", ".url"], repo_dir, check=False)
  url = view.stdout.strip() if view.stdout else ""
  append_event({"type": "pr", "repo": repo, "branch": branch, "url": url})
  log(f"PR {repo}: {url or 'unbekannt'}")
@@ -259,6 +259,7 @@ def list_repos_remote() -> list[str]:
  result = run_cmd(
   ["gh", "repo", "list", POLICY.org, "--limit", "100", "--json", "name", "-q", ".[].name"],
   HOME,
+  check=False,
  )
  if result.returncode != 0:
   log("gh repo list fehlgeschlagen")
