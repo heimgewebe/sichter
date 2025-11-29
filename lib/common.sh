@@ -23,7 +23,7 @@ validate_name() {
 validate_name_non_fatal() {
     if ! validate_name "$1"; then
         # The error message is already printed by validate_name
-        return 0
+        return 1
     fi
     return 0
 }
