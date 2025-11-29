@@ -24,13 +24,13 @@ LOCK_FILE="requirements.lock"
 
 # Python-Version ermitteln
 PYTHON="python"
-if command -v python3 >/dev/null 2>&1; then
+if command -v python3 > /dev/null 2>&1; then
   PYTHON="python3"
 fi
 log "Nutze '$PYTHON' für Python-Aufrufe"
 
 # Prüfen, ob venv Modul da ist
-if ! "$PYTHON" -m venv --help >/dev/null 2>&1; then
+if ! "$PYTHON" -m venv --help > /dev/null 2>&1; then
   warn "Python-Modul 'venv' fehlt. Bitte nachinstallieren:"
   warn " • sudo apt install python3-venv (Debian/Ubuntu)"
   warn " • sudo dnf install python3-virtualenv (Fedora)"
@@ -46,7 +46,7 @@ fi
 . "$VENV_DIR/bin/activate"
 
 # Kompatibilitätscheck für gebrochene venvs in manchen Umgebungen
-if ! python -c 'import sys; sys.exit(0)' >/dev/null 2>&1; then
+if ! python -c 'import sys; sys.exit(0)' > /dev/null 2>&1; then
   warn "Venv scheint defekt. Lösche und erstelle es neu."
   rm -rf "$VENV_DIR"
   "$PYTHON" -m venv "$VENV_DIR"
@@ -55,7 +55,7 @@ if ! python -c 'import sys; sys.exit(0)' >/dev/null 2>&1; then
 fi
 
 # Dependencies installieren (REQ_FILE ist optional/überschreibbar)
-if command -v uv >/dev/null 2>&1; then
+if command -v uv > /dev/null 2>&1; then
   log "Installiere Python-Dependencies via uv"
   if [ -f "$LOCK_FILE" ]; then
     log "Synchronisiere Python-Dependencies via uv pip sync ($LOCK_FILE)"
@@ -83,7 +83,7 @@ for f in bin/omnicheck bin/sichter-pr-sweep bin/sichter-dashboard bin/sweep hook
 done
 
 # --- Omnipull Hook installieren ---
-if compgen -G "hooks/omnipull/*.sh" >/dev/null; then
+if compgen -G "hooks/omnipull/*.sh" > /dev/null; then
   mkdir -p "$HOME/.config/omnipull/hooks"
   for hook in hooks/omnipull/*.sh; do
     install -D -m0755 "$hook" "$HOME/.config/omnipull/hooks/$(basename "$hook")"
@@ -103,12 +103,12 @@ SYSTEMD_HINT=0
 if [ "${BOOTSTRAP_NO_SYSTEMD:-0}" = "1" ]; then
   warn "Überspringe systemd (--user) Setup (BOOTSTRAP_NO_SYSTEMD=1)"
   SYSTEMD_HINT=1
-elif ! command -v systemctl >/dev/null 2>&1; then
+elif ! command -v systemctl > /dev/null 2>&1; then
   warn "systemctl nicht vorhanden – überspringe systemd (--user)"
   SYSTEMD_HINT=1
 else
   # Prüfen, ob systemd --user verfügbar ist (z. B. auf manchen TTYs nicht aktiv)
-  if systemctl --user show-environment >/dev/null 2>&1; then
+  if systemctl --user show-environment > /dev/null 2>&1; then
     log "systemd --user erkannt – (re)load & enable"
     systemctl --user daemon-reload
     systemctl --user enable --now sichter-api.service || warn "enable/start: sichter-api.service fehlgeschlagen"
