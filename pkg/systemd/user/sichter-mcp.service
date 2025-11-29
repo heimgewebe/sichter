@@ -1,0 +1,11 @@
+[Unit]
+Description=Sichter MCP Server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/node %h/sichter/mcp/server.js
+Restart=always
+
+[Install]
+WantedBy=default.target
