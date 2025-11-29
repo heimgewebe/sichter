@@ -1,58 +1,54 @@
 import express from "express";
-import { MCPServer, Tool } from "@modelcontextprotocol/sdk";
-import { execSync } from "child_process";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
 
 const app = express();
 app.use(express.json());
 
-const tools = {
+const server = new McpServer({
+  name: "heimgewebe-sichter",
+  version: "0.1.0"
+});
 
-  pr_review: new Tool({
-    description: "Run sichter review on a GitHub PR",
-    parameters: {
-      type: "object",
-      properties: {
-        repo: { type: "string", description: "owner/repo" },
-        number: { type: "number", description: "Pull request number" }
-      },
-      required: ["repo", "number"]
-    },
-    execute: async ({ repo, number }) => {
-      // hier später: echter sichter-Aufruf, z.B.:
-      // const out = execSync(`./scripts/sichter_pr_review.sh ${repo} ${number}`, { encoding: "utf8" });
+// PR Review Tool (Mock)
+server.tool(
+  "pr_review",
+  {
+    repo: z.string(),
+    number: z.number()
+  },
+  async ({ repo, number }) => {
+    return {
+      summary: `Sichter review (mock) for ${repo}#${number}`,
+      severity: "info",
+      findings: [
+        {
+          title: "Mock check only",
+          path: "",
+          details: "Replace this with real sichter analysis."
+        }
+      ]
+    };
+  }
+);
 
-      // Für jetzt: Dummy mit klarer Struktur
-      return {
-        summary: `Sichter review (mock) for ${repo}#${number}`,
-        severity: "info",
-        findings: [
-          {
-            title: "Mock check only",
-            path: "",
-            details: "Replace this with real sichter analysis."
-          }
-        ]
-      };
-    }
-  })
-};
+// MCP über stdio startbar
+server.start(new StdioServerTransport());
 
-const mcpServer = new MCPServer({ tools });
-
-// MCP execute endpoint
+// HTTP-Expose für spätere Registry-Abfragen
 app.post("/v0.1/execute", async (req, res) => {
-  const response = await mcpServer.handleExecute(req.body);
+  const response = await server.handleExecute(req.body);
   res.json(response);
 });
 
-// Discovery endpoint (Registry-freundlich)
-app.get("/v0.1/servers", (req, res) => {
+app.get("/v0.1/servers", (_req, res) => {
   res.json({
     servers: {
       "heimgewebe-sichter": {
-        tools: Object.keys(tools),
+        tools: ["pr_review"],
         type: "http",
-        url: "http://localhost:3000/api/mcp"
+        url: "http://localhost:3000"
       }
     }
   });
