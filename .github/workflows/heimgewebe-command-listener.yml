@@ -1,0 +1,125 @@
+name: Heimgewebe command listener (sichter)
+
+on:
+  repository_dispatch:
+    types: [heimgewebe-command]
+
+# Dieser Listener reagiert nur auf Events,
+# die der zentrale Heimgewebe-Dispatcher explizit
+# an das Repo "heimgewebe/sichter" sendet.
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  handle:
+    runs-on: ubuntu-latest
+    env:
+      ROLE_NAME: sichter
+      # Kommandos, die sichter versteht
+      ALLOWED_COMMANDS: quick,deep
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Heimgewebe-Payload protokollieren
+        run: |
+          echo "Heimgewebe-Event empfangen:"
+          echo "  source_repository:  ${{ github.event.client_payload.source_repository }}"
+          echo "  source_issue:       ${{ github.event.client_payload.source_issue_number }}"
+          echo "  target_repo:        ${{ github.event.client_payload.target_repo }}"
+          echo "  command:            ${{ github.event.client_payload.command }}"
+
+      - name: Heimgewebe-Kommando verarbeiten
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.HEIMGEWEBE_AUTOBOT_TOKEN }}
+          script: |
+            const core = require('@actions/core');
+
+            const payload = (context.payload && context.payload.client_payload) || {};
+            const role = process.env.ROLE_NAME || 'service';
+            const allowedCommands = (process.env.ALLOWED_COMMANDS || '')
+              .split(',')
+              .map(s => s.trim())
+              .filter(Boolean);
+
+            const thisRepo = process.env.GITHUB_REPOSITORY;
+            const targetRepo = payload.target_repo;
+
+            if (!targetRepo) {
+              core.setFailed('Kein target_repo im Payload vorhanden.');
+              return;
+            }
+
+            if (targetRepo !== thisRepo) {
+              core.warning(`Payload target_repo (${targetRepo}) passt nicht zu diesem Repo (${thisRepo}). Ignoriere Event.`);
+              return;
+            }
+
+            const command = payload.command;
+            const sourceRepo = payload.source_repository;
+            const issueNumber = payload.source_issue_number;
+            const author = payload.source_comment_author || 'jemand';
+
+            if (!sourceRepo || !issueNumber) {
+              core.setFailed('source_repository oder source_issue_number fehlen im Payload.');
+              return;
+            }
+
+            const [owner, repo] = sourceRepo.split('/');
+            if (!owner || !repo) {
+              core.setFailed(`Ungültiges source_repository: ${sourceRepo}`);
+              return;
+            }
+
+            async function comment(body) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issueNumber,
+                body
+              });
+            }
+
+            if (!command || !allowedCommands.includes(command)) {
+              await comment(
+                `❓ \`${role}\` kennt das Kommando \`${command || '∅'}\` nicht oder es ist hier nicht erlaubt.\n` +
+                `Erlaubte Kommandos für \`${role}\`: \`${allowedCommands.join(', ')}\`.`
+              );
+              core.info(`Nicht erlaubtes Kommando: ${command}`);
+              return;
+            }
+
+            core.info(`Starte Heimgewebe-Kommando '${command}' für Rolle '${role}'.`);
+
+            await comment(
+              `🛰️ \`${role}\` hat den Heimgewebe-Befehl \`${command}\` von @${author} empfangen.\n` +
+              `Ich schaue mir das an…`
+            );
+
+            // --------------------------------------------------
+            // Hier kommen die echten Aktionen von "sichter" hin
+            // --------------------------------------------------
+
+            if (command === 'quick') {
+              // TODO: echte Quick-Analyse für PR implementieren
+              // Platzhalter:
+              await comment(
+                `⚡ \`${role}\`-Quick-Check (Platzhalter) abgeschlossen.\n` +
+                `Später: kurze Risiko- und Stil-Einschätzung direkt aus \`sichter\`.`
+              );
+            } else if (command === 'deep') {
+              // TODO: echte Deep-Analyse für PR implementieren
+              // Platzhalter:
+              await comment(
+                `🔍 \`${role}\`-Deep-Check (Platzhalter) abgeschlossen.\n` +
+                `Später: ausführlicher Review inkl. Verweisen auf Heimgewebe-Kontext.`
+              );
+            }
+
+            core.info('Heimgewebe-Kommando erfolgreich verarbeitet.');
+            await comment(`✅ Heimgewebe-Kommando \`${command}\` in \`${role}\` abgeschlossen.`);
