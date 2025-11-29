@@ -173,7 +173,7 @@ def commit_if_changes(repo_dir: Path) -> bool:
  run_cmd(["git", "add", "-A"], repo_dir)
  result = run_cmd(["git", "diff", "--cached", "--quiet"], repo_dir, check=False)
  if result.returncode != 0:
-  run_cmd(["git", "commit", "-m", "hauski: autofix"], repo_dir)
+  run_cmd(["git", "commit", "-m", "sichter: autofix"], repo_dir)
   return True
  return False
 
