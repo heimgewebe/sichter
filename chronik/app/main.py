@@ -1,7 +1,8 @@
 import json
 import os
 import uuid
-from datetime import datetime
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -16,12 +17,17 @@ EVENTS_DIR = STATE_ROOT / "sichter/events"
 REVIEW_ROOT = Path(os.environ.get("REVIEW_ROOT", str(Path.home() / "sichter" / "review")))
 INDEX = REVIEW_ROOT / "index.json"
 
-app = FastAPI(title="Sichter Chronik", version="0.1.0")
 
-@app.on_event("startup")
-async def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
     QUEUE_DIR.mkdir(parents=True, exist_ok=True)
     EVENTS_DIR.mkdir(parents=True, exist_ok=True)
+    yield
+    # Shutdown (nothing to do here)
+
+
+app = FastAPI(title="Sichter Chronik", version="0.1.0", lifespan=lifespan)
 
 
 def is_valid_jid(jid: str):
@@ -33,7 +39,7 @@ def healthz():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "ts": datetime.utcnow().isoformat(timespec="seconds")+"Z"}
+    return {"ok": True, "ts": datetime.now(timezone.utc).isoformat(timespec="seconds")+"Z"}
 
 def load_index():
     if not INDEX.exists():
@@ -85,7 +91,7 @@ def summary():
         "errors": errors,
         "critical": critical,
         "warnings": warning,
-        "timestamp": datetime.utcnow().isoformat(timespec="seconds")+"Z",
+        "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds")+"Z",
     }
 
 @app.get("/api/repos")
@@ -100,7 +106,7 @@ def api_repos():
         try:
             mt = max([p.stat().st_mtime for p in repo_dir.glob("*.json")], default=0)
             if mt:
-                updated = datetime.utcfromtimestamp(mt).isoformat(timespec="seconds")+"Z"
+                updated = datetime.fromtimestamp(mt, tz=timezone.utc).isoformat(timespec="seconds")+"Z"
         except Exception:
             pass
         sev = (rep.get("severity") or rep.get("level") or "").lower() or ("warning" if rep else "ok")
@@ -166,7 +172,7 @@ async def job_submit(req: Request):
     jid = str(uuid.uuid4())
     data = {
         "id": jid,
-        "submitted_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "submitted_at": datetime.now(timezone.utc).isoformat(timespec="seconds") + "Z",
         "payload": payload,
         "status": "pending",
     }
