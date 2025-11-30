@@ -1,7 +1,9 @@
 
 import unittest
 from unittest.mock import patch
+
 from apps.worker import run as worker_run
+
 
 class TestWorkerRun(unittest.TestCase):
     @patch("apps.worker.run.create_or_update_pr")

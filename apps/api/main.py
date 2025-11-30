@@ -227,7 +227,7 @@ def _resolve_repos() -> list[str]:
         try:
             base = Path(os.path.expandvars(remote_base)).expanduser()
             if base.exists() and base.is_dir():
-                repos = [f"{org}/{entry.name}" for entry in base.iterdir() 
+                repos = [f"{org}/{entry.name}" for entry in base.iterdir()
                         if entry.is_dir() and not entry.name.startswith(".")]
         except OSError:
             pass

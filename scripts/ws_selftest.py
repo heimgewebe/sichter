@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 import argparse
 import asyncio
 import json
 import os
 import sys
 import time
-from urllib.parse import urljoin, urlparse
-import urllib.request
 import urllib.error
+import urllib.request
+from urllib.parse import urljoin, urlparse
 
 DEFAULT_BASE = os.environ.get("SICHTER_API_BASE", "http://127.0.0.1:5055")
 

@@ -7,22 +7,22 @@ import shutil
 import subprocess
 import sys
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from fnmatch import fnmatch
 from pathlib import Path
-from collections.abc import Iterable
 
 from lib.config import (
-    DEFAULT_BRANCH,
-    DEFAULT_ORG,
-    EVENTS,
-    HOME,
-    PR_LABEL_AUTOMATION,
-    PR_LABEL_SICHTER,
-    QUEUE,
-    STATE,
-    ensure_directories,
+ DEFAULT_BRANCH,
+ DEFAULT_ORG,
+ EVENTS,
+ HOME,
+ PR_LABEL_AUTOMATION,
+ PR_LABEL_SICHTER,
+ QUEUE,
+ STATE,
+ ensure_directories,
 )
 
 PID_FILE = STATE / "worker.pid"
