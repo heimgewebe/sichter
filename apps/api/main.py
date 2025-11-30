@@ -157,7 +157,7 @@ def _policy_path() -> Path:
 def _read_policy() -> dict:
     policy_file = _policy_path()
     candidates = [policy_file]
-    repo_policy = Path(__file__).resolve().parent.parent.parent / "config" / "policy.yml"
+    repo_policy = Path(__file__).resolve().parents[2] / "config" / "policy.yml"
     if repo_policy not in candidates:
         candidates.append(repo_policy)
     for candidate in candidates:
@@ -172,7 +172,7 @@ def _read_policy() -> dict:
 
 def _resolve_repos() -> list[str]:
     repos: list[str] = []
-    local_policy = Path(__file__).resolve().parent.parent.parent / "config" / "policy.yml"
+    local_policy = Path(__file__).resolve().parents[2] / "config" / "policy.yml"
     if local_policy.exists():
         try:
             for line in local_policy.read_text().splitlines():

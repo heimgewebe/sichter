@@ -8,10 +8,10 @@ system_context:
   heimgeist: "../metarepo/ai-contexts/heimgeist.ai-context.yml"
 
 project:
-  name: heimlern
-  summary: Reinforcement-/Bandit-Policy-Framework (Rust)
-  role: policy_engine
-  primary_language: rust
+  name: sichter
+  summary: Autonomer Code-Reviewer + Auto-PR Engine
+  role: code_review_automation
+  primary_language: python
   visibility: internal
 
 dependencies:
@@ -21,17 +21,18 @@ dependencies:
       interface:
         - policies
         - validation_schemas
-    - name: heimlern
-      relationship: uses
-      interface:
-        - quality_scores
   external:
-    - name: ajv-cli
+    - name: fastapi
+    - name: uvicorn
+    - name: pydantic
+    - name: PyYAML
 
 architecture:
   entrypoints:
-    - crates/heimlern-bandits/examples/decide.rs
-    - crates/heimlern-bandits/src/lib.rs
+    - apps/api/main.py
+    - apps/worker/run.py
+    - cli/omnicheck
+    - cli/sweep
 
 conventions:
   branching: "main, feature/*"
