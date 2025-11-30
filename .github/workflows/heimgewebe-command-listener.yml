@@ -1,7 +1,6 @@
 name: Heimgewebe command listener (sichter)
 
 on:
-  # Wird vom Dispatcher (metarepo) per repository_dispatch ausgelöst.
   repository_dispatch:
     types:
       - heimgewebe-command
@@ -21,13 +20,21 @@ jobs:
   handle:
     name: Handle Heimgewebe command
     runs-on: ubuntu-latest
+
     steps:
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.HEIMGEWEBE_APP_ID }}
+          private-key: ${{ secrets.HEIMGEWEBE_APP_PRIVATE_KEY }}
+          owner: heimgewebe
+
       - name: Process Heimgewebe command
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ steps.app-token.outputs.token }}
           script: |
-            // Grundcheck: Payload vorhanden?
             if (!context.payload) {
               core.warning('No payload on repository_dispatch event – nothing to do.');
               return;
@@ -36,7 +43,6 @@ jobs:
             const eventType = context.payload.action || 'unknown';
             core.info(`repository_dispatch action: ${eventType}`);
 
-            // Sicherheitsnetz: Wir erwarten "heimgewebe-command"
             if (eventType !== 'heimgewebe-command') {
               core.info(`Ignoring repository_dispatch with action "${eventType}".`);
               return;
@@ -56,7 +62,6 @@ jobs:
               raw_comment,
             } = payload;
 
-            // Versionierung: aktuell nur v1 vorgesehen, andere Versionen nur loggen
             if (version !== 1) {
               core.warning(`Unexpected Heimgewebe payload version: ${version}. Listener is built for version 1.`);
             }
@@ -103,7 +108,6 @@ jobs:
             summaryLines.push(`- Befehl: ${displayCommand}`);
             summaryLines.push(`- Auslöser: @${source_comment_author || 'unbekannt'}`);
 
-            // Auslöser-Kommentar optional als Snippet anhängen
             if (raw_comment) {
               const maxLen = 500;
               let snippet = String(raw_comment).replace(/[\r\n]+/g, ' ');
