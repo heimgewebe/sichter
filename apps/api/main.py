@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
 
@@ -15,12 +15,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
-STATE = Path.home() / ".local/state/sichter"
-QUEUE = STATE / "queue"
-EVENTS = STATE / "events"
-LOGS = STATE / "logs"
-for p in (QUEUE, EVENTS, LOGS):
-    p.mkdir(parents=True, exist_ok=True)
+from lib.config import CONFIG, EVENTS, LOGS, QUEUE, ensure_directories
+
+ensure_directories()
 
 app = FastAPI(title="Sichter API", version="0.1.1")
 # CORS für Dashboard (Vite etc.)
@@ -36,7 +33,7 @@ app.add_middleware(
 class Job(BaseModel):
     type: str  # "ScanAll" | "ScanChanged" | "PRSweep"
     mode: str = "changed"  # "all" | "changed"
-    org: str = "heimgewebe"
+    org: str = "heimgewebe"  # Keep default for backward compatibility
     repo: str | None = None
     auto_pr: bool = True
 
@@ -49,7 +46,7 @@ def _enqueue(job: dict) -> str:
 
 
 def _timestamp():
-    return datetime.now().isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 @app.get("/healthz", response_class=PlainTextResponse)
@@ -150,24 +147,14 @@ def _collect_events(limit: int = 200) -> list[dict[str, str | dict]]:
     return events
 
 
-def _policy_path() -> Path:
-    return Path.home() / ".config/sichter/policy.yml"
-
-
 def _read_policy() -> dict:
-    policy_file = _policy_path()
-    candidates = [policy_file]
-    repo_policy = Path(__file__).resolve().parents[2] / "config" / "policy.yml"
-    if repo_policy not in candidates:
-        candidates.append(repo_policy)
-    for candidate in candidates:
-        if not candidate.exists():
-            continue
-        try:
-            return {"path": str(candidate), "content": candidate.read_text()}
-        except OSError:
-            continue
-    return {"path": str(policy_file), "content": ""}
+    from lib.config import get_policy_path
+    
+    policy_path = get_policy_path()
+    try:
+        return {"path": str(policy_path), "content": policy_path.read_text()}
+    except OSError:
+        return {"path": str(policy_path), "content": ""}
 
 
 def _resolve_repos() -> list[str]:
@@ -249,9 +236,8 @@ def repos_status():
 @app.post("/settings/policy")
 def write_policy(content: Annotated[dict, Body()]):
     # stores to ~/.config/sichter/policy.yml
-    cfg = Path.home() / ".config/sichter"
-    cfg.mkdir(parents=True, exist_ok=True)
-    target = cfg / "policy.yml"
+    CONFIG.mkdir(parents=True, exist_ok=True)
+    target = CONFIG / "policy.yml"
     raw = content.get("raw") if isinstance(content, dict) else None
     if isinstance(raw, str) and raw.strip():
         text = raw if raw.endswith("\n") else raw + "\n"
@@ -264,7 +250,7 @@ def write_policy(content: Annotated[dict, Body()]):
     # unterbrochen wird.
     tmp_path = None
     try:
-        fd, tmp_path = tempfile.mkstemp(dir=cfg, prefix=".policy.yml.tmp-")
+        fd, tmp_path = tempfile.mkstemp(dir=CONFIG, prefix=".policy.yml.tmp-")
         with os.fdopen(fd, "w") as f:
             f.write(text)
         os.rename(tmp_path, str(target))

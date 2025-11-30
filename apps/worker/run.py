@@ -13,22 +13,22 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import Iterable
 
-try: # pragma: no cover - optional dependency
- import yaml
-except ModuleNotFoundError: # pragma: no cover
- yaml = None
+from lib.config import (
+    DEFAULT_BRANCH,
+    DEFAULT_ORG,
+    EVENTS,
+    HOME,
+    QUEUE,
+    STATE,
+    ensure_directories,
+    load_yaml,
+)
 
-from lib import simpleyaml
-
-HOME = Path.home()
-STATE = Path(os.environ.get("XDG_STATE_HOME", HOME / ".local/state")) / "sichter"
-QUEUE = STATE / "queue"
-EVENTS = STATE / "events"
 PID_FILE = STATE / "worker.pid"
 LOG_DIR = HOME / "sichter/logs"
 
-for path in (QUEUE, EVENTS, LOG_DIR):
- path.mkdir(parents=True, exist_ok=True)
+ensure_directories()
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 _NOW = datetime.now(timezone.utc)
 LOG_FILE = LOG_DIR / f"worker-{_NOW.strftime('%Y%m%d-%H%M%S')}.log"
@@ -80,26 +80,23 @@ class Policy:
  auto_pr: bool = True
  sweep_on_omnipull: bool = True
  run_mode: str = "deep"
- org: str = "heimgewebe"
+ org: str = DEFAULT_ORG
  llm: dict | None = None
  checks: dict | None = None
  excludes: Iterable[str] = ()
 
  @classmethod
  def load(cls) -> "Policy":
-  config_home = Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config"))
-  policy_file = config_home / "sichter/policy.yml"
-  repo_default = Path(__file__).resolve().parents[2] / "config/policy.yml"
-  source = policy_file if policy_file.exists() else repo_default
-  if yaml is not None:
-   data = yaml.safe_load(source.read_text(encoding="utf-8")) or {}
-  else:
-   data = simpleyaml.load(source)
+  from lib.config import get_policy_path, load_yaml
+  
+  policy_path = get_policy_path()
+  data = load_yaml(policy_path) if policy_path.exists() else {}
+  
   return cls(
    auto_pr=bool(data.get("auto_pr", True)),
    sweep_on_omnipull=bool(data.get("sweep_on_omnipull", True)),
    run_mode=str(data.get("run_mode", "deep")),
-   org=str(data.get("org", "heimgewebe")),
+   org=str(data.get("org", DEFAULT_ORG)),
    llm=data.get("llm", {}),
    checks=data.get("checks", {}),
    excludes=data.get("excludes", []) or [],
@@ -159,9 +156,10 @@ def llm_review(repo: str, repo_dir: Path) -> None:
 
 def fresh_branch(repo_dir: Path) -> str:
  run_cmd(["git", "fetch", "origin", "--prune", "--tags"], repo_dir)
- result = run_cmd(["git", "switch", "--detach", "origin/main"], repo_dir, check=False)
+ base_branch = f"origin/{DEFAULT_BRANCH}"
+ result = run_cmd(["git", "switch", "--detach", base_branch], repo_dir, check=False)
  if result.returncode != 0:
-  run_cmd(["git", "checkout", "--detach", "origin/main"], repo_dir)
+  run_cmd(["git", "checkout", "--detach", base_branch], repo_dir)
  branch = f"sichter/autofix-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
  result = run_cmd(["git", "switch", "-C", branch], repo_dir, check=False)
  if result.returncode != 0:
@@ -202,7 +200,7 @@ def create_or_update_pr(repo: str, repo_dir: Path, branch: str, auto_pr: bool) -
     "pr",
     "create",
     "--base",
-    "main",
+    DEFAULT_BRANCH,
     "--fill",
     "--title",
     f"Sichter: auto PR ({repo})",

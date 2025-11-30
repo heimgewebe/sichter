@@ -8,39 +8,29 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-try: # pragma: no cover - optional dependency
- import yaml
-except ModuleNotFoundError: # pragma: no cover
- yaml = None
-
-from lib import simpleyaml
+from lib.config import (
+    DEFAULT_ORG,
+    EVENTS,
+    QUEUE,
+    ensure_directories,
+    get_policy_path,
+    load_yaml,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_POLICY = ROOT / "config/policy.yml"
-STATE_DIR = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "sichter"
-QUEUE_DIR = STATE_DIR / "queue"
-EVENT_DIR = STATE_DIR / "events"
+QUEUE_DIR = QUEUE
+EVENT_DIR = EVENTS
 LOG_DIR = Path.home() / "sichter/logs"
 
-QUEUE_DIR.mkdir(parents=True, exist_ok=True)
-EVENT_DIR.mkdir(parents=True, exist_ok=True)
+ensure_directories()
 LOG_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def read_policy(path: Path) -> dict:
- if yaml is not None:
-  with path.open("r", encoding="utf-8") as handle:
-   return yaml.safe_load(handle) or {}
- return simpleyaml.load(path)
 
 
 def resolve_policy(path: str | None) -> dict:
  if path:
-  return read_policy(Path(path))
- config_path = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "sichter/policy.yml"
- if config_path.exists():
-  return read_policy(config_path)
- return read_policy(DEFAULT_POLICY)
+  return load_yaml(Path(path))
+ policy_path = get_policy_path()
+ return load_yaml(policy_path) if policy_path.exists() else {}
 
 
 def write_job(policy: dict, mode: str, repo: str | None) -> Path:
@@ -49,7 +39,7 @@ def write_job(policy: dict, mode: str, repo: str | None) -> Path:
  payload = {
   "type": job_type,
   "mode": mode,
-  "org": policy.get("org", "heimgewebe"),
+  "org": policy.get("org", DEFAULT_ORG),
   "repo": repo,
   "auto_pr": bool(policy.get("auto_pr", True)),
   "timestamp": now.isoformat(),
