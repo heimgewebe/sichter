@@ -13,28 +13,35 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import Iterable
 
-try: # pragma: no cover - optional dependency
- import yaml
-except ModuleNotFoundError: # pragma: no cover
- yaml = None
+from lib.config import (
+    DEFAULT_BRANCH,
+    DEFAULT_ORG,
+    EVENTS,
+    HOME,
+    PR_LABEL_AUTOMATION,
+    PR_LABEL_SICHTER,
+    QUEUE,
+    STATE,
+    ensure_directories,
+    load_yaml,
+)
 
-from lib import simpleyaml
-
-HOME = Path.home()
-STATE = Path(os.environ.get("XDG_STATE_HOME", HOME / ".local/state")) / "sichter"
-QUEUE = STATE / "queue"
-EVENTS = STATE / "events"
 PID_FILE = STATE / "worker.pid"
 LOG_DIR = HOME / "sichter/logs"
 
-for path in (QUEUE, EVENTS, LOG_DIR):
- path.mkdir(parents=True, exist_ok=True)
+ensure_directories()
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 _NOW = datetime.now(timezone.utc)
 LOG_FILE = LOG_DIR / f"worker-{_NOW.strftime('%Y%m%d-%H%M%S')}.log"
 
 
 def log(line: str) -> None:
+ """Log a message to both stdout and the worker log file.
+ 
+ Args:
+  line: Log message
+ """
  timestamp = datetime.now(timezone.utc).isoformat()
  message = f"[{timestamp}] {line}"
  print(message)
@@ -43,6 +50,11 @@ def log(line: str) -> None:
 
 
 def append_event(event: dict) -> None:
+ """Append an event to the daily event log.
+ 
+ Args:
+  event: Event data dictionary
+ """
  now = datetime.now(timezone.utc)
  event_file = EVENTS / f"worker-{now.strftime('%Y%m%d')}.jsonl"
  record = {"ts": now.isoformat(), **event}
@@ -51,6 +63,14 @@ def append_event(event: dict) -> None:
 
 
 def is_process_alive(pid: int) -> bool:
+ """Check if a process with given PID is alive.
+ 
+ Args:
+  pid: Process ID to check
+  
+ Returns:
+  True if process is alive, False otherwise
+ """
  try:
   os.kill(pid, 0)
  except ProcessLookupError:
@@ -62,6 +82,11 @@ def is_process_alive(pid: int) -> bool:
 
 
 def acquire_pid_lock() -> None:
+ """Acquire PID lock to ensure only one worker instance runs.
+ 
+ Exits if another worker is already running.
+ Cleans up PID file on exit.
+ """
  if PID_FILE.exists():
   try:
    existing_pid = int(PID_FILE.read_text().strip())
@@ -80,26 +105,23 @@ class Policy:
  auto_pr: bool = True
  sweep_on_omnipull: bool = True
  run_mode: str = "deep"
- org: str = "heimgewebe"
+ org: str = DEFAULT_ORG
  llm: dict | None = None
  checks: dict | None = None
  excludes: Iterable[str] = ()
 
  @classmethod
  def load(cls) -> "Policy":
-  config_home = Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config"))
-  policy_file = config_home / "sichter/policy.yml"
-  repo_default = Path(__file__).resolve().parents[2] / "config/policy.yml"
-  source = policy_file if policy_file.exists() else repo_default
-  if yaml is not None:
-   data = yaml.safe_load(source.read_text(encoding="utf-8")) or {}
-  else:
-   data = simpleyaml.load(source)
+  from lib.config import get_policy_path, load_yaml
+  
+  policy_path = get_policy_path()
+  data = load_yaml(policy_path) if policy_path.exists() else {}
+  
   return cls(
    auto_pr=bool(data.get("auto_pr", True)),
    sweep_on_omnipull=bool(data.get("sweep_on_omnipull", True)),
    run_mode=str(data.get("run_mode", "deep")),
-   org=str(data.get("org", "heimgewebe")),
+   org=str(data.get("org", DEFAULT_ORG)),
    llm=data.get("llm", {}),
    checks=data.get("checks", {}),
    excludes=data.get("excludes", []) or [],
@@ -110,6 +132,16 @@ POLICY = Policy.load()
 
 
 def iter_paths(repo_dir: Path, pattern: str, excludes: Iterable[str]) -> Iterable[Path]:
+ """Iterate over files matching pattern, excluding specified patterns.
+ 
+ Args:
+  repo_dir: Repository directory
+  pattern: File glob pattern
+  excludes: Exclude patterns
+  
+ Yields:
+  Matching file paths
+ """
  for path in repo_dir.rglob(pattern):
   rel = path.relative_to(repo_dir)
   if any(fnmatch(str(rel), ex) for ex in excludes):
@@ -118,10 +150,25 @@ def iter_paths(repo_dir: Path, pattern: str, excludes: Iterable[str]) -> Iterabl
 
 
 def run_cmd(cmd: list[str], cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
+ """Run a command and return the result.
+ 
+ Args:
+  cmd: Command and arguments
+  cwd: Working directory
+  check: Whether to raise exception on non-zero exit
+  
+ Returns:
+  Completed process result
+ """
  return subprocess.run(cmd, cwd=cwd, text=True, capture_output=True, check=check)
 
 
 def run_shellcheck(repo_dir: Path) -> None:
+ """Run shellcheck on all shell scripts if enabled in policy.
+ 
+ Args:
+  repo_dir: Repository directory
+ """
  if not POLICY.checks or not POLICY.checks.get("shellcheck", False):
   return
  if not shutil.which("shellcheck"):
@@ -134,6 +181,11 @@ def run_shellcheck(repo_dir: Path) -> None:
 
 
 def run_yamllint(repo_dir: Path) -> None:
+ """Run yamllint on all YAML files if enabled in policy.
+ 
+ Args:
+  repo_dir: Repository directory
+ """
  if not POLICY.checks or not POLICY.checks.get("yamllint", False):
   return
  if not shutil.which("yamllint"):
@@ -150,6 +202,12 @@ def run_yamllint(repo_dir: Path) -> None:
 
 
 def llm_review(repo: str, repo_dir: Path) -> None:
+ """Run LLM-based code review if enabled in policy.
+ 
+ Args:
+  repo: Repository name
+  repo_dir: Repository directory
+ """
  if POLICY.run_mode != "deep":
   log(f"LLM-Review übersprungen (run_mode={POLICY.run_mode})")
   return
@@ -159,9 +217,10 @@ def llm_review(repo: str, repo_dir: Path) -> None:
 
 def fresh_branch(repo_dir: Path) -> str:
  run_cmd(["git", "fetch", "origin", "--prune", "--tags"], repo_dir)
- result = run_cmd(["git", "switch", "--detach", "origin/main"], repo_dir, check=False)
+ base_branch = f"origin/{DEFAULT_BRANCH}"
+ result = run_cmd(["git", "switch", "--detach", base_branch], repo_dir, check=False)
  if result.returncode != 0:
-  run_cmd(["git", "checkout", "--detach", "origin/main"], repo_dir)
+  run_cmd(["git", "checkout", "--detach", base_branch], repo_dir)
  branch = f"sichter/autofix-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
  result = run_cmd(["git", "switch", "-C", branch], repo_dir, check=False)
  if result.returncode != 0:
@@ -179,40 +238,74 @@ def commit_if_changes(repo_dir: Path) -> bool:
 
 
 def ensure_repo(repo: str) -> Path | None:
+ """Ensure repository exists locally, cloning if necessary.
+ 
+ Args:
+  repo: Repository name (without org prefix)
+  
+ Returns:
+  Path to repository directory, or None if clone failed
+ """
  repo_dir = HOME / "repos" / repo
  if not (repo_dir / ".git").exists():
-  result = run_cmd(["gh", "repo", "clone", f"{POLICY.org}/{repo}", str(repo_dir)], HOME, check=False)
-  if result.returncode != 0:
-   log(f"clone fehlgeschlagen für {repo}")
+  try:
+   result = run_cmd(["gh", "repo", "clone", f"{POLICY.org}/{repo}", str(repo_dir)], HOME, check=False)
+   if result.returncode != 0:
+    log(f"clone fehlgeschlagen für {repo}: {result.stderr}")
+    return None
+  except (subprocess.SubprocessError, OSError) as exc:
+   log(f"clone fehlgeschlagen für {repo}: {exc}")
    return None
  return repo_dir
 
 
 def create_or_update_pr(repo: str, repo_dir: Path, branch: str, auto_pr: bool) -> None:
+ """Create or update a pull request for the changes.
+ 
+ Args:
+  repo: Repository name
+  repo_dir: Path to repository directory
+  branch: Branch name with changes
+  auto_pr: Whether to automatically create PR
+ """
  if not auto_pr:
   log(f"Auto-PR deaktiviert, Änderungen verbleiben lokal ({repo})")
   append_event({"type": "commit", "repo": repo, "branch": branch, "auto_pr": False})
   return
- run_cmd(["git", "push", "--set-upstream", "origin", branch, "--force-with-lease"], repo_dir)
+ 
+ try:
+  run_cmd(["git", "push", "--set-upstream", "origin", branch, "--force-with-lease"], repo_dir)
+ except subprocess.CalledProcessError as exc:
+  log(f"Push fehlgeschlagen für {repo}/{branch}: {exc}")
+  append_event({"type": "push_failed", "repo": repo, "branch": branch, "error": str(exc)})
+  return
+ 
+ # Check if PR already exists
  view = run_cmd(["gh", "pr", "view", branch, "--json", "url", "-q", ".url"], repo_dir, check=False)
  if view.returncode != 0 or not view.stdout.strip():
-  run_cmd(
-   [
-    "gh",
-    "pr",
-    "create",
-    "--base",
-    "main",
-    "--fill",
-    "--title",
-    f"Sichter: auto PR ({repo})",
-    "--label",
-    "sichter",
-    "--label",
-    "automation",
-   ],
-   repo_dir,
-  )
+  try:
+   run_cmd(
+    [
+     "gh",
+     "pr",
+     "create",
+     "--base",
+     DEFAULT_BRANCH,
+     "--fill",
+     "--title",
+     f"Sichter: auto PR ({repo})",
+     "--label",
+     PR_LABEL_SICHTER,
+     "--label",
+     PR_LABEL_AUTOMATION,
+    ],
+    repo_dir,
+   )
+  except subprocess.CalledProcessError as exc:
+   log(f"PR-Erstellung fehlgeschlagen für {repo}/{branch}: {exc}")
+   append_event({"type": "pr_failed", "repo": repo, "branch": branch, "error": str(exc)})
+   return
+ 
  view = run_cmd(["gh", "pr", "view", branch, "--json", "url", "-q", ".url"], repo_dir, check=False)
  url = view.stdout.strip() if view.stdout else ""
  append_event({"type": "pr", "repo": repo, "branch": branch, "url": url})

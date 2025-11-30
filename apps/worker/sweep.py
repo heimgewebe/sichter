@@ -3,53 +3,63 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-try: # pragma: no cover - optional dependency
- import yaml
-except ModuleNotFoundError: # pragma: no cover
- yaml = None
-
-from lib import simpleyaml
+from lib.config import (
+    DEFAULT_ORG,
+    EVENTS,
+    POST_HOOK_TIMEOUT_SECONDS,
+    QUEUE,
+    ensure_directories,
+    get_policy_path,
+    load_yaml,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_POLICY = ROOT / "config/policy.yml"
-STATE_DIR = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "sichter"
-QUEUE_DIR = STATE_DIR / "queue"
-EVENT_DIR = STATE_DIR / "events"
+QUEUE_DIR = QUEUE
+EVENT_DIR = EVENTS
 LOG_DIR = Path.home() / "sichter/logs"
 
-QUEUE_DIR.mkdir(parents=True, exist_ok=True)
-EVENT_DIR.mkdir(parents=True, exist_ok=True)
+ensure_directories()
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def read_policy(path: Path) -> dict:
- if yaml is not None:
-  with path.open("r", encoding="utf-8") as handle:
-   return yaml.safe_load(handle) or {}
- return simpleyaml.load(path)
-
-
 def resolve_policy(path: str | None) -> dict:
+ """Resolve policy configuration from file path or defaults.
+ 
+ Args:
+  path: Optional path to policy file
+  
+ Returns:
+  Policy configuration dictionary
+ """
  if path:
-  return read_policy(Path(path))
- config_path = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "sichter/policy.yml"
- if config_path.exists():
-  return read_policy(config_path)
- return read_policy(DEFAULT_POLICY)
+  return load_yaml(Path(path))
+ policy_path = get_policy_path()
+ return load_yaml(policy_path) if policy_path.exists() else {}
 
 
 def write_job(policy: dict, mode: str, repo: str | None) -> Path:
+ """Write a job file to the queue directory.
+ 
+ Args:
+  policy: Policy configuration
+  mode: Scan mode ("all" or "changed")
+  repo: Optional repository name
+  
+ Returns:
+  Path to created job file
+ """
  job_type = "ScanAll" if mode == "all" else "ScanChanged"
  now = datetime.now(timezone.utc)
  payload = {
   "type": job_type,
   "mode": mode,
-  "org": policy.get("org", "heimgewebe"),
+  "org": policy.get("org", DEFAULT_ORG),
   "repo": repo,
   "auto_pr": bool(policy.get("auto_pr", True)),
   "timestamp": now.isoformat(),
@@ -60,6 +70,12 @@ def write_job(policy: dict, mode: str, repo: str | None) -> Path:
 
 
 def append_event(message: str, payload: dict | None = None) -> None:
+ """Append an event to the daily event log.
+ 
+ Args:
+  message: Event message
+  payload: Optional event data
+ """
  now = datetime.now(timezone.utc)
  event_file = EVENT_DIR / f"sweep-{now.strftime('%Y%m%d')}.jsonl"
  record = {
@@ -72,12 +88,15 @@ def append_event(message: str, payload: dict | None = None) -> None:
 
 
 def run_post_hook() -> None:
+ """Run optional post-hook script if it exists.
+ 
+ Failures are silently ignored to prevent sweep from crashing.
+ """
  hook = ROOT / "hooks/post-run"
  if hook.exists():
   os.environ.setdefault("SICHTER_REPO_ROOT", str(ROOT))
   try:
-   import subprocess
-   subprocess.run([str(hook)], check=False)
+   subprocess.run([str(hook)], check=False, timeout=POST_HOOK_TIMEOUT_SECONDS)
   except Exception:
    # Hook ist optional – niemals den Sweep crashen lassen
    pass
