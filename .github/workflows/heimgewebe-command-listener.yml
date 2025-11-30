@@ -1,27 +1,52 @@
-name: Heimgewebe command listener
+name: Heimgewebe command listener (sichter)
 
 on:
+  # Wird vom Dispatcher (metarepo) per repository_dispatch ausgelöst.
   repository_dispatch:
-    types: [heimgewebe-command]
+    types:
+      - heimgewebe-command
 
 permissions:
   contents: read
   issues: write
   pull-requests: write
 
+env:
+  # Ziel-Repository, für das dieser Listener zuständig ist
+  HEIMGEWEBE_TARGET_REPO: sichter
+  # Optional: erlaubte Kommandos (kommagetrennt); leer = alle zulassen
+  HEIMGEWEBE_ALLOWED_COMMANDS: quick,deep
+
 jobs:
   handle:
     name: Handle Heimgewebe command
     runs-on: ubuntu-latest
     steps:
-      - name: Process command
+      - name: Process Heimgewebe command
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
+            // Grundcheck: Payload vorhanden?
+            if (!context.payload) {
+              core.warning('No payload on repository_dispatch event – nothing to do.');
+              return;
+            }
+
+            const eventType = context.payload.action || 'unknown';
+            core.info(`repository_dispatch action: ${eventType}`);
+
+            // Sicherheitsnetz: Wir erwarten "heimgewebe-command"
+            if (eventType !== 'heimgewebe-command') {
+              core.info(`Ignoring repository_dispatch with action "${eventType}".`);
+              return;
+            }
+
             const payload = context.payload.client_payload || {};
+            core.info(`Raw client_payload: ${JSON.stringify(payload)}`);
 
             const {
+              version,
               source_repository,
               source_issue_number,
               source_comment_author,
@@ -31,11 +56,14 @@ jobs:
               raw_comment,
             } = payload;
 
-            core.info(`Received Heimgewebe command in sichter: ${JSON.stringify(payload)}`);
+            // Versionierung: aktuell nur v1 vorgesehen, andere Versionen nur loggen
+            if (version !== 1) {
+              core.warning(`Unexpected Heimgewebe payload version: ${version}. Listener is built for version 1.`);
+            }
 
-            // Nur Events verarbeiten, die wirklich für "sichter" gedacht sind
-            if (target_repo !== 'sichter') {
-              core.info(`Ignoring command for other target_repo: ${target_repo}`);
+            const expectedTarget = process.env.HEIMGEWEBE_TARGET_REPO || 'sichter';
+            if (target_repo !== expectedTarget) {
+              core.info(`Command is for target_repo "${target_repo}", but this listener is "${expectedTarget}" – ignoring.`);
               return;
             }
 
@@ -44,28 +72,68 @@ jobs:
               return;
             }
 
-            const [owner, repo] = source_repository.split('/');
+            const [owner, repo] = String(source_repository).split('/');
             if (!owner || !repo) {
               core.warning(`Invalid source_repository value: ${source_repository}`);
               return;
             }
 
+            const allowedCommandsEnv = process.env.HEIMGEWEBE_ALLOWED_COMMANDS || '';
+            const allowedCommands = allowedCommandsEnv
+              .split(',')
+              .map(s => s.trim())
+              .filter(Boolean);
+
+            if (allowedCommands.length > 0 && !allowedCommands.includes(command)) {
+              core.info(
+                `Command "${command}" not in allowed command list: [${allowedCommands.join(', ')}] – ignoring.`
+              );
+              return;
+            }
+
             const niceArgs = (args || '').trim();
+            const displayCommand =
+              '`' + String(command || 'unbekannt') + '`' +
+              (niceArgs ? ' `' + niceArgs + '`' : '');
 
-            const bodyLines = [
-              `👀 **sichter** hat deinen Heimgewebe-Befehl empfangen.`,
-              '',
-              `- Befehl: \`${command}\`${niceArgs ? ' `' + niceArgs + '`' : ''}`,
-              `- Auslöser: @${source_comment_author || 'unbekannt'}`,
-              '',
-              '> Dies ist aktuell nur ein Platzhalter-Check. Die eigentlichen Analysen lassen sich hier später einhängen.',
-            ];
+            const summaryLines = [];
 
-            await github.rest.issues.createComment({
-              owner,
-              repo,
-              issue_number: source_issue_number,
-              body: bodyLines.join('\n'),
-            });
+            summaryLines.push('👀 **sichter** hat deinen Heimgewebe-Befehl empfangen.');
+            summaryLines.push('');
+            summaryLines.push(`- Befehl: ${displayCommand}`);
+            summaryLines.push(`- Auslöser: @${source_comment_author || 'unbekannt'}`);
 
-            core.info('Reply comment posted successfully.');
+            // Auslöser-Kommentar optional als Snippet anhängen
+            if (raw_comment) {
+              const maxLen = 500;
+              let snippet = String(raw_comment).replace(/[\r\n]+/g, ' ');
+              if (snippet.length > maxLen) {
+                snippet = snippet.slice(0, maxLen) + ' …(gekürzt)';
+              }
+
+              summaryLines.push('');
+              summaryLines.push('<details>');
+              summaryLines.push('<summary>Auslöser-Kommentar</summary>');
+              summaryLines.push('');
+              summaryLines.push(snippet);
+              summaryLines.push('');
+              summaryLines.push('</details>');
+            }
+
+            summaryLines.push('');
+            summaryLines.push(
+              '> Dies ist aktuell nur ein Platzhalter-Check von **sichter**. ' +
+              'Die eigentlichen Analysen werden später hier eingehängt.'
+            );
+
+            try {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: source_issue_number,
+                body: summaryLines.join('\n'),
+              });
+              core.info('Reply comment posted successfully.');
+            } catch (error) {
+              core.setFailed(`Failed to post reply comment: ${error.message}`);
+            }
