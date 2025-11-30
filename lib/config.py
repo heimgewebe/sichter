@@ -26,6 +26,9 @@ DEFAULT_BRANCH = "main"
 PR_LABEL_SICHTER = "sichter"
 PR_LABEL_AUTOMATION = "automation"
 
+# Timeout settings
+POST_HOOK_TIMEOUT_SECONDS = 30
+
 
 def ensure_directories() -> None:
     """Ensure all required directories exist."""

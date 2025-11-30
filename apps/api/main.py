@@ -105,10 +105,21 @@ def _queue_state(limit: int = 10) -> dict[str, int | list[dict]]:
     Returns:
         Dictionary with queue size and recent items
     """
+    # Collect all queue files first for counting
+    all_files = list(QUEUE.glob("*.json"))
+    total_size = len(all_files)
+    
+    # Sort only if needed and get the most recent ones
+    if total_size == 0:
+        return {"size": 0, "items": []}
+    
+    # Sort files by modification time (oldest first) and take last N
+    all_files.sort(key=os.path.getmtime)
+    recent_files = all_files[-limit:] if total_size > limit else all_files
+    
+    # Build items in chronological order (oldest to newest)
     items: list[dict] = []
-    for fp in sorted(QUEUE.glob("*.json"), key=os.path.getmtime, reverse=True):
-        if len(items) >= limit:
-            break
+    for fp in recent_files:
         try:
             payload = json.loads(fp.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -124,12 +135,9 @@ def _queue_state(limit: int = 10) -> dict[str, int | list[dict]]:
             }
         )
     
-    # Count total queue items
-    total_size = len(list(QUEUE.glob("*.json")))
-    
     return {
         "size": total_size,
-        "items": list(reversed(items)),  # Return in chronological order
+        "items": items,
     }
 
 

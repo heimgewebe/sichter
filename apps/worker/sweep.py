@@ -12,6 +12,7 @@ from pathlib import Path
 from lib.config import (
     DEFAULT_ORG,
     EVENTS,
+    POST_HOOK_TIMEOUT_SECONDS,
     QUEUE,
     ensure_directories,
     get_policy_path,
@@ -95,7 +96,7 @@ def run_post_hook() -> None:
  if hook.exists():
   os.environ.setdefault("SICHTER_REPO_ROOT", str(ROOT))
   try:
-   subprocess.run([str(hook)], check=False, timeout=30)
+   subprocess.run([str(hook)], check=False, timeout=POST_HOOK_TIMEOUT_SECONDS)
   except Exception:
    # Hook ist optional – niemals den Sweep crashen lassen
    pass
