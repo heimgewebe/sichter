@@ -37,7 +37,7 @@ LOG_FILE = LOG_DIR / f"worker-{_NOW.strftime('%Y%m%d-%H%M%S')}.log"
 
 def log(line: str) -> None:
  """Log a message to both stdout and the worker log file.
- 
+
  Args:
   line: Log message
  """
@@ -50,7 +50,7 @@ def log(line: str) -> None:
 
 def append_event(event: dict) -> None:
  """Append an event to the daily event log.
- 
+
  Args:
   event: Event data dictionary
  """
@@ -63,10 +63,10 @@ def append_event(event: dict) -> None:
 
 def is_process_alive(pid: int) -> bool:
  """Check if a process with given PID is alive.
- 
+
  Args:
   pid: Process ID to check
-  
+
  Returns:
   True if process is alive, False otherwise
  """
@@ -82,7 +82,7 @@ def is_process_alive(pid: int) -> bool:
 
 def acquire_pid_lock() -> None:
  """Acquire PID lock to ensure only one worker instance runs.
- 
+
  Exits if another worker is already running.
  Cleans up PID file on exit.
  """
@@ -112,10 +112,10 @@ class Policy:
  @classmethod
  def load(cls) -> "Policy":
   from lib.config import get_policy_path, load_yaml
-  
+
   policy_path = get_policy_path()
   data = load_yaml(policy_path) if policy_path.exists() else {}
-  
+
   return cls(
    auto_pr=bool(data.get("auto_pr", True)),
    sweep_on_omnipull=bool(data.get("sweep_on_omnipull", True)),
@@ -132,12 +132,12 @@ POLICY = Policy.load()
 
 def iter_paths(repo_dir: Path, pattern: str, excludes: Iterable[str]) -> Iterable[Path]:
  """Iterate over files matching pattern, excluding specified patterns.
- 
+
  Args:
   repo_dir: Repository directory
   pattern: File glob pattern
   excludes: Exclude patterns
-  
+
  Yields:
   Matching file paths
  """
@@ -150,12 +150,12 @@ def iter_paths(repo_dir: Path, pattern: str, excludes: Iterable[str]) -> Iterabl
 
 def run_cmd(cmd: list[str], cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
  """Run a command and return the result.
- 
+
  Args:
   cmd: Command and arguments
   cwd: Working directory
   check: Whether to raise exception on non-zero exit
-  
+
  Returns:
   Completed process result
  """
@@ -164,7 +164,7 @@ def run_cmd(cmd: list[str], cwd: Path, check: bool = True) -> subprocess.Complet
 
 def run_shellcheck(repo_dir: Path) -> None:
  """Run shellcheck on all shell scripts if enabled in policy.
- 
+
  Args:
   repo_dir: Repository directory
  """
@@ -181,7 +181,7 @@ def run_shellcheck(repo_dir: Path) -> None:
 
 def run_yamllint(repo_dir: Path) -> None:
  """Run yamllint on all YAML files if enabled in policy.
- 
+
  Args:
   repo_dir: Repository directory
  """
@@ -202,7 +202,7 @@ def run_yamllint(repo_dir: Path) -> None:
 
 def llm_review(repo: str, repo_dir: Path) -> None:
  """Run LLM-based code review if enabled in policy.
- 
+
  Args:
   repo: Repository name
   repo_dir: Repository directory
@@ -238,10 +238,10 @@ def commit_if_changes(repo_dir: Path) -> bool:
 
 def ensure_repo(repo: str) -> Path | None:
  """Ensure repository exists locally, cloning if necessary.
- 
+
  Args:
   repo: Repository name (without org prefix)
-  
+
  Returns:
   Path to repository directory, or None if clone failed
  """
@@ -260,7 +260,7 @@ def ensure_repo(repo: str) -> Path | None:
 
 def create_or_update_pr(repo: str, repo_dir: Path, branch: str, auto_pr: bool) -> None:
  """Create or update a pull request for the changes.
- 
+
  Args:
   repo: Repository name
   repo_dir: Path to repository directory
@@ -271,14 +271,14 @@ def create_or_update_pr(repo: str, repo_dir: Path, branch: str, auto_pr: bool) -
   log(f"Auto-PR deaktiviert, Änderungen verbleiben lokal ({repo})")
   append_event({"type": "commit", "repo": repo, "branch": branch, "auto_pr": False})
   return
- 
+
  try:
   run_cmd(["git", "push", "--set-upstream", "origin", branch, "--force-with-lease"], repo_dir)
  except subprocess.CalledProcessError as exc:
   log(f"Push fehlgeschlagen für {repo}/{branch}: {exc}")
   append_event({"type": "push_failed", "repo": repo, "branch": branch, "error": str(exc)})
   return
- 
+
  # Check if PR already exists
  view = run_cmd(["gh", "pr", "view", branch, "--json", "url", "-q", ".url"], repo_dir, check=False)
  if view.returncode != 0 or not view.stdout.strip():
@@ -304,7 +304,7 @@ def create_or_update_pr(repo: str, repo_dir: Path, branch: str, auto_pr: bool) -
    log(f"PR-Erstellung fehlgeschlagen für {repo}/{branch}: {exc}")
    append_event({"type": "pr_failed", "repo": repo, "branch": branch, "error": str(exc)})
    return
- 
+
  view = run_cmd(["gh", "pr", "view", branch, "--json", "url", "-q", ".url"], repo_dir, check=False)
  url = view.stdout.strip() if view.stdout else ""
  append_event({"type": "pr", "repo": repo, "branch": branch, "url": url})
