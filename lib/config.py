@@ -58,10 +58,14 @@ def get_policy_path() -> Path:
     if user_policy.exists():
         return user_policy
     
-    # Fallback to repo default
-    # Assuming this is imported from within the repo structure
-    repo_root = Path(__file__).resolve().parents[2]
-    return repo_root / "config" / "policy.yml"
+    # Fallback to repo default by searching for repo root
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        if (parent / ".git").exists() or (parent / "config" / "policy.yml").exists():
+            return parent / "config" / "policy.yml"
+    
+    # Last resort: use relative path from current file
+    return Path(__file__).resolve().parents[2] / "config" / "policy.yml"
 
 
 def load_policy() -> dict[str, Any]:
