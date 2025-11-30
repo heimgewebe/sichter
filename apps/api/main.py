@@ -397,7 +397,7 @@ async def events_stream(ws: WebSocket):
                             if line.strip():
                                 await ws.send_text(line)
             except OSError:
-                # Datei evtl. rotiert oder noch nicht lesbar – ignoriere einmal
+                # Datei evtl. rotiert oder noch nicht lesbar - ignoriere einmal
                 pass
 
             # Heartbeat senden

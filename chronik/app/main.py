@@ -138,9 +138,11 @@ def _collect_events(n=100):
             break
         try:
             if f.suffix == ".jsonl":
-                for line in f.read_text(encoding="utf-8").splitlines():
-                    if line:
-                        events.append(json.loads(line))
+                events.extend(
+                    json.loads(line)
+                    for line in f.read_text(encoding="utf-8").splitlines()
+                    if line
+                )
             else:
                 events.append(json.loads(f.read_text(encoding="utf-8")))
         except Exception:

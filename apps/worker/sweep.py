@@ -98,7 +98,7 @@ def run_post_hook() -> None:
   try:
    subprocess.run([str(hook)], check=False, timeout=POST_HOOK_TIMEOUT_SECONDS)
   except Exception:
-   # Hook ist optional – niemals den Sweep crashen lassen
+   # Hook ist optional - niemals den Sweep crashen lassen
    pass
 
 

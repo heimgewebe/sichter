@@ -171,7 +171,7 @@ def run_shellcheck(repo_dir: Path) -> None:
  if not POLICY.checks or not POLICY.checks.get("shellcheck", False):
   return
  if not shutil.which("shellcheck"):
-  log("shellcheck nicht gefunden – überspringe")
+  log("shellcheck nicht gefunden - überspringe")
   return
  for script in iter_paths(repo_dir, "*.sh", POLICY.excludes):
   result = run_cmd(["shellcheck", "-x", str(script)], repo_dir, check=False)
@@ -188,7 +188,7 @@ def run_yamllint(repo_dir: Path) -> None:
  if not POLICY.checks or not POLICY.checks.get("yamllint", False):
   return
  if not shutil.which("yamllint"):
-  log("yamllint nicht gefunden – überspringe")
+  log("yamllint nicht gefunden - überspringe")
   return
  for doc in iter_paths(repo_dir, "*.yml", POLICY.excludes):
   result = run_cmd(["yamllint", "-s", str(doc)], repo_dir, check=False)
