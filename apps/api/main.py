@@ -45,17 +45,17 @@ def _enqueue(job: dict) -> str:
     return jid
 
 
-def _timestamp():
+def _timestamp() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
 @app.get("/healthz", response_class=PlainTextResponse)
-def healthz():
+def healthz() -> str:
     return "ok"
 
 
 @app.post("/jobs/submit")
-def submit(job: Job):
+def submit(job: Job) -> dict[str, str]:
     jid = _enqueue(job.model_dump())
     return {"enqueued": jid, "queue_dir": str(QUEUE)}
 
@@ -96,11 +96,21 @@ def _parse_timestamp(value: str | None) -> str | None:
     return value
 
 
-def _queue_state(limit: int = 10) -> dict:
-    items = []
-    for fp in sorted(QUEUE.glob("*.json"), key=os.path.getmtime):
+def _queue_state(limit: int = 10) -> dict[str, int | list[dict]]:
+    """Get current queue state with most recent jobs.
+    
+    Args:
+        limit: Maximum number of queue items to return
+        
+    Returns:
+        Dictionary with queue size and recent items
+    """
+    items: list[dict] = []
+    for fp in sorted(QUEUE.glob("*.json"), key=os.path.getmtime, reverse=True):
+        if len(items) >= limit:
+            break
         try:
-            payload = json.loads(fp.read_text())
+            payload = json.loads(fp.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             payload = {}
         items.append(
@@ -110,39 +120,61 @@ def _queue_state(limit: int = 10) -> dict:
                 "type": payload.get("type"),
                 "mode": payload.get("mode"),
                 "repo": payload.get("repo"),
-                "enqueuedAt": datetime.fromtimestamp(fp.stat().st_mtime).isoformat(),
+                "enqueuedAt": datetime.fromtimestamp(fp.stat().st_mtime, tz=timezone.utc).isoformat(),
             }
         )
+    
+    # Count total queue items
+    total_size = len(list(QUEUE.glob("*.json")))
+    
     return {
-        "size": len(items),
-        "items": items[-limit:],
+        "size": total_size,
+        "items": list(reversed(items)),  # Return in chronological order
     }
 
 
 def _collect_events(limit: int = 200) -> list[dict[str, str | dict]]:
-    # Bevorzuge .jsonl (neues Format), fallback .log (alt)
-    # Erst alle Dateien sammeln, dann die Zeilen limitieren. Sonst werden
-    # die neuesten Events ggf. verworfen.
-    files = sorted(EVENTS.glob("*.jsonl"), key=os.path.getmtime, reverse=False)
+    """Collect recent events efficiently by reading from newest files first.
+    
+    Args:
+        limit: Maximum number of events to collect
+        
+    Returns:
+        List of event dictionaries with metadata
+    """
+    # Prefer .jsonl (new format), fallback to .log (old)
+    files = sorted(EVENTS.glob("*.jsonl"), key=os.path.getmtime, reverse=True)
     if not files:
-        files = sorted(EVENTS.glob("*.log"), key=os.path.getmtime, reverse=False)
+        files = sorted(EVENTS.glob("*.log"), key=os.path.getmtime, reverse=True)
+    
+    # Collect lines from newest files first until we have enough
     lines: list[str] = []
     for fp in files:
         try:
-            lines.extend(fp.read_text().splitlines())
-        except (OSError, UnicodeDecodeError):
+            file_lines = fp.read_text(encoding="utf-8", errors="ignore").splitlines()
+            # Add lines from newest to oldest within each file
+            lines.extend(reversed(file_lines))
+            if len(lines) >= limit:
+                break
+        except OSError:
             continue
+    
+    # Take most recent lines and reverse back to chronological order
+    recent_lines = list(reversed(lines[:limit]))
+    
     events: list[dict[str, str | dict]] = []
-    for raw in lines[-limit:]:
+    for raw in recent_lines:
+        if not raw.strip():
+            continue
         entry: dict[str, str | dict] = {"line": raw}
         try:
             data = json.loads(raw)
+            if isinstance(data, dict):
+                entry["payload"] = data
+                entry["ts"] = data.get("ts") or data.get("payload", {}).get("ts")
+                entry["kind"] = data.get("event") or data.get("kind")
         except json.JSONDecodeError:
-            data = None
-        if isinstance(data, dict):
-            entry["payload"] = data
-            entry["ts"] = data.get("ts") or data.get("payload", {}).get("ts")
-            entry["kind"] = data.get("event") or data.get("kind")
+            pass
         events.append(entry)
     return events
 
@@ -158,51 +190,62 @@ def _read_policy() -> dict:
 
 
 def _resolve_repos() -> list[str]:
+    """Resolve list of repositories from policy or environment.
+    
+    Returns:
+        Sorted list of repository names
+    """
     repos: list[str] = []
-    local_policy = Path(__file__).resolve().parents[2] / "config" / "policy.yml"
-    if local_policy.exists():
-        try:
-            for line in local_policy.read_text().splitlines():
-                stripped = line.strip()
-                if stripped.startswith("#") or not stripped:
-                    continue
-                if stripped.startswith("allowlist:") and "[]" in stripped:
-                    repos.clear()
-                    break
-                if stripped.startswith("-"):
-                    candidate = stripped.split("-", 1)[1].strip()
-                    if candidate:
-                        repos.append(candidate)
-        except OSError:
-            repos = []
-    if repos:
-        return repos
+    
+    # Try to load from policy file
+    from lib.config import get_policy_path, load_yaml
+    
+    try:
+        policy_path = get_policy_path()
+        if policy_path.exists():
+            policy_data = load_yaml(policy_path)
+            allowlist = policy_data.get("allowlist")
+            if isinstance(allowlist, list):
+                repos = [str(repo) for repo in allowlist if repo]
+                if repos:
+                    return sorted(repos)
+    except (OSError, ValueError):
+        pass
+    
+    # Fallback to environment-based discovery
     org = os.environ.get("HAUSKI_ORG")
     remote_base = os.environ.get("HAUSKI_REMOTE_BASE")
     if org and remote_base:
-        base = Path(os.path.expandvars(remote_base)).expanduser()
-        if base.exists():
-            repos = [f"{org}/{entry.name}" for entry in base.iterdir() if entry.is_dir()]
+        try:
+            base = Path(os.path.expandvars(remote_base)).expanduser()
+            if base.exists() and base.is_dir():
+                repos = [f"{org}/{entry.name}" for entry in base.iterdir() 
+                        if entry.is_dir() and not entry.name.startswith(".")]
+        except OSError:
+            pass
+    
+    # Last resort: single repo from environment
     if not repos:
         repo = os.environ.get("GITHUB_REPOSITORY")
         if repo:
             repos = [repo]
+    
     return sorted(repos)
 
 
 @app.get("/events/tail", response_class=PlainTextResponse)
-def tail_events(n: int = 200):
+def tail_events(n: int = 200) -> str:
     events = _collect_events(n)
     return "\n".join(entry.get("line", "") for entry in events if entry.get("line"))
 
 
 @app.get("/events/recent")
-def recent_events(n: int = 200):
+def recent_events(n: int = 200) -> dict[str, list]:
     return {"events": _collect_events(n)}
 
 
 @app.get("/overview")
-def overview():
+def overview() -> dict:
     worker = _systemctl_show("sichter-worker.service")
     return {
         "worker": {
@@ -218,7 +261,7 @@ def overview():
 
 
 @app.get("/repos/status")
-def repos_status():
+def repos_status() -> dict[str, list[dict]]:
     repos = _resolve_repos()
     events = _collect_events(200)
     results: list[dict] = []
@@ -234,7 +277,7 @@ def repos_status():
 
 
 @app.post("/settings/policy")
-def write_policy(content: Annotated[dict, Body()]):
+def write_policy(content: Annotated[dict, Body()]) -> dict[str, str]:
     # stores to ~/.config/sichter/policy.yml
     CONFIG.mkdir(parents=True, exist_ok=True)
     target = CONFIG / "policy.yml"
@@ -262,7 +305,7 @@ def write_policy(content: Annotated[dict, Body()]):
 
 
 @app.get("/settings/policy")
-def read_policy():
+def read_policy() -> dict[str, str]:
     return _read_policy()
 
 

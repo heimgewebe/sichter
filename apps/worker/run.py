@@ -18,6 +18,8 @@ from lib.config import (
     DEFAULT_ORG,
     EVENTS,
     HOME,
+    PR_LABEL_AUTOMATION,
+    PR_LABEL_SICHTER,
     QUEUE,
     STATE,
     ensure_directories,
@@ -177,40 +179,74 @@ def commit_if_changes(repo_dir: Path) -> bool:
 
 
 def ensure_repo(repo: str) -> Path | None:
+ """Ensure repository exists locally, cloning if necessary.
+ 
+ Args:
+  repo: Repository name (without org prefix)
+  
+ Returns:
+  Path to repository directory, or None if clone failed
+ """
  repo_dir = HOME / "repos" / repo
  if not (repo_dir / ".git").exists():
-  result = run_cmd(["gh", "repo", "clone", f"{POLICY.org}/{repo}", str(repo_dir)], HOME, check=False)
-  if result.returncode != 0:
-   log(f"clone fehlgeschlagen für {repo}")
+  try:
+   result = run_cmd(["gh", "repo", "clone", f"{POLICY.org}/{repo}", str(repo_dir)], HOME, check=False)
+   if result.returncode != 0:
+    log(f"clone fehlgeschlagen für {repo}: {result.stderr}")
+    return None
+  except (subprocess.SubprocessError, OSError) as exc:
+   log(f"clone fehlgeschlagen für {repo}: {exc}")
    return None
  return repo_dir
 
 
 def create_or_update_pr(repo: str, repo_dir: Path, branch: str, auto_pr: bool) -> None:
+ """Create or update a pull request for the changes.
+ 
+ Args:
+  repo: Repository name
+  repo_dir: Path to repository directory
+  branch: Branch name with changes
+  auto_pr: Whether to automatically create PR
+ """
  if not auto_pr:
   log(f"Auto-PR deaktiviert, Änderungen verbleiben lokal ({repo})")
   append_event({"type": "commit", "repo": repo, "branch": branch, "auto_pr": False})
   return
- run_cmd(["git", "push", "--set-upstream", "origin", branch, "--force-with-lease"], repo_dir)
+ 
+ try:
+  run_cmd(["git", "push", "--set-upstream", "origin", branch, "--force-with-lease"], repo_dir)
+ except subprocess.CalledProcessError as exc:
+  log(f"Push fehlgeschlagen für {repo}/{branch}: {exc}")
+  append_event({"type": "push_failed", "repo": repo, "branch": branch, "error": str(exc)})
+  return
+ 
+ # Check if PR already exists
  view = run_cmd(["gh", "pr", "view", branch, "--json", "url", "-q", ".url"], repo_dir, check=False)
  if view.returncode != 0 or not view.stdout.strip():
-  run_cmd(
-   [
-    "gh",
-    "pr",
-    "create",
-    "--base",
-    DEFAULT_BRANCH,
-    "--fill",
-    "--title",
-    f"Sichter: auto PR ({repo})",
-    "--label",
-    "sichter",
-    "--label",
-    "automation",
-   ],
-   repo_dir,
-  )
+  try:
+   run_cmd(
+    [
+     "gh",
+     "pr",
+     "create",
+     "--base",
+     DEFAULT_BRANCH,
+     "--fill",
+     "--title",
+     f"Sichter: auto PR ({repo})",
+     "--label",
+     PR_LABEL_SICHTER,
+     "--label",
+     PR_LABEL_AUTOMATION,
+    ],
+    repo_dir,
+   )
+  except subprocess.CalledProcessError as exc:
+   log(f"PR-Erstellung fehlgeschlagen für {repo}/{branch}: {exc}")
+   append_event({"type": "pr_failed", "repo": repo, "branch": branch, "error": str(exc)})
+   return
+ 
  view = run_cmd(["gh", "pr", "view", branch, "--json", "url", "-q", ".url"], repo_dir, check=False)
  url = view.stdout.strip() if view.stdout else ""
  append_event({"type": "pr", "repo": repo, "branch": branch, "url": url})

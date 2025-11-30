@@ -23,6 +23,8 @@ LOGS = STATE / "logs"
 # Default values
 DEFAULT_ORG = "heimgewebe"
 DEFAULT_BRANCH = "main"
+PR_LABEL_SICHTER = "sichter"
+PR_LABEL_AUTOMATION = "automation"
 
 
 def ensure_directories() -> None:
