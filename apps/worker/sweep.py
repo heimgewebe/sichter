@@ -30,10 +30,10 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 def resolve_policy(path: str | None) -> dict:
  """Resolve policy configuration from file path or defaults.
- 
+
  Args:
   path: Optional path to policy file
-  
+
  Returns:
   Policy configuration dictionary
  """
@@ -45,12 +45,12 @@ def resolve_policy(path: str | None) -> dict:
 
 def write_job(policy: dict, mode: str, repo: str | None) -> Path:
  """Write a job file to the queue directory.
- 
+
  Args:
   policy: Policy configuration
   mode: Scan mode ("all" or "changed")
   repo: Optional repository name
-  
+
  Returns:
   Path to created job file
  """
@@ -71,7 +71,7 @@ def write_job(policy: dict, mode: str, repo: str | None) -> Path:
 
 def append_event(message: str, payload: dict | None = None) -> None:
  """Append an event to the daily event log.
- 
+
  Args:
   message: Event message
   payload: Optional event data
@@ -89,7 +89,7 @@ def append_event(message: str, payload: dict | None = None) -> None:
 
 def run_post_hook() -> None:
  """Run optional post-hook script if it exists.
- 
+
  Failures are silently ignored to prevent sweep from crashing.
  """
  hook = ROOT / "hooks/post-run"
@@ -98,7 +98,7 @@ def run_post_hook() -> None:
   try:
    subprocess.run([str(hook)], check=False, timeout=POST_HOOK_TIMEOUT_SECONDS)
   except Exception:
-   # Hook ist optional – niemals den Sweep crashen lassen
+   # Hook ist optional - niemals den Sweep crashen lassen
    pass
 
 

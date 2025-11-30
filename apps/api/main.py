@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
-from lib.config import CONFIG, EVENTS, LOGS, QUEUE, ensure_directories
+from lib.config import CONFIG, EVENTS, QUEUE, ensure_directories
 
 ensure_directories()
 
@@ -98,25 +98,25 @@ def _parse_timestamp(value: str | None) -> str | None:
 
 def _queue_state(limit: int = 10) -> dict[str, int | list[dict]]:
     """Get current queue state with most recent jobs.
-    
+
     Args:
         limit: Maximum number of queue items to return
-        
+
     Returns:
         Dictionary with queue size and recent items
     """
     # Collect all queue files first for counting
     all_files = list(QUEUE.glob("*.json"))
     total_size = len(all_files)
-    
+
     # Sort only if needed and get the most recent ones
     if total_size == 0:
         return {"size": 0, "items": []}
-    
+
     # Sort files by modification time (oldest first) and take last N
     all_files.sort(key=os.path.getmtime)
     recent_files = all_files[-limit:] if total_size > limit else all_files
-    
+
     # Build items in chronological order (oldest to newest)
     items: list[dict] = []
     for fp in recent_files:
@@ -134,7 +134,7 @@ def _queue_state(limit: int = 10) -> dict[str, int | list[dict]]:
                 "enqueuedAt": datetime.fromtimestamp(fp.stat().st_mtime, tz=timezone.utc).isoformat(),
             }
         )
-    
+
     return {
         "size": total_size,
         "items": items,
@@ -143,10 +143,10 @@ def _queue_state(limit: int = 10) -> dict[str, int | list[dict]]:
 
 def _collect_events(limit: int = 200) -> list[dict[str, str | dict]]:
     """Collect recent events efficiently by reading from newest files first.
-    
+
     Args:
         limit: Maximum number of events to collect
-        
+
     Returns:
         List of event dictionaries with metadata
     """
@@ -154,7 +154,7 @@ def _collect_events(limit: int = 200) -> list[dict[str, str | dict]]:
     files = sorted(EVENTS.glob("*.jsonl"), key=os.path.getmtime, reverse=True)
     if not files:
         files = sorted(EVENTS.glob("*.log"), key=os.path.getmtime, reverse=True)
-    
+
     # Collect lines from newest files first until we have enough
     lines: list[str] = []
     for fp in files:
@@ -166,10 +166,10 @@ def _collect_events(limit: int = 200) -> list[dict[str, str | dict]]:
                 break
         except OSError:
             continue
-    
+
     # Take most recent lines and reverse back to chronological order
     recent_lines = list(reversed(lines[:limit]))
-    
+
     events: list[dict[str, str | dict]] = []
     for raw in recent_lines:
         if not raw.strip():
@@ -189,7 +189,7 @@ def _collect_events(limit: int = 200) -> list[dict[str, str | dict]]:
 
 def _read_policy() -> dict:
     from lib.config import get_policy_path
-    
+
     policy_path = get_policy_path()
     try:
         return {"path": str(policy_path), "content": policy_path.read_text()}
@@ -199,15 +199,15 @@ def _read_policy() -> dict:
 
 def _resolve_repos() -> list[str]:
     """Resolve list of repositories from policy or environment.
-    
+
     Returns:
         Sorted list of repository names
     """
     repos: list[str] = []
-    
+
     # Try to load from policy file
     from lib.config import get_policy_path, load_yaml
-    
+
     try:
         policy_path = get_policy_path()
         if policy_path.exists():
@@ -219,7 +219,7 @@ def _resolve_repos() -> list[str]:
                     return sorted(repos)
     except (OSError, ValueError):
         pass
-    
+
     # Fallback to environment-based discovery
     org = os.environ.get("HAUSKI_ORG")
     remote_base = os.environ.get("HAUSKI_REMOTE_BASE")
@@ -227,17 +227,17 @@ def _resolve_repos() -> list[str]:
         try:
             base = Path(os.path.expandvars(remote_base)).expanduser()
             if base.exists() and base.is_dir():
-                repos = [f"{org}/{entry.name}" for entry in base.iterdir() 
+                repos = [f"{org}/{entry.name}" for entry in base.iterdir()
                         if entry.is_dir() and not entry.name.startswith(".")]
         except OSError:
             pass
-    
+
     # Last resort: single repo from environment
     if not repos:
         repo = os.environ.get("GITHUB_REPOSITORY")
         if repo:
             repos = [repo]
-    
+
     return sorted(repos)
 
 
@@ -397,7 +397,7 @@ async def events_stream(ws: WebSocket):
                             if line.strip():
                                 await ws.send_text(line)
             except OSError:
-                # Datei evtl. rotiert oder noch nicht lesbar – ignoriere einmal
+                # Datei evtl. rotiert oder noch nicht lesbar - ignoriere einmal
                 pass
 
             # Heartbeat senden

@@ -38,10 +38,10 @@ def ensure_directories() -> None:
 
 def load_yaml(path: Path) -> dict[str, Any]:
     """Load YAML file using PyYAML if available, fallback to simpleyaml.
-    
+
     Args:
         path: Path to YAML file
-        
+
     Returns:
         Parsed YAML content as dictionary
     """
@@ -53,27 +53,27 @@ def load_yaml(path: Path) -> dict[str, Any]:
 
 def get_policy_path() -> Path:
     """Get the path to the active policy file.
-    
+
     Returns:
         Path to policy.yml (user config or repo default)
     """
     user_policy = CONFIG / "policy.yml"
     if user_policy.exists():
         return user_policy
-    
+
     # Fallback to repo default by searching for repo root
     current = Path(__file__).resolve()
     for parent in current.parents:
         if (parent / ".git").exists() or (parent / "config" / "policy.yml").exists():
             return parent / "config" / "policy.yml"
-    
+
     # Last resort: use relative path from current file
     return Path(__file__).resolve().parents[2] / "config" / "policy.yml"
 
 
 def load_policy() -> dict[str, Any]:
     """Load the active policy configuration.
-    
+
     Returns:
         Policy configuration dictionary
     """

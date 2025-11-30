@@ -1,11 +1,12 @@
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
-from pathlib import Path
-from datetime import datetime
 import json
 import os
 import uuid
+from datetime import datetime
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 APP_ROOT = Path(__file__).resolve().parent
 # Standard: Sichter-Layout
@@ -41,7 +42,7 @@ def load_index():
         data = json.loads(INDEX.read_text(encoding="utf-8"))
         return data if isinstance(data, dict) else {"repos": data}
     except Exception as e:
-        raise HTTPException(500, f"index.json unreadable: {e}")
+        raise HTTPException(500, f"index.json unreadable: {e}") from e
 
 def collect_repo_report(repo_dir: Path):
     report = repo_dir / "report.json"
@@ -77,9 +78,8 @@ def summary():
             errors += 1
         elif sev in ("warn","warning","medium"):
             warning += 1
-        else:
-            if isinstance(findings, list) and findings:
-                warning += 1
+        elif isinstance(findings, list) and findings:
+            warning += 1
     return {
         "total_repos": total,
         "errors": errors,
@@ -111,14 +111,14 @@ def api_repos():
 def api_report(repo: str):
     # Validate: repo name must not contain path separators or traversal
     import re
-    INVALID = re.compile(r'[\\/]|^\.\.?$|^$')
+    INVALID = re.compile(r"[\\/]|^\.\.?$|^$")
     if INVALID.search(repo):
         raise HTTPException(403, "Invalid repo name")
     repo_dir = (REVIEW_ROOT / repo).resolve()
     try:
         repo_dir.relative_to(REVIEW_ROOT.resolve())
-    except ValueError:
-        raise HTTPException(403, "Invalid repo path")
+    except ValueError as e:
+        raise HTTPException(403, "Invalid repo path") from e
     if not repo_dir.exists():
         raise HTTPException(404, "repo not found")
     rep = collect_repo_report(repo_dir)
@@ -138,9 +138,13 @@ def _collect_events(n=100):
             break
         try:
             if f.suffix == ".jsonl":
-                for line in f.read_text(encoding="utf-8").splitlines():
-                    if line:
-                        events.append(json.loads(line))
+                with f.open(encoding="utf-8") as fh:
+                    for line in fh:
+                        line = line.strip()
+                        if line:
+                            events.append(json.loads(line))
+                            if len(events) >= n:
+                                break
             else:
                 events.append(json.loads(f.read_text(encoding="utf-8")))
         except Exception:
@@ -155,8 +159,8 @@ def events_recent(n: int = 100):
 async def job_submit(req: Request):
     try:
         payload = await req.json()
-    except Exception:
-        raise HTTPException(400, "invalid json")
+    except Exception as e:
+        raise HTTPException(400, "invalid json") from e
     if not isinstance(payload, dict) or not payload:
         raise HTTPException(400, "invalid payload")
     jid = str(uuid.uuid4())
@@ -169,8 +173,8 @@ async def job_submit(req: Request):
     try:
         (QUEUE_DIR / f"{jid}.json.new").write_text(json.dumps(data, indent=2), encoding="utf-8")
         (QUEUE_DIR / f"{jid}.json.new").rename(QUEUE_DIR / f"{jid}.json")
-    except IOError as e:
-        raise HTTPException(500, f"failed to write job to queue: {e}")
+    except OSError as e:
+        raise HTTPException(500, f"failed to write job to queue: {e}") from e
     return JSONResponse({"enqueued": jid, "status_url": f"/api/jobs/{jid}"}, 202)
 
 app.mount("/static", StaticFiles(directory=str(APP_ROOT / "static")), name="static")

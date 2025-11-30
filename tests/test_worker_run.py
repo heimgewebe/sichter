@@ -1,16 +1,18 @@
 
 import unittest
 from unittest.mock import patch
+
 from apps.worker import run as worker_run
 
+
 class TestWorkerRun(unittest.TestCase):
-    @patch('apps.worker.run.create_or_update_pr')
-    @patch('apps.worker.run.commit_if_changes', return_value=True)
-    @patch('apps.worker.run.llm_review')
-    @patch('apps.worker.run.run_yamllint')
-    @patch('apps.worker.run.run_shellcheck')
-    @patch('apps.worker.run.fresh_branch')
-    @patch('apps.worker.run.ensure_repo')
+    @patch("apps.worker.run.create_or_update_pr")
+    @patch("apps.worker.run.commit_if_changes", return_value=True)
+    @patch("apps.worker.run.llm_review")
+    @patch("apps.worker.run.run_yamllint")
+    @patch("apps.worker.run.run_shellcheck")
+    @patch("apps.worker.run.fresh_branch")
+    @patch("apps.worker.run.ensure_repo")
     def test_handle_job_respects_auto_pr_flag(
         self,
         mock_ensure_repo,
@@ -22,32 +24,32 @@ class TestWorkerRun(unittest.TestCase):
         mock_create_or_update_pr,
     ):
         # Test case 1: job with auto_pr=False
-        job_false = {'repo': 'test_repo', 'auto_pr': False}
+        job_false = {"repo": "test_repo", "auto_pr": False}
         worker_run.handle_job(job_false)
         mock_create_or_update_pr.assert_called_with(
-            'test_repo', mock_ensure_repo.return_value, mock_fresh_branch.return_value, False
+            "test_repo", mock_ensure_repo.return_value, mock_fresh_branch.return_value, False
         )
 
         # Test case 2: job with auto_pr=True
-        job_true = {'repo': 'test_repo', 'auto_pr': True}
+        job_true = {"repo": "test_repo", "auto_pr": True}
         worker_run.handle_job(job_true)
         mock_create_or_update_pr.assert_called_with(
-            'test_repo', mock_ensure_repo.return_value, mock_fresh_branch.return_value, True
+            "test_repo", mock_ensure_repo.return_value, mock_fresh_branch.return_value, True
         )
 
         # Test case 3: job without auto_pr (fallback to policy)
-        job_none = {'repo': 'test_repo'}
-        with patch('apps.worker.run.POLICY.auto_pr', True):
+        job_none = {"repo": "test_repo"}
+        with patch("apps.worker.run.POLICY.auto_pr", True):
             worker_run.handle_job(job_none)
             mock_create_or_update_pr.assert_called_with(
-                'test_repo', mock_ensure_repo.return_value, mock_fresh_branch.return_value, True
+                "test_repo", mock_ensure_repo.return_value, mock_fresh_branch.return_value, True
             )
 
-        with patch('apps.worker.run.POLICY.auto_pr', False):
+        with patch("apps.worker.run.POLICY.auto_pr", False):
             worker_run.handle_job(job_none)
             mock_create_or_update_pr.assert_called_with(
-                'test_repo', mock_ensure_repo.return_value, mock_fresh_branch.return_value, False
+                "test_repo", mock_ensure_repo.return_value, mock_fresh_branch.return_value, False
             )
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()
