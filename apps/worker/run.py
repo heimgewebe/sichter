@@ -23,7 +23,6 @@ from lib.config import (
     QUEUE,
     STATE,
     ensure_directories,
-    load_yaml,
 )
 
 PID_FILE = STATE / "worker.pid"

@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
-from lib.config import CONFIG, EVENTS, LOGS, QUEUE, ensure_directories
+from lib.config import CONFIG, EVENTS, QUEUE, ensure_directories
 
 ensure_directories()
 
