@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -27,6 +28,14 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def resolve_policy(path: str | None) -> dict:
+ """Resolve policy configuration from file path or defaults.
+ 
+ Args:
+  path: Optional path to policy file
+  
+ Returns:
+  Policy configuration dictionary
+ """
  if path:
   return load_yaml(Path(path))
  policy_path = get_policy_path()
@@ -34,6 +43,16 @@ def resolve_policy(path: str | None) -> dict:
 
 
 def write_job(policy: dict, mode: str, repo: str | None) -> Path:
+ """Write a job file to the queue directory.
+ 
+ Args:
+  policy: Policy configuration
+  mode: Scan mode ("all" or "changed")
+  repo: Optional repository name
+  
+ Returns:
+  Path to created job file
+ """
  job_type = "ScanAll" if mode == "all" else "ScanChanged"
  now = datetime.now(timezone.utc)
  payload = {
@@ -50,6 +69,12 @@ def write_job(policy: dict, mode: str, repo: str | None) -> Path:
 
 
 def append_event(message: str, payload: dict | None = None) -> None:
+ """Append an event to the daily event log.
+ 
+ Args:
+  message: Event message
+  payload: Optional event data
+ """
  now = datetime.now(timezone.utc)
  event_file = EVENT_DIR / f"sweep-{now.strftime('%Y%m%d')}.jsonl"
  record = {
@@ -62,12 +87,15 @@ def append_event(message: str, payload: dict | None = None) -> None:
 
 
 def run_post_hook() -> None:
+ """Run optional post-hook script if it exists.
+ 
+ Failures are silently ignored to prevent sweep from crashing.
+ """
  hook = ROOT / "hooks/post-run"
  if hook.exists():
   os.environ.setdefault("SICHTER_REPO_ROOT", str(ROOT))
   try:
-   import subprocess
-   subprocess.run([str(hook)], check=False)
+   subprocess.run([str(hook)], check=False, timeout=30)
   except Exception:
    # Hook ist optional – niemals den Sweep crashen lassen
    pass

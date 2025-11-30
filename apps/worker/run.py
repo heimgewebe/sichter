@@ -37,6 +37,11 @@ LOG_FILE = LOG_DIR / f"worker-{_NOW.strftime('%Y%m%d-%H%M%S')}.log"
 
 
 def log(line: str) -> None:
+ """Log a message to both stdout and the worker log file.
+ 
+ Args:
+  line: Log message
+ """
  timestamp = datetime.now(timezone.utc).isoformat()
  message = f"[{timestamp}] {line}"
  print(message)
@@ -45,6 +50,11 @@ def log(line: str) -> None:
 
 
 def append_event(event: dict) -> None:
+ """Append an event to the daily event log.
+ 
+ Args:
+  event: Event data dictionary
+ """
  now = datetime.now(timezone.utc)
  event_file = EVENTS / f"worker-{now.strftime('%Y%m%d')}.jsonl"
  record = {"ts": now.isoformat(), **event}
@@ -53,6 +63,14 @@ def append_event(event: dict) -> None:
 
 
 def is_process_alive(pid: int) -> bool:
+ """Check if a process with given PID is alive.
+ 
+ Args:
+  pid: Process ID to check
+  
+ Returns:
+  True if process is alive, False otherwise
+ """
  try:
   os.kill(pid, 0)
  except ProcessLookupError:
@@ -64,6 +82,11 @@ def is_process_alive(pid: int) -> bool:
 
 
 def acquire_pid_lock() -> None:
+ """Acquire PID lock to ensure only one worker instance runs.
+ 
+ Exits if another worker is already running.
+ Cleans up PID file on exit.
+ """
  if PID_FILE.exists():
   try:
    existing_pid = int(PID_FILE.read_text().strip())
@@ -109,6 +132,16 @@ POLICY = Policy.load()
 
 
 def iter_paths(repo_dir: Path, pattern: str, excludes: Iterable[str]) -> Iterable[Path]:
+ """Iterate over files matching pattern, excluding specified patterns.
+ 
+ Args:
+  repo_dir: Repository directory
+  pattern: File glob pattern
+  excludes: Exclude patterns
+  
+ Yields:
+  Matching file paths
+ """
  for path in repo_dir.rglob(pattern):
   rel = path.relative_to(repo_dir)
   if any(fnmatch(str(rel), ex) for ex in excludes):
@@ -117,10 +150,25 @@ def iter_paths(repo_dir: Path, pattern: str, excludes: Iterable[str]) -> Iterabl
 
 
 def run_cmd(cmd: list[str], cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
+ """Run a command and return the result.
+ 
+ Args:
+  cmd: Command and arguments
+  cwd: Working directory
+  check: Whether to raise exception on non-zero exit
+  
+ Returns:
+  Completed process result
+ """
  return subprocess.run(cmd, cwd=cwd, text=True, capture_output=True, check=check)
 
 
 def run_shellcheck(repo_dir: Path) -> None:
+ """Run shellcheck on all shell scripts if enabled in policy.
+ 
+ Args:
+  repo_dir: Repository directory
+ """
  if not POLICY.checks or not POLICY.checks.get("shellcheck", False):
   return
  if not shutil.which("shellcheck"):
@@ -133,6 +181,11 @@ def run_shellcheck(repo_dir: Path) -> None:
 
 
 def run_yamllint(repo_dir: Path) -> None:
+ """Run yamllint on all YAML files if enabled in policy.
+ 
+ Args:
+  repo_dir: Repository directory
+ """
  if not POLICY.checks or not POLICY.checks.get("yamllint", False):
   return
  if not shutil.which("yamllint"):
@@ -149,6 +202,12 @@ def run_yamllint(repo_dir: Path) -> None:
 
 
 def llm_review(repo: str, repo_dir: Path) -> None:
+ """Run LLM-based code review if enabled in policy.
+ 
+ Args:
+  repo: Repository name
+  repo_dir: Repository directory
+ """
  if POLICY.run_mode != "deep":
   log(f"LLM-Review übersprungen (run_mode={POLICY.run_mode})")
   return
