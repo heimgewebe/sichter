@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import Iterable
+from collections.abc import Iterable
 
 from lib.config import (
     DEFAULT_BRANCH,
@@ -110,7 +110,7 @@ class Policy:
  excludes: Iterable[str] = ()
 
  @classmethod
- def load(cls) -> "Policy":
+ def load(cls) -> Policy:
   from lib.config import get_policy_path, load_yaml
 
   policy_path = get_policy_path()

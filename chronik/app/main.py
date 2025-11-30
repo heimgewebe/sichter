@@ -77,9 +77,8 @@ def summary():
             errors += 1
         elif sev in ("warn","warning","medium"):
             warning += 1
-        else:
-            if isinstance(findings, list) and findings:
-                warning += 1
+        elif isinstance(findings, list) and findings:
+            warning += 1
     return {
         "total_repos": total,
         "errors": errors,
@@ -111,7 +110,7 @@ def api_repos():
 def api_report(repo: str):
     # Validate: repo name must not contain path separators or traversal
     import re
-    INVALID = re.compile(r'[\\/]|^\.\.?$|^$')
+    INVALID = re.compile(r"[\\/]|^\.\.?$|^$")
     if INVALID.search(repo):
         raise HTTPException(403, "Invalid repo name")
     repo_dir = (REVIEW_ROOT / repo).resolve()
@@ -169,7 +168,7 @@ async def job_submit(req: Request):
     try:
         (QUEUE_DIR / f"{jid}.json.new").write_text(json.dumps(data, indent=2), encoding="utf-8")
         (QUEUE_DIR / f"{jid}.json.new").rename(QUEUE_DIR / f"{jid}.json")
-    except IOError as e:
+    except OSError as e:
         raise HTTPException(500, f"failed to write job to queue: {e}")
     return JSONResponse({"enqueued": jid, "status_url": f"/api/jobs/{jid}"}, 202)
 
