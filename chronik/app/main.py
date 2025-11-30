@@ -41,7 +41,7 @@ def load_index():
         data = json.loads(INDEX.read_text(encoding="utf-8"))
         return data if isinstance(data, dict) else {"repos": data}
     except Exception as e:
-        raise HTTPException(500, f"index.json unreadable: {e}")
+        raise HTTPException(500, f"index.json unreadable: {e}") from e
 
 def collect_repo_report(repo_dir: Path):
     report = repo_dir / "report.json"
@@ -116,8 +116,8 @@ def api_report(repo: str):
     repo_dir = (REVIEW_ROOT / repo).resolve()
     try:
         repo_dir.relative_to(REVIEW_ROOT.resolve())
-    except ValueError:
-        raise HTTPException(403, "Invalid repo path")
+    except ValueError as e:
+        raise HTTPException(403, "Invalid repo path") from e
     if not repo_dir.exists():
         raise HTTPException(404, "repo not found")
     rep = collect_repo_report(repo_dir)
@@ -154,8 +154,8 @@ def events_recent(n: int = 100):
 async def job_submit(req: Request):
     try:
         payload = await req.json()
-    except Exception:
-        raise HTTPException(400, "invalid json")
+    except Exception as e:
+        raise HTTPException(400, "invalid json") from e
     if not isinstance(payload, dict) or not payload:
         raise HTTPException(400, "invalid payload")
     jid = str(uuid.uuid4())
@@ -169,7 +169,7 @@ async def job_submit(req: Request):
         (QUEUE_DIR / f"{jid}.json.new").write_text(json.dumps(data, indent=2), encoding="utf-8")
         (QUEUE_DIR / f"{jid}.json.new").rename(QUEUE_DIR / f"{jid}.json")
     except OSError as e:
-        raise HTTPException(500, f"failed to write job to queue: {e}")
+        raise HTTPException(500, f"failed to write job to queue: {e}") from e
     return JSONResponse({"enqueued": jid, "status_url": f"/api/jobs/{jid}"}, 202)
 
 app.mount("/static", StaticFiles(directory=str(APP_ROOT / "static")), name="static")
