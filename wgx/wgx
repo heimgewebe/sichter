@@ -13,7 +13,7 @@ source "$WGX_ROOT/wgx/lib/parse_yaml.sh"
 # The first argument is the subcommand
 SUBCOMMAND="${1:-}"
 
-if [[ -z "$SUBCOMMAND" ]];  then
+if [[ -z "$SUBCOMMAND" ]]; then
   echo "Usage: wgx <subcommand>" >&2
   exit 1
 fi

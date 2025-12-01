@@ -31,7 +31,7 @@ append_event() {
   core_json="${core_json%\}}"
   local event_file
   event_file="$EVENTS_DIR/sweep-$(date +%Y%m%d).jsonl"
-  printf '{"ts": "%s", %s}\n' "$(TS)" "$core_json" >> "$event_file"
+  printf '{"ts": "%s", %s}\n' "$(TS)" "$core_json" >>"$event_file"
 }
 
 # Unified result handler

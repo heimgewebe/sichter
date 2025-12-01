@@ -49,9 +49,12 @@ control_worker() {
   local verb
   case "$action" in
     start) verb="starten" ;;
-    stop)  verb="anhalten" ;;
+    stop) verb="anhalten" ;;
     status) verb="Status" ;;
-    *) echo "Unbekannte Aktion: $action"; return 1 ;;
+    *)
+      echo "Unbekannte Aktion: $action"
+      return 1
+      ;;
   esac
   print_header
   echo "Worker $verb…"
@@ -145,9 +148,15 @@ choose_log() {
   case "$choice" in
     1) tail_log "$PR_LOG" ;;
     2) tail_log "$WORKER_LOG" ;;
-    3) read -rp "Pfad: " custom; tail_log "$custom" ;;
-    q|Q) return ;;
-    *) echo "Ungültig"; sleep 1 ;;
+    3)
+      read -rp "Pfad: " custom
+      tail_log "$custom"
+      ;;
+    q | Q) return ;;
+    *)
+      echo "Ungültig"
+      sleep 1
+      ;;
   esac
 }
 
@@ -204,8 +213,14 @@ MENU
       5) control_worker status ;;
       6) show_prs ;;
       7) choose_log ;;
-      q|Q) clear; exit 0 ;;
-      *) echo "Ungültige Eingabe"; sleep 1 ;;
+      q | Q)
+        clear
+        exit 0
+        ;;
+      *)
+        echo "Ungültige Eingabe"
+        sleep 1
+        ;;
     esac
   done
 }
