@@ -1,0 +1,4 @@
+list:
+  - item1
+  - nested_list:
+      - subitem

@@ -70,9 +70,18 @@ def _parse_block(state: _ParserState, indent: int) -> Any:
         break
       state.pop()
       payload = line.strip()[2:].strip()
-      if payload:
+
+      # Check if payload ends with colon (likely a dict key)
+      if payload.endswith(":") and " " not in payload[:-1]:
+         # It's a key for a nested dict (e.g., "- key:")
+         key = payload[:-1]
+         nested = _parse_block(state, indent + 2)
+         items.append({key: nested})
+      elif payload:
+        # Standard list item
         items.append(_parse_scalar(payload))
       else:
+        # Empty payload, block content follows
         items.append(_parse_block(state, indent + 2))
     return items
   mapping: dict[str, Any] = {}
