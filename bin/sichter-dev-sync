@@ -16,12 +16,12 @@ git diff --cached --quiet || git commit -m "sichter: dev sync" || true
 git push -u origin HEAD || true
 
 open_pr="$(gh pr list --repo "$ORG/$REPO" --state open --json title,number |
-	grep -F "\"title\": \"$TITLE\"" || true)"
+  grep -F "\"title\": \"$TITLE\"" || true)"
 if [ -n "$open_pr" ]; then
-	n="$(echo "$open_pr" | sed -n 's/.*"number": \([0-9]\+\).*/\1/p' | head -n1)"
-	echo "[sichter-dev-sync] Update PR #$n"
-	gh pr comment "$n" --repo "$ORG/$REPO" --body "🔁 Update $(date -Iseconds)" || true
+  n="$(echo "$open_pr" | sed -n 's/.*"number": \([0-9]\+\).*/\1/p' | head -n1)"
+  echo "[sichter-dev-sync] Update PR #$n"
+  gh pr comment "$n" --repo "$ORG/$REPO" --body "🔁 Update $(date -Iseconds)" || true
 else
-	echo "[sichter-dev-sync] Create PR"
-	gh pr create --repo "$ORG/$REPO" --fill --title "$TITLE" --label "$LABELS" --base main || true
+  echo "[sichter-dev-sync] Create PR"
+  gh pr create --repo "$ORG/$REPO" --fill --title "$TITLE" --label "$LABELS" --base main || true
 fi

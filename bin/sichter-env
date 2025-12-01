@@ -3,12 +3,12 @@ set -euo pipefail
 POL="${SICHTER_POLICY_PATH:-$HOME/.config/sichter/policy.yml}"
 
 kv() { # echo key default
-	local key="$1" def="${2-}"
-	if command -v yq >/dev/null 2>&1; then
-		yq -r ".${key} // \"${def}\"" "$POL" 2>/dev/null
-	else
-		# billiger YAML-Fallback (nur einfache key: value)
-		awk -v k="$key" -v d="$def" '
+  local key="$1" def="${2-}"
+  if command -v yq >/dev/null 2>&1; then
+    yq -r ".${key} // \"${def}\"" "$POL" 2>/dev/null
+  else
+    # billiger YAML-Fallback (nur einfache key: value)
+    awk -v k="$key" -v d="$def" '
 BEGIN{FS=":";found=0}
 /^[[:space:]]*#/ {next}
 {
@@ -20,7 +20,7 @@ print $0; found=1; exit 0
 }
 END{ if(!found) print d }
 ' "$POL" 2>/dev/null
-	fi
+  fi
 }
 
 RUN_POLICY="$(kv run_policy periodic)"
@@ -35,6 +35,6 @@ export SICHTER_AUTORUN="$AUTORUN"
 
 # menschenlesbarer Dump (optional)
 if [ "${1-}" = "--print" ]; then
-	printf 'policy=%s interval=%s max_jobs=%s autorun=%s\n' \
-		"$SICHTER_RUN_POLICY" "$SICHTER_INTERVAL_MINUTES" "$SICHTER_MAX_PARALLEL_JOBS" "$SICHTER_AUTORUN"
+  printf 'policy=%s interval=%s max_jobs=%s autorun=%s\n' \
+    "$SICHTER_RUN_POLICY" "$SICHTER_INTERVAL_MINUTES" "$SICHTER_MAX_PARALLEL_JOBS" "$SICHTER_AUTORUN"
 fi

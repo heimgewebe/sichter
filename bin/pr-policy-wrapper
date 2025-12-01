@@ -9,8 +9,8 @@ yellow() { printf "\033[33m%s\033[0m\n" "$*"; }
 green() { printf "\033[32m%s\033[0m\n" "$*"; }
 
 if [ ! -x "$REAL" ]; then
-	yellow "Hinweis: echter PR-Ersteller fehlt/ist nicht ausführbar: $REAL"
-	exit 0
+  yellow "Hinweis: echter PR-Ersteller fehlt/ist nicht ausführbar: $REAL"
+  exit 0
 fi
 
 get_bool() { grep -E "^$1:\s*(true|false)\s*$" "$POLICY" | awk -F: '{gsub(/ /,"",$2);print $2}'; }
@@ -33,45 +33,45 @@ only_docs=true
 only_devcontainer=true
 touches_must=false
 while IFS= read -r f; do
-	[ -z "$f" ] && continue
-	case "$f" in merges/*) ;; *) only_merges=false ;; esac
-	case "$f" in *.md | docs/*) ;; *) only_docs=false ;; esac
-	case "$f" in .devcontainer/* | .vscode/*) ;; *) only_devcontainer=false ;; esac
-	for pat in $MUST_TOUCH_PATTERNS; do
-		echo "$f" | grep -Eq "$pat" && {
-			touches_must=true
-			break
-		}
-	done
+  [ -z "$f" ] && continue
+  case "$f" in merges/*) ;; *) only_merges=false ;; esac
+  case "$f" in *.md | docs/*) ;; *) only_docs=false ;; esac
+  case "$f" in .devcontainer/* | .vscode/*) ;; *) only_devcontainer=false ;; esac
+  for pat in $MUST_TOUCH_PATTERNS; do
+    echo "$f" | grep -Eq "$pat" && {
+      touches_must=true
+      break
+    }
+  done
 done <<<"$CHANGED"
 
 decision="ALLOW"
 reason=""
 if [ "$CHANGED_COUNT" -gt "$SIZE_LIMIT" ]; then
-	decision="DENY"
-	reason="zu groß (${CHANGED_COUNT} > ${SIZE_LIMIT})"
+  decision="DENY"
+  reason="zu groß (${CHANGED_COUNT} > ${SIZE_LIMIT})"
 elif $only_merges && [ "$ALLOW_DUMPS" = "false" ]; then
-	decision="DENY"
-	reason="nur merges/**"
+  decision="DENY"
+  reason="nur merges/**"
 elif $only_docs && [ "$ALLOW_DOCS" = "false" ]; then
-	decision="DENY"
-	reason="nur Doku"
+  decision="DENY"
+  reason="nur Doku"
 elif $only_devcontainer && [ "$ALLOW_DEV" = "false" ]; then
-	decision="DENY"
-	reason="nur Devcontainer/VSCode"
+  decision="DENY"
+  reason="nur Devcontainer/VSCode"
 elif [ -n "$MUST_TOUCH_PATTERNS" ] && [ "$touches_must" = "false" ]; then
-	decision="DENY"
-	reason="trifft must_touch_paths nicht"
+  decision="DENY"
+  reason="trifft must_touch_paths nicht"
 fi
 
 ts="$(date -Iseconds)"
 if [ "$decision" = "DENY" ]; then
-	{
-		echo "[$ts] DENY: $reason"
-		echo "Changed ($CHANGED_COUNT):"
-		printf "  %s\n" "$CHANGED"
-	} >>"$LOG"
-	exit 0
+  {
+    echo "[$ts] DENY: $reason"
+    echo "Changed ($CHANGED_COUNT):"
+    printf "  %s\n" "$CHANGED"
+  } >>"$LOG"
+  exit 0
 fi
 
 # Echten Ersteller aufrufen
@@ -79,9 +79,9 @@ fi
 
 # Nachlauf: ggf. PR-Titel/Branch umbenennen auf "Sichter fixes"
 if command -v gh >/dev/null 2>&1; then
-	# Letzte offene Auto-PRs im aktuellen Repo umbenennen
-	for num in $(gh pr list --state open --json number,title,headRefName \
-		--jq '.[] | select(.title|test("HausKI fixes \\(")) | .number'); do
-		gh pr edit "$num" --title "$(gh pr view "$num" --json title --jq '.title' | sed 's/^HausKI fixes/Sichter fixes/')"
-	done
+  # Letzte offene Auto-PRs im aktuellen Repo umbenennen
+  for num in $(gh pr list --state open --json number,title,headRefName \
+    --jq '.[] | select(.title|test("HausKI fixes \\(")) | .number'); do
+    gh pr edit "$num" --title "$(gh pr view "$num" --json title --jq '.title' | sed 's/^HausKI fixes/Sichter fixes/')"
+  done
 fi
