@@ -5,8 +5,8 @@ pr="${2:?pr nummer}"
 dir="$HOME/sichter/review/$(basename "$repo")"
 file="$(find "$dir" -name '*-review.md' -printf '%T@ %p\n' | sort -nr | head -n1 | cut -d' ' -f2- || true)"
 [ -n "$file" ] || {
-	echo "kein Report gefunden"
-	exit 1
+  echo "kein Report gefunden"
+  exit 1
 }
 gh pr comment -R "$repo" "$pr" --body-file "$file"
 echo "✓ kommentiert: $file → PR #$pr"

@@ -19,8 +19,8 @@ PIDS=()
 cleanup() {
   set +e
   for pid in "${PIDS[@]:-}"; do
-    kill "$pid" > /dev/null 2>&1 || true
-    wait "$pid" 2> /dev/null || true
+    kill "$pid" >/dev/null 2>&1 || true
+    wait "$pid" 2>/dev/null || true
   done
 }
 trap cleanup EXIT INT TERM
@@ -70,12 +70,12 @@ outdir="$(dirname "$output_path")"
 
 # --- API starten -------------------------------------------------------------
 log "starte API auf ${API_BASE}"
-"$PY" -m uvicorn apps.api.main:app --host "$API_HOST" --port "$API_PORT" > "$LOG_DIR/api.log" 2>&1 &
+"$PY" -m uvicorn apps.api.main:app --host "$API_HOST" --port "$API_PORT" >"$LOG_DIR/api.log" 2>&1 &
 PIDS+=($!)
 
 # Warten bis /healthz antwortet
 for i in {1..60}; do
-  if curl -fsS "$API_BASE/healthz" > /dev/null 2>&1; then
+  if curl -fsS "$API_BASE/healthz" >/dev/null 2>&1; then
     log "API erreichbar"
     break
   fi
@@ -88,7 +88,7 @@ done
 
 # --- Worker-Stub starten -----------------------------------------------------
 log "starte Worker-Stub (verarbeitet genau 1 Job)"
-"$PY" "$ROOT/scripts/worker_stub.py" > "$LOG_DIR/worker.log" 2>&1 &
+"$PY" "$ROOT/scripts/worker_stub.py" >"$LOG_DIR/worker.log" 2>&1 &
 PIDS+=($!)
 
 # --- Job einreihen -----------------------------------------------------------
@@ -103,7 +103,7 @@ HTTP_CODE=$(curl -sS -w '%{http_code}' -o "$API_RESP" \
   "$API_BASE/jobs/submit" -d "$ENQ_JSON")
 
 if [[ "$HTTP_CODE" -ge 200 && "$HTTP_CODE" -lt 300 ]]; then
-  JID=$("$PY" -c 'import sys,json;print(json.load(sys.stdin).get("enqueued"))' < "$API_RESP")
+  JID=$("$PY" -c 'import sys,json;print(json.load(sys.stdin).get("enqueued"))' <"$API_RESP")
   if [[ -n "$JID" ]]; then
     log "job id: $JID"
   else
@@ -127,7 +127,7 @@ done
 [[ "$SEEN" -eq 1 ]] || {
   log "Events (recent):"
   curl -fsS "$API_BASE/events/recent?n=200" || true
-  tail -n 200 "$LOG_DIR/worker.log" 2> /dev/null || true
+  tail -n 200 "$LOG_DIR/worker.log" 2>/dev/null || true
   fail "kein passendes Event zum Job gesehen"
 }
 log "✅ Smoke erfolgreich (Job verarbeitet und Event sichtbar)"

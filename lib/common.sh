@@ -66,7 +66,7 @@ parse_common_args() {
   # No longer force exit if output_path is empty.
   # Caller must check 'if [[ -n "$output_path" ]]' if it requires it.
   if [[ -n "$output_path" ]]; then
-      outdir="$(dirname "$output_path")"
-      [[ -d "$outdir" ]] || mkdir -p "$outdir"
+    outdir="$(dirname "$output_path")"
+    [[ -d "$outdir" ]] || mkdir -p "$outdir"
   fi
 }

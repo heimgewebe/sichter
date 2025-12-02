@@ -7,9 +7,9 @@ LOG="$HOME/sichter/logs/auth.log"
 mkdir -p "$(dirname "$LOG")"
 
 command -v gh >/dev/null 2>&1 || {
-	echo "⚠️  GitHub CLI (gh) ist nicht installiert." | tee -a "$LOG" >&2
-	echo "Installiere zuerst: https://cli.github.com/" | tee -a "$LOG" >&2
-	exit 1
+  echo "⚠️  GitHub CLI (gh) ist nicht installiert." | tee -a "$LOG" >&2
+  echo "Installiere zuerst: https://cli.github.com/" | tee -a "$LOG" >&2
+  exit 1
 }
 
 cat <<'INFO' | tee -a "$LOG"
@@ -20,10 +20,10 @@ cat <<'INFO' | tee -a "$LOG"
 INFO
 
 if [ -n "$ORG" ]; then
-	echo "• Ziel-Organisation: $ORG" | tee -a "$LOG"
+  echo "• Ziel-Organisation: $ORG" | tee -a "$LOG"
 fi
 if [ -n "$USER_NAME" ]; then
-	echo "• Account: $USER_NAME" | tee -a "$LOG"
+  echo "• Account: $USER_NAME" | tee -a "$LOG"
 fi
 
 echo | tee -a "$LOG"
@@ -31,12 +31,12 @@ echo | tee -a "$LOG"
 echo "Starte gh auth login …" | tee -a "$LOG"
 
 gh auth login \
-	--hostname github.com \
-	--scopes repo,read:org,workflow \
-	--web | tee -a "$LOG"
+  --hostname github.com \
+  --scopes repo,read:org,workflow \
+  --web | tee -a "$LOG"
 
 if command -v gh >/dev/null 2>&1; then
-	gh config set git_protocol ssh >/dev/null 2>&1 || true
+  gh config set git_protocol ssh >/dev/null 2>&1 || true
 fi
 
 echo | tee -a "$LOG"

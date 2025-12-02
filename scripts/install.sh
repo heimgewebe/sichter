@@ -15,7 +15,7 @@ die() {
 }
 
 need_cmd() {
-  command -v "$1" > /dev/null 2>&1 || die "Benötigtes Programm '$1' fehlt"
+  command -v "$1" >/dev/null 2>&1 || die "Benötigtes Programm '$1' fehlt"
 }
 
 log "Prüfe Abhängigkeiten"
@@ -23,13 +23,13 @@ for cmd in gh git python3 pip shellcheck yamllint; do
   need_cmd "$cmd"
 done
 
-if command -v node > /dev/null 2>&1; then
+if command -v node >/dev/null 2>&1; then
   log "node gefunden: $(node --version)"
 else
   warn "node nicht gefunden – Dashboard-Webbuild wird übersprungen"
 fi
 
-if command -v ollama > /dev/null 2>&1; then
+if command -v ollama >/dev/null 2>&1; then
   log "ollama gefunden"
 else
   warn "ollama nicht gefunden – LLM Checks nutzen ggf. Remote-Anbieter"
@@ -69,8 +69,8 @@ for unit in "$ROOT"/pkg/systemd/user/*.{service,timer}; do
   install -m0644 "$unit" "$UNIT_TARGET/$(basename "$unit")"
 done
 
-if command -v systemctl > /dev/null 2>&1; then
-  if systemctl --user show-environment > /dev/null 2>&1; then
+if command -v systemctl >/dev/null 2>&1; then
+  if systemctl --user show-environment >/dev/null 2>&1; then
     log "Aktualisiere systemd --user"
     systemctl --user daemon-reload
     systemctl --user enable --now sichter-api.service

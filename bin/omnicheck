@@ -3,9 +3,9 @@ set -euo pipefail
 
 MODE="--changed"
 if [[ "${1:-}" == "--all" ]]; then
- MODE="--all"
+  MODE="--all"
 elif [[ "${1:-}" == "--changed" ]]; then
- MODE="--changed"
+  MODE="--changed"
 fi
 
 LOG_DIR="$HOME/sichter/logs"
@@ -19,11 +19,11 @@ REPORT_FILE="$LOG_DIR/omnicheck-${MODE_SLUG}-${STAMP}.md"
 POLICY_PATH="${SICHTER_POLICY_PATH:-$HOME/.config/sichter/policy.yml}"
 
 kv() {
- local key="$1" def="${2:-}"
- if command -v yq >/dev/null 2>&1; then
- yq -r ".${key} // \"${def}\"" "$POLICY_PATH" 2>/dev/null
- else
- awk -v k="$key" -v d="$def" '
+  local key="$1" def="${2:-}"
+  if command -v yq >/dev/null 2>&1; then
+    yq -r ".${key} // \"${def}\"" "$POLICY_PATH" 2>/dev/null
+  else
+    awk -v k="$key" -v d="$def" '
  BEGIN{FS=":";found=0}
  /^[[:space:]]*#/ {next}
  {
@@ -36,23 +36,23 @@ kv() {
  }
  END{ if(!found) print d }
  ' "$POLICY_PATH" 2>/dev/null
- fi
+  fi
 }
 
 summary_section() {
- echo "# Sichter Omnicheck"
- echo "- Mode: ${MODE_SLUG}"
- echo "- Timestamp: $(date -Is)"
- if [[ -f "$POLICY_PATH" ]]; then
- echo "- Policy: $POLICY_PATH"
- echo "- Policy Summary:"
- echo "  - org:               $(kv org heimgewebe)"
- echo "  - run_mode:          $(kv run_mode changed)"
- echo "  - auto_pr:           $(kv auto_pr true)"
- echo "  - sweep_on_omnipull: $(kv sweep_on_omnipull true)"
- else
- echo "- Policy: (not found)"
- fi
+  echo "# Sichter Omnicheck"
+  echo "- Mode: ${MODE_SLUG}"
+  echo "- Timestamp: $(date -Is)"
+  if [[ -f "$POLICY_PATH" ]]; then
+    echo "- Policy: $POLICY_PATH"
+    echo "- Policy Summary:"
+    echo "  - org:               $(kv org heimgewebe)"
+    echo "  - run_mode:          $(kv run_mode changed)"
+    echo "  - auto_pr:           $(kv auto_pr true)"
+    echo "  - sweep_on_omnipull: $(kv sweep_on_omnipull true)"
+  else
+    echo "- Policy: (not found)"
+  fi
 }
 
 summary_section | tee "$LOG_FILE"
@@ -66,37 +66,37 @@ set -e
 printf '%s\n' "$SWEEP_OUTPUT"
 
 make_report() {
- summary_section
- echo
- echo "## Ergebnisse"
- echo
- echo "| Repo | Aktion | Branch | Details |"
- echo "|------|--------|--------|---------|"
- local matched=0
- while IFS= read -r line; do
- if [[ "$line" =~ \[RESULT\]\[([^]]+)\][[:space:]]repo=([^[:space:]]+)[[:space:]]branch=([^[:space:]]+)[[:space:]]detail=(.*)$ ]]; then
- matched=1
- local action="${BASH_REMATCH[1]}"
- local repo="${BASH_REMATCH[2]}"
- local branch="${BASH_REMATCH[3]}"
- local detail="${BASH_REMATCH[4]}"
- [[ -z "$detail" ]] && detail="-"
- printf '| %s | %s | %s | %s |\n' "$repo" "$action" "$branch" "$detail"
- fi
- done <<< "$SWEEP_OUTPUT"
- if [[ $matched -eq 0 ]]; then
- echo "| – | – | – | – |"
- fi
- echo
- echo "_Logfile_: $LOG_FILE"
- echo "_Report generated_: $(date -Is)"
- if [[ $SWEEP_STATUS -ne 0 ]]; then
- echo
- echo "> ⚠️ Sweep exit status: $SWEEP_STATUS"
- fi
+  summary_section
+  echo
+  echo "## Ergebnisse"
+  echo
+  echo "| Repo | Aktion | Branch | Details |"
+  echo "|------|--------|--------|---------|"
+  local matched=0
+  while IFS= read -r line; do
+    if [[ "$line" =~ \[RESULT\]\[([^]]+)\][[:space:]]repo=([^[:space:]]+)[[:space:]]branch=([^[:space:]]+)[[:space:]]detail=(.*)$ ]]; then
+      matched=1
+      local action="${BASH_REMATCH[1]}"
+      local repo="${BASH_REMATCH[2]}"
+      local branch="${BASH_REMATCH[3]}"
+      local detail="${BASH_REMATCH[4]}"
+      [[ -z "$detail" ]] && detail="-"
+      printf '| %s | %s | %s | %s |\n' "$repo" "$action" "$branch" "$detail"
+    fi
+  done <<<"$SWEEP_OUTPUT"
+  if [[ $matched -eq 0 ]]; then
+    echo "| – | – | – | – |"
+  fi
+  echo
+  echo "_Logfile_: $LOG_FILE"
+  echo "_Report generated_: $(date -Is)"
+  if [[ $SWEEP_STATUS -ne 0 ]]; then
+    echo
+    echo "> ⚠️ Sweep exit status: $SWEEP_STATUS"
+  fi
 }
 
-make_report > "$REPORT_FILE"
+make_report >"$REPORT_FILE"
 
 echo "[omnicheck] log: $LOG_FILE"
 echo "[omnicheck] report: $REPORT_FILE"
