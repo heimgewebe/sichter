@@ -29,18 +29,21 @@ validate_name_non_fatal() {
 }
 
 parse_common_args() {
-  while (($#)); do
+  # Defaults
+  print_json=0
+  output_path=""
+
+  while [ $# -gt 0 ]; do
     case "$1" in
       --json)
         print_json=1
         ;;
       --output)
         shift
-        [[ $# -gt 0 ]] || {
+        if [ $# -eq 0 ]; then
           echo "--output braucht einen Pfad" >&2
           exit 1
-        }
-        # shellcheck disable=SC2034
+        fi
         output_path="$1"
         ;;
       -h | --help)
@@ -56,10 +59,14 @@ parse_common_args() {
     shift || true
   done
 
-  [[ -n "$output_path" ]] || {
-    echo "Der Ausgabe-Pfad darf nicht leer sein" >&2
-    exit 1
-  }
-  outdir="$(dirname "$output_path")"
-  [[ -d "$outdir" ]] || mkdir -p "$outdir"
+  # Export for caller
+  export output_path
+  export print_json
+
+  # No longer force exit if output_path is empty.
+  # Caller must check 'if [[ -n "$output_path" ]]' if it requires it.
+  if [[ -n "$output_path" ]]; then
+      outdir="$(dirname "$output_path")"
+      [[ -d "$outdir" ]] || mkdir -p "$outdir"
+  fi
 }

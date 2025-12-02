@@ -1,5 +1,4 @@
 # apps/api/main.py
-import asyncio
 import json
 import os
 import subprocess
@@ -10,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
 
+import yaml
 from fastapi import Body, FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
@@ -141,6 +141,42 @@ def _queue_state(limit: int = 10) -> dict[str, int | list[dict]]:
   }
 
 
+def _tail_file(path: Path, n: int, block_size: int = 4096) -> list[str]:
+  """Read the last n lines from a file without loading the entire file."""
+  try:
+    with path.open("rb") as f:
+      f.seek(0, os.SEEK_END)
+      file_size = f.tell()
+
+      if file_size == 0:
+        return []
+
+      data = b""
+      # We want to find at least n+1 newlines to get n lines
+      # (the last line might not end with newline, but usually logs do)
+
+      # Read from end
+      for pos in range(file_size, -1, -block_size):
+          seek_pos = max(0, pos - block_size)
+          read_len = pos - seek_pos
+          f.seek(seek_pos)
+          chunk = f.read(read_len)
+          data = chunk + data
+          if data.count(b'\n') >= n + 1:
+                break
+          if seek_pos == 0:
+              break
+
+      # Convert to text
+      text = data.decode("utf-8", errors="ignore")
+      lines = text.splitlines()
+
+      # Return last n lines
+      return lines[-n:]
+  except OSError:
+    return []
+
+
 def _collect_events(limit: int = 200) -> list[dict[str, str | dict]]:
   """Collect recent events efficiently by reading from newest files first.
 
@@ -158,16 +194,18 @@ def _collect_events(limit: int = 200) -> list[dict[str, str | dict]]:
   # Collect lines from newest files first until we have enough
   lines: list[str] = []
   for fp in files:
-    try:
-      file_lines = fp.read_text(encoding="utf-8", errors="ignore").splitlines()
-      # Add lines from newest to oldest within each file
-      lines.extend(reversed(file_lines))
-      if len(lines) >= limit:
+    # We need 'limit' lines total.
+    needed = limit - len(lines)
+    if needed <= 0:
         break
-    except OSError:
-      continue
 
-  # Take most recent lines and reverse back to chronological order
+    file_lines = _tail_file(fp, needed)
+    # _tail_file returns lines in chronological order (old -> new)
+    # The existing logic expects 'lines' to store the newest lines first (descending order).
+    # This allows correctly picking the 'limit' most recent lines across multiple files.
+    lines.extend(reversed(file_lines))
+
+  # Take most recent lines and reverse back to chronological order for display
   recent_lines = list(reversed(lines[:limit]))
 
   events: list[dict[str, str | dict]] = []
@@ -293,8 +331,8 @@ def write_policy(content: Annotated[dict, Body()]) -> dict[str, str]:
   if isinstance(raw, str) and raw.strip():
     text = raw if raw.endswith("\n") else raw + "\n"
   else:
-    lines = [f"{k}: {v}" for k, v in content.items()]
-    text = "\n".join(lines) + ("\n" if lines else "")
+    # Use PyYAML to dump safely
+    text = yaml.dump(content, default_flow_style=False, allow_unicode=True)
 
   # Atomares Schreiben: In temporäre Datei schreiben, dann verschieben
   # um korrupte policy.yml zu vermeiden, wenn der Schreibvorgang
@@ -327,8 +365,8 @@ def _jsonl_files() -> list[Path]:
 
 def _read_last_lines(path: Path, n: int) -> list[str]:
   try:
-    data = path.read_text(encoding="utf-8", errors="ignore").splitlines()
-    return data[-n:]
+    # Use our optimized _tail_file here too!
+    return _tail_file(path, n)
   except OSError:
     return []
 

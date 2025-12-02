@@ -6,9 +6,7 @@ set -euo pipefail
 # Find the root directory of the wgx installation
 WGX_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 PROFILE="$WGX_ROOT/.wgx/profile.yml"
-
-# Source the YAML parser
-source "$WGX_ROOT/wgx/lib/parse_yaml.sh"
+PARSER_SCRIPT="$WGX_ROOT/wgx/lib/parse_yaml_safe.py"
 
 # The first argument is the subcommand
 SUBCOMMAND="${1:-}"
@@ -18,8 +16,22 @@ if [[ -z "$SUBCOMMAND" ]]; then
   exit 1
 fi
 
-# Parse the profile and execute the task
-eval "$(parse_yaml "$PROFILE" "wgx_")"
+# Check for Python 3
+PYTHON_CMD="python3"
+if ! command -v "$PYTHON_CMD" >/dev/null 2>&1; then
+    echo "Error: python3 is required for wgx." >&2
+    exit 1
+fi
+
+# Parse the profile and source the variables
+# We use a temporary file to store the assignments to avoid 'eval' on raw output
+# although 'source' is effectively the same if we trust the python script's output.
+# The python script uses shlex.quote so it should be safe.
+ENV_FILE=$(mktemp)
+trap 'rm -f "$ENV_FILE"' EXIT
+
+"$PYTHON_CMD" "$PARSER_SCRIPT" "$PROFILE" "wgx_" > "$ENV_FILE"
+source "$ENV_FILE"
 
 TASK_VAR="wgx_tasks_$SUBCOMMAND"
 TASK_COMMAND="${!TASK_VAR:-}"
