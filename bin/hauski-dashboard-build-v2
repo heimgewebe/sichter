@@ -15,7 +15,7 @@ RAW="$(jq -c 'map({repo, path, ts}) | sort_by(.ts) | reverse | .[0:'"$global_cap
 
 # 2) Pro Repo deckeln
 if [ -n "$filter_re" ]; then
-	RAW="$(printf '%s' "$RAW" | jq -c '[ .[] | select(.repo|test("'"$filter_re"'")) ]')"
+  RAW="$(printf '%s' "$RAW" | jq -c '[ .[] | select(.repo|test("'"$filter_re"'")) ]')"
 fi
 RAW="$(printf '%s' "$RAW" | jq -c '
   group_by(.repo)
@@ -25,57 +25,57 @@ RAW="$(printf '%s' "$RAW" | jq -c '
 # 3) Metadaten aus Dateien anreichern (Verdict/Score/Bytes/Dir/URLs)
 #    – Parsen nur leichten Header, robust bei fehlenden Feldern
 enrich() {
-	repo="$1"
-	path="$2"
-	ts="$3"
-	verdict=""
-	score=""
-	bytes=""
-	dir=""
-	furl=""
-	vsc=""
+  repo="$1"
+  path="$2"
+  ts="$3"
+  verdict=""
+  score=""
+  bytes=""
+  dir=""
+  furl=""
+  vsc=""
 
-	if [ -f "$path" ]; then
-		# nur die ersten 200 Zeilen lesen (schnell)
-		head200="$(head -n 200 "$path" 2>/dev/null || true)"
-		verdict="$(printf '%s\n' "$head200" | grep -m1 -E '^(Verdict|\- *Verdict):' | sed -E 's/^[- ]*Verdict:\s*//I' | tr -d '\r' | tr '[:lower:]' '[:upper:]' | sed 's/ .*//')"
-		score="$(printf '%s\n' "$head200" | grep -m1 -E '(^Score:|Score[[:space:]]*)' | sed -E 's/.*Score[: ]+([0-9]+).*/\1/' || true)"
-		bytes="$(wc -c <"$path" 2>/dev/null || echo 0)"
-		dir="$(dirname "$path")"
-		furl="file://$path"
-		# VS Code Deep Link (Spaces maskieren)
-		vsc="vscode://file$path"
-		vsc="${vsc// /%20}"
-	else
-		verdict="MISSING"
-		score=""
-		bytes="0"
-		dir="$(dirname "$path")"
-		furl=""
-		vsc=""
-	fi
+  if [ -f "$path" ]; then
+    # nur die ersten 200 Zeilen lesen (schnell)
+    head200="$(head -n 200 "$path" 2>/dev/null || true)"
+    verdict="$(printf '%s\n' "$head200" | grep -m1 -E '^(Verdict|\- *Verdict):' | sed -E 's/^[- ]*Verdict:\s*//I' | tr -d '\r' | tr '[:lower:]' '[:upper:]' | sed 's/ .*//')"
+    score="$(printf '%s\n' "$head200" | grep -m1 -E '(^Score:|Score[[:space:]]*)' | sed -E 's/.*Score[: ]+([0-9]+).*/\1/' || true)"
+    bytes="$(wc -c <"$path" 2>/dev/null || echo 0)"
+    dir="$(dirname "$path")"
+    furl="file://$path"
+    # VS Code Deep Link (Spaces maskieren)
+    vsc="vscode://file$path"
+    vsc="${vsc// /%20}"
+  else
+    verdict="MISSING"
+    score=""
+    bytes="0"
+    dir="$(dirname "$path")"
+    furl=""
+    vsc=""
+  fi
 
-	jq -cn \
-		--arg repo "$repo" \
-		--arg path "$path" \
-		--arg ts "$ts" \
-		--arg verdict "$verdict" \
-		--arg score "$score" \
-		--arg bytes "$bytes" \
-		--arg dir "$dir" \
-		--arg furl "$furl" \
-		--arg vsc "$vsc" \
-		'{repo:$repo, path:$path, ts:$ts, verdict:$verdict, score: ( ($score|tonumber?) // null ), bytes: ($bytes|tonumber), dir:$dir, fileurl:$furl, vscurl:$vsc}'
+  jq -cn \
+    --arg repo "$repo" \
+    --arg path "$path" \
+    --arg ts "$ts" \
+    --arg verdict "$verdict" \
+    --arg score "$score" \
+    --arg bytes "$bytes" \
+    --arg dir "$dir" \
+    --arg furl "$furl" \
+    --arg vsc "$vsc" \
+    '{repo:$repo, path:$path, ts:$ts, verdict:$verdict, score: ( ($score|tonumber?) // null ), bytes: ($bytes|tonumber), dir:$dir, fileurl:$furl, vscurl:$vsc}'
 }
 
 DATA="[]"
 # shellcheck disable=SC2016
 printf '%s' "$RAW" | jq -c '.[]' | while read -r row; do
-	repo="$(printf '%s' "$row" | jq -r '.repo')"
-	path="$(printf '%s' "$row" | jq -r '.path')"
-	ts="$(printf '%s' "$row" | jq -r '.ts')"
-	meta="$(enrich "$repo" "$path" "$ts")"
-	DATA="$(jq -c --argjson m "$meta" '. + [$m]' <<<"$DATA")"
+  repo="$(printf '%s' "$row" | jq -r '.repo')"
+  path="$(printf '%s' "$row" | jq -r '.path')"
+  ts="$(printf '%s' "$row" | jq -r '.ts')"
+  meta="$(enrich "$repo" "$path" "$ts")"
+  DATA="$(jq -c --argjson m "$meta" '. + [$m]' <<<"$DATA")"
 done
 
 # 4) HTML erzeugen (Inline-Daten; keine externen Fetches nötig)

@@ -13,37 +13,37 @@ find -L "$ROOT" -type l -print -delete 2>/dev/null || true
 
 # 2) für jeden realen Repo-Ordner unter review/<repo>/ … symlink im ~/repos/<repo> setzen
 while IFS= read -r -d '' d; do
-	repo="$(basename "$d")"
-	if [ -d "$REPOS/$repo/.git" ]; then
-		(cd "$REPOS/$repo" && rm -f sichter-reports && ln -s "$d" sichter-reports) || true
-		echo "🔗 $repo: symlink ok"
-	fi
+  repo="$(basename "$d")"
+  if [ -d "$REPOS/$repo/.git" ]; then
+    (cd "$REPOS/$repo" && rm -f sichter-reports && ln -s "$d" sichter-reports) || true
+    echo "🔗 $repo: symlink ok"
+  fi
 done < <(find "$ROOT" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null)
 
 # 3) index.json komplett neu aus echten Dateien
 TMP="$(mktemp)"
 : >"$TMP"
 while IFS= read -r -d '' f; do
-	repo="$(basename "$(dirname "$f")")"
-	base="$(basename "$f")"
-	ts="${base%-review.md}"
-	printf '{"repo":%q,"path":%q,"ts":%q}\n' "$repo" "$f" "$ts" >>"$TMP"
+  repo="$(basename "$(dirname "$f")")"
+  base="$(basename "$f")"
+  ts="${base%-review.md}"
+  printf '{"repo":%q,"path":%q,"ts":%q}\n' "$repo" "$f" "$ts" >>"$TMP"
 done < <(find "$ROOT" -mindepth 2 -maxdepth 2 -type f -name '*-review.md' -print0 2>/dev/null)
 
 if command -v jq >/dev/null 2>&1; then
-	jq -cs 'unique | sort_by(.repo, .ts) | .[-2000:]' "$TMP" >"$INDEX.tmp"
+  jq -cs 'unique | sort_by(.repo, .ts) | .[-2000:]' "$TMP" >"$INDEX.tmp"
 else
-	{
-		echo '['
-		paste -sd, "$TMP"
-		echo ']'
-	} >"$INDEX.tmp"
+  {
+    echo '['
+    paste -sd, "$TMP"
+    echo ']'
+  } >"$INDEX.tmp"
 fi
 mv -f "$INDEX.tmp" "$INDEX"
 rm -f "$TMP"
 
 # 4) still Dashboard rebuild
 if [ -x "$HOME/sichter/bin/hauski-dashboard-build" ]; then
-    "$HOME/sichter/bin/hauski-dashboard-build" --no-open >/dev/null 2>&1 || true
+  "$HOME/sichter/bin/hauski-dashboard-build" --no-open >/dev/null 2>&1 || true
 fi
 echo "✅ migrate done."

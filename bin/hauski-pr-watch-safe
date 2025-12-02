@@ -7,8 +7,8 @@ echo "▶ $(date) start pr-watch-safe" >>"$LOG"
 
 # Preflight
 ~/sichter/bin/hauski-verify-github || {
-	echo "❌ gh check failed"
-	exit 1
+  echo "❌ gh check failed"
+  exit 1
 }
 
 # Lauf in eigener Session; filtere typische Fehlpfade:

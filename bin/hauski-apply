@@ -8,20 +8,20 @@ parse_common_args "$@"
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 if [ -z "$ROOT" ]; then
-	echo "⏭️  kein Git-Repo"
-	exit 0
+  echo "⏭️  kein Git-Repo"
+  exit 0
 fi
 REPO="$(basename "$ROOT")"
 if ! validate_name_non_fatal "$REPO"; then
-	echo "Error: Invalid repo name." >&2
-	exit 1
+  echo "Error: Invalid repo name." >&2
+  exit 1
 fi
 REPORT_DIR="${HOME}/sichter/review/${REPO}"
 # Portabel: neueste Datei anhand ls -t; robust mit -print0/xargs -0 (macOS & Linux)
 LAST="$(find "${REPORT_DIR}" -maxdepth 1 -name '*-review.md' -type f -print0 | xargs -0 ls -1t 2>/dev/null | head -n1 || true)"
 if [ -z "$LAST" ]; then
-	echo "ℹ️  kein Report"
-	exit 0
+  echo "ℹ️  kein Report"
+  exit 0
 fi
 
 cd "${ROOT}"
@@ -38,26 +38,26 @@ awk '
 ' "${LAST}" >"${TMP}"
 
 if [ -s "${TMP}" ]; then
-	EXTRACTED=1
-	echo "🧩 Patches gefunden – apply (3-way)…"
-	if git apply --3way --index "${TMP}"; then
-		echo "✅ Patches angewendet."
-	else
-		echo "⚠️  Patch-Apply teilweise fehlgeschlagen (Conflicts möglich)."
-	fi
+  EXTRACTED=1
+  echo "🧩 Patches gefunden – apply (3-way)…"
+  if git apply --3way --index "${TMP}"; then
+    echo "✅ Patches angewendet."
+  else
+    echo "⚠️  Patch-Apply teilweise fehlgeschlagen (Conflicts möglich)."
+  fi
 else
-	echo "ℹ️  Keine \`\`\`patch/\`\`\`diff Blöcke im Report."
+  echo "ℹ️  Keine \`\`\`patch/\`\`\`diff Blöcke im Report."
 fi
 
 # Auto-Fixer (best effort, nur wenn ein Patch vorhanden war)
 if [ "$EXTRACTED" -eq 1 ]; then
-	if command -v cargo >/dev/null 2>&1; then
-		cargo fmt || true
-		cargo clippy --fix --allow-dirty --allow-staged || true
-	fi
-	if command -v shfmt >/dev/null 2>&1; then
-		shfmt -w . || true
-	fi
+  if command -v cargo >/dev/null 2>&1; then
+    cargo fmt || true
+    cargo clippy --fix --allow-dirty --allow-staged || true
+  fi
+  if command -v shfmt >/dev/null 2>&1; then
+    shfmt -w . || true
+  fi
 fi
 
 git status --short || true

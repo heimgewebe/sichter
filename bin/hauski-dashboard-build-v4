@@ -76,9 +76,9 @@ HTML
 
 # Daten sicher injizieren
 {
-	printf '<script id="data" type="application/json">'
-	cat "$TMP"
-	printf '</script>\n'
+  printf '<script id="data" type="application/json">'
+  cat "$TMP"
+  printf '</script>\n'
 } >>"$OUT"
 
 echo "✅ Dashboard gebaut: $OUT"

@@ -6,4 +6,4 @@ mkdir -p "$(dirname "$LOG")"
 {
   echo "[hook 80] $(date -Is) omnicheck --changed"
   "$HOME/sichter/bin/omnicheck" --changed
-} >> "$LOG" 2>&1 || true
+} >>"$LOG" 2>&1 || true

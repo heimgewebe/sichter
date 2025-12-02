@@ -5,18 +5,18 @@ ROOT="$HOME/sichter/review"
 OUT_SUM="$ROOT/summary.json"
 have() { command -v "$1" >/dev/null 2>&1; }
 scan_fs() {
-	find "$ROOT" -mindepth 2 -maxdepth 2 -type f -name '*-review.md' -printf '%h\t%f\n' 2>/dev/null |
-		awk -F'\t' -v root="$ROOT" '{ repo=$1; gsub(root"/","",repo); ts=$2; sub("-review.md","",ts); print repo "\t" ts }' |
-		sort
+  find "$ROOT" -mindepth 2 -maxdepth 2 -type f -name '*-review.md' -printf '%h\t%f\n' 2>/dev/null |
+    awk -F'\t' -v root="$ROOT" '{ repo=$1; gsub(root"/","",repo); ts=$2; sub("-review.md","",ts); print repo "\t" ts }' |
+    sort
 }
 valid_index() {
-	[ -s "$INDEX" ] || return 1
-	have jq || return 1
-	jq -e 'type=="array" and (all(.[]; has("repo") and has("path") and has("ts")) or length==0)' "$INDEX" >/dev/null 2>&1
+  [ -s "$INDEX" ] || return 1
+  have jq || return 1
+  jq -e 'type=="array" and (all(.[]; has("repo") and has("path") and has("ts")) or length==0)' "$INDEX" >/dev/null 2>&1
 }
 summary() {
-	if valid_index && have jq; then
-		out="$(jq -r '
+  if valid_index && have jq; then
+    out="$(jq -r '
       group_by(.repo)
       | map(
           . as $group
@@ -41,30 +41,30 @@ summary() {
           ( .score // "" | tostring )
         ] | @tsv)
     ' "$INDEX")"
-		if have column; then echo "$out" | column -t -s $'\t'; else echo "$out"; fi
-	else
-		rows="$(scan_fs)"
-		[ -z "$rows" ] && {
-			echo "ℹ️  Keine Reports."
-			exit 0
-		}
-		printf "Repo\tRuns\tLast\n"
-		out="$(echo "$rows" | awk -F'\t' '{c[$1]++; last[$1]=$2} END {for (r in c) printf "%s\t%d\t%s\n", r, c[r], last[r]}')"
-		if have column; then echo "$out" | column -t -s $'\t'; else echo "$out"; fi
-	fi
+    if have column; then echo "$out" | column -t -s $'\t'; else echo "$out"; fi
+  else
+    rows="$(scan_fs)"
+    [ -z "$rows" ] && {
+      echo "ℹ️  Keine Reports."
+      exit 0
+    }
+    printf "Repo\tRuns\tLast\n"
+    out="$(echo "$rows" | awk -F'\t' '{c[$1]++; last[$1]=$2} END {for (r in c) printf "%s\t%d\t%s\n", r, c[r], last[r]}')"
+    if have column; then echo "$out" | column -t -s $'\t'; else echo "$out"; fi
+  fi
 }
 export_json() {
-	rows="$(scan_fs)"
-	if have jq; then
-		echo "$rows" | awk -F'\t' '{print "{\"repo\":\""$1"\",\"ts\":\""$2"\"}"}' |
-			jq -cs 'group_by(.repo)|map({repo: .[0].repo, last: (.[-1].ts), runs: length})' >"$OUT_SUM"
-	else
-		echo '[]' >"$OUT_SUM"
-	fi
-	echo "✓ exportiert: $OUT_SUM"
+  rows="$(scan_fs)"
+  if have jq; then
+    echo "$rows" | awk -F'\t' '{print "{\"repo\":\""$1"\",\"ts\":\""$2"\"}"}' |
+      jq -cs 'group_by(.repo)|map({repo: .[0].repo, last: (.[-1].ts), runs: length})' >"$OUT_SUM"
+  else
+    echo '[]' >"$OUT_SUM"
+  fi
+  echo "✓ exportiert: $OUT_SUM"
 }
 usage() {
-	cat <<U
+  cat <<U
 hauski-status v1.3
   summary            Übersicht (robust)
   export             schreibt $OUT_SUM
@@ -72,18 +72,18 @@ hauski-status v1.3
 U
 }
 case "${1:-summary}" in
-summary) summary ;;
-export) export_json ;;
-logs)
-	echo "— review.log —"
-	tail -n 80 "$HOME/sichter/logs/review.log" 2>/dev/null || true
-	echo "— work.log —"
-	tail -n 80 "$HOME/sichter/logs/reviewd-work.log" 2>/dev/null || true
-	echo "— watch.log —"
-	tail -n 80 "$HOME/sichter/logs/reviewd-watch.log" 2>/dev/null || true
-	;;
-*)
-	usage
-	exit 2
-	;;
+  summary) summary ;;
+  export) export_json ;;
+  logs)
+    echo "— review.log —"
+    tail -n 80 "$HOME/sichter/logs/review.log" 2>/dev/null || true
+    echo "— work.log —"
+    tail -n 80 "$HOME/sichter/logs/reviewd-work.log" 2>/dev/null || true
+    echo "— watch.log —"
+    tail -n 80 "$HOME/sichter/logs/reviewd-watch.log" 2>/dev/null || true
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
 esac

@@ -10,8 +10,8 @@ PATTERN="$(tr -d '\r\n' <"$DENY")"
 files="$(git ls-files -m -o --exclude-standard)"
 sel=""
 while IFS= read -r f; do
-	echo "$f" | grep -Eq "$PATTERN" && continue
-	sel+="$f"$'\n'
+  echo "$f" | grep -Eq "$PATTERN" && continue
+  sel+="$f"$'\n'
 done <<<"$files"
 # wenn leer, sauber beenden
 [ -z "${sel//[$'\n\r ']/}" ] && exit 0

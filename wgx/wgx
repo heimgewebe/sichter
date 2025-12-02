@@ -19,8 +19,8 @@ fi
 # Check for Python 3
 PYTHON_CMD="python3"
 if ! command -v "$PYTHON_CMD" >/dev/null 2>&1; then
-    echo "Error: python3 is required for wgx." >&2
-    exit 1
+  echo "Error: python3 is required for wgx." >&2
+  exit 1
 fi
 
 # Parse the profile and source the variables
@@ -30,7 +30,8 @@ fi
 ENV_FILE=$(mktemp)
 trap 'rm -f "$ENV_FILE"' EXIT
 
-"$PYTHON_CMD" "$PARSER_SCRIPT" "$PROFILE" "wgx_" > "$ENV_FILE"
+"$PYTHON_CMD" "$PARSER_SCRIPT" "$PROFILE" "wgx_" >"$ENV_FILE"
+# shellcheck disable=SC1090
 source "$ENV_FILE"
 
 TASK_VAR="wgx_tasks_$SUBCOMMAND"

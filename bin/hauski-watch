@@ -10,8 +10,8 @@ mkdir -p "$QUEUE" "$WATCH" "$LOCK_DIR"
 
 exec 200>"$LOCK_FILE"
 if ! flock -n 200; then
-	echo "⚠️ watcher bereits aktiv" | tee -a "$LOG"
-	exit 0
+  echo "⚠️ watcher bereits aktiv" | tee -a "$LOG"
+  exit 0
 fi
 
 # 1) Wir schauen nur auf sinnvolle Endungen
@@ -25,33 +25,33 @@ DEBOUNCE=3
 
 echo "▶ watcher gestartet (quiet+debounce): $(date)" | tee -a "$LOG"
 inotifywait -mr -e close_write,modify,create,move,moved_to --format '%w%f' "$WATCH" |
-	while read -r file; do
-		# exclude dirs
-		if echo "$file" | grep -Eq "$EXCLUDE_DIRS"; then
-			continue
-		fi
-		# extension filter
-		if ! echo "$file" | grep -Eqi "$EXT_RE"; then
-			continue
-		fi
+  while read -r file; do
+    # exclude dirs
+    if echo "$file" | grep -Eq "$EXCLUDE_DIRS"; then
+      continue
+    fi
+    # extension filter
+    if ! echo "$file" | grep -Eqi "$EXT_RE"; then
+      continue
+    fi
 
-		dir="$(dirname "$file")"
-		root="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || true)"
-		if [ -z "$root" ] || [ ! -d "$root/.git" ]; then
-			continue
-		fi
-		repo="$(basename "$root")"
+    dir="$(dirname "$file")"
+    root="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || true)"
+    if [ -z "$root" ] || [ ! -d "$root/.git" ]; then
+      continue
+    fi
+    repo="$(basename "$root")"
 
-		now=$(date +%s)
-		last=${LAST[$repo]:-0}
-		if [ $((now - last)) -lt $DEBOUNCE ]; then
-			# zu schnell hintereinander: skip
-			continue
-		fi
-		LAST[$repo]=$now
+    now=$(date +%s)
+    last=${LAST[$repo]:-0}
+    if [ $((now - last)) -lt $DEBOUNCE ]; then
+      # zu schnell hintereinander: skip
+      continue
+    fi
+    LAST[$repo]=$now
 
-		ts="$(date +%Y%m%d-%H%M%S)"
-		job="$QUEUE/$repo-$ts.job"
-		echo "$root" >"$job"
-		echo "🟨 job queued: $job ← $file" | tee -a "$LOG"
-	done
+    ts="$(date +%Y%m%d-%H%M%S)"
+    job="$QUEUE/$repo-$ts.job"
+    echo "$root" >"$job"
+    echo "🟨 job queued: $job ← $file" | tee -a "$LOG"
+  done

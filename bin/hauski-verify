@@ -2,8 +2,8 @@
 set -euo pipefail
 ok() { printf "✓ %s\n" "$1"; }
 bad() {
-	printf "✗ %s\n" "$1"
-	return 1
+  printf "✗ %s\n" "$1"
+  return 1
 }
 if [ -n "${HAUSKI_VERIFY_NO_SYSTEMCTL:-}" ] || ! command -v systemctl >/dev/null; then
   echo "ℹ systemctl not found, skipping systemd checks."
