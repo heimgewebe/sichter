@@ -61,6 +61,14 @@ for hook in "$ROOT"/hooks/omnipull/*.sh; do
   ln -sf "$hook" "$HOOK_TARGET/$(basename "$hook")"
 done
 
+# Ensure the post-run hook is symlinked to expected location if not already there
+POST_RUN_TARGET="$HOME/sichter/hooks/post-run"
+if [ ! -f "$POST_RUN_TARGET" ]; then
+    log "Richte post-run Hook ein"
+    mkdir -p "$(dirname "$POST_RUN_TARGET")"
+    ln -sf "$ROOT/hooks/post-run" "$POST_RUN_TARGET"
+fi
+
 log "Installiere systemd User-Units"
 UNIT_TARGET="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 mkdir -p "$UNIT_TARGET"

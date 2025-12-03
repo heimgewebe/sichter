@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/node %h/sichter/mcp/server.js
+ExecStart=/usr/bin/env node %h/sichter/mcp/server.js
 Restart=always
 
 [Install]

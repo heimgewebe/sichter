@@ -1,0 +1,14 @@
+{
+  "chronik": {
+    "url": "http://127.0.0.1:8788",
+    "token_env": "CHRONIK_TOKEN"
+  },
+  "mirror": {
+    "base": "${HOME}/sichter/mirror",
+    "manifest": "${HOME}/sichter/mirror/mirror.yml",
+    "index": "${HOME}/sichter/mirror/mirror.index.json"
+  },
+  "wgx": { "bin": "wgx" },
+  "jq":  { "bin": "jq", "version": "1.6" },
+  "gh":  { "bin": "gh", "version": ">=2.60" }
+}
