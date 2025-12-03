@@ -8,6 +8,21 @@ elif [[ "${1:-}" == "--changed" ]]; then
   MODE="--changed"
 fi
 
+# Robust self-location
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" >/dev/null 2>&1 && pwd)"
+
+# Locate yaml-get (prefer PATH, then relative to script)
+if command -v yaml-get >/dev/null 2>&1; then
+  YAML_GET="$(command -v yaml-get)"
+else
+  YAML_GET="${SCRIPT_DIR}/yaml-get"
+fi
+
+if [ ! -x "$YAML_GET" ]; then
+  echo "Error: yaml-get not found or not executable at $YAML_GET" >&2
+  exit 1
+fi
+
 LOG_DIR="$HOME/sichter/logs"
 mkdir -p "$LOG_DIR"
 
@@ -20,23 +35,7 @@ POLICY_PATH="${SICHTER_POLICY_PATH:-$HOME/.config/sichter/policy.yml}"
 
 kv() {
   local key="$1" def="${2:-}"
-  if command -v yq >/dev/null 2>&1; then
-    yq -r ".${key} // \"${def}\"" "$POLICY_PATH" 2>/dev/null
-  else
-    awk -v k="$key" -v d="$def" '
- BEGIN{FS=":";found=0}
- /^[[:space:]]*#/ {next}
- {
- gsub(/^[[:space:]]+|[[:space:]]+$/,"",$1);
- if($1==k){
- sub(/^[^:]*:/,"",$0);
- gsub(/^[[:space:]]+|[[:space:]]+$/,"",$0);
- print $0; found=1; exit 0
- }
- }
- END{ if(!found) print d }
- ' "$POLICY_PATH" 2>/dev/null
-  fi
+  "$YAML_GET" "$key" "$POLICY_PATH" "$def"
 }
 
 summary_section() {

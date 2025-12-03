@@ -4,6 +4,21 @@ POLICY="${HOME}/sichter/policy.yml"
 REAL="${HOME}/sichter/bin/hauski-pr-review-all"
 LOG="${HOME}/sichter/logs/policy.log"
 
+# Robust self-location
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" >/dev/null 2>&1 && pwd)"
+
+# Locate yaml-get (prefer PATH, then relative to script)
+if command -v yaml-get >/dev/null 2>&1; then
+  YAML_GET="$(command -v yaml-get)"
+else
+  YAML_GET="${SCRIPT_DIR}/yaml-get"
+fi
+
+if [ ! -x "$YAML_GET" ]; then
+  echo "Error: yaml-get not found or not executable at $YAML_GET" >&2
+  exit 1
+fi
+
 red() { printf "\033[31m%s\033[0m\n" "$*"; }
 yellow() { printf "\033[33m%s\033[0m\n" "$*"; }
 green() { printf "\033[32m%s\033[0m\n" "$*"; }
@@ -13,14 +28,11 @@ if [ ! -x "$REAL" ]; then
   exit 0
 fi
 
-get_bool() { grep -E "^$1:\s*(true|false)\s*$" "$POLICY" | awk -F: '{gsub(/ /,"",$2);print $2}'; }
-get_num() { grep -E "^$1:\s*[0-9]+" "$POLICY" | awk -F: '{gsub(/ /,"",$2);print $2}'; }
-
-ALLOW_DUMPS=$(get_bool "allow_dump_merges" || echo false)
-ALLOW_DOCS=$(get_bool "allow_docs_only" || echo false)
-ALLOW_DEV=$(get_bool "allow_devcontainer_only" || echo false)
-SIZE_LIMIT=$(get_num "size_limit_changed_files" || echo 250)
-MUST_TOUCH_PATTERNS=$(awk '/^must_touch_paths:/{flag=1;next}/^[^ ]/{flag=0}flag{print}' "$POLICY" | sed -n 's/^\s*-\s*//p' || true)
+ALLOW_DUMPS=$("$YAML_GET" "allow_dump_merges" "$POLICY" "false")
+ALLOW_DOCS=$("$YAML_GET" "allow_docs_only" "$POLICY" "false")
+ALLOW_DEV=$("$YAML_GET" "allow_devcontainer_only" "$POLICY" "false")
+SIZE_LIMIT=$("$YAML_GET" "size_limit_changed_files" "$POLICY" "250")
+MUST_TOUCH_PATTERNS=$("$YAML_GET" "must_touch_paths" "$POLICY" "")
 
 BASE_REF="${BASE_REF:-origin/main}"
 HEAD_REF="${HEAD_REF:-HEAD}"

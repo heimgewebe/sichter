@@ -1,28 +1,36 @@
 #!/usr/bin/env bash
-set -euo pipefail
-POL="${SICHTER_POLICY_PATH:-$HOME/.config/sichter/policy.yml}"
+# bin/sichter-env
+# This script is intended to be sourced.
 
-kv() { # echo key default
+# Guard: Ensure we are running in Bash
+if [ -z "${BASH_SOURCE[0]+x}" ]; then
+  echo "bin/sichter-env must be sourced from bash (BASH_SOURCE is not set)." >&2
+  return 1 2>/dev/null || exit 1
+fi
+
+# Robust self-location
+_sichter_env_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+
+# Locate yaml-get (prefer PATH, then relative to script)
+if command -v yaml-get >/dev/null 2>&1; then
+  _YAML_GET="$(command -v yaml-get)"
+else
+  _YAML_GET="${_sichter_env_dir}/yaml-get"
+fi
+
+# Verify executable
+if [ ! -x "$_YAML_GET" ]; then
+  echo "Error: yaml-get not found or not executable at $_YAML_GET" >&2
+  return 1 2>/dev/null || exit 1
+fi
+
+# Helper function
+kv() {
   local key="$1" def="${2-}"
-  if command -v yq >/dev/null 2>&1; then
-    yq -r ".${key} // \"${def}\"" "$POL" 2>/dev/null
-  else
-    # billiger YAML-Fallback (nur einfache key: value)
-    awk -v k="$key" -v d="$def" '
-BEGIN{FS=":";found=0}
-/^[[:space:]]*#/ {next}
-{
-gsub(/^[[:space:]]+|[[:space:]]+$/,"",$1);
-if($1==k){
-sub(/^[^:]*:/,"",$0); gsub(/^[[:space:]]+|[[:space:]]+$/,"",$0);
-print $0; found=1; exit 0
-}
-}
-END{ if(!found) print d }
-' "$POL" 2>/dev/null
-  fi
+  "$_YAML_GET" "$key" "${SICHTER_POLICY_PATH:-$HOME/.config/sichter/policy.yml}" "$def"
 }
 
+# Export environment variables
 RUN_POLICY="$(kv run_policy periodic)"
 INTERVAL_MINUTES="$(kv interval_minutes 5)"
 MAX_PARALLEL_JOBS="$(kv max_parallel_jobs 1)"
@@ -33,7 +41,7 @@ export SICHTER_INTERVAL_MINUTES="$INTERVAL_MINUTES"
 export SICHTER_MAX_PARALLEL_JOBS="$MAX_PARALLEL_JOBS"
 export SICHTER_AUTORUN="$AUTORUN"
 
-# menschenlesbarer Dump (optional)
+# Human-readable dump (optional)
 if [ "${1-}" = "--print" ]; then
   printf 'policy=%s interval=%s max_jobs=%s autorun=%s\n' \
     "$SICHTER_RUN_POLICY" "$SICHTER_INTERVAL_MINUTES" "$SICHTER_MAX_PARALLEL_JOBS" "$SICHTER_AUTORUN"
