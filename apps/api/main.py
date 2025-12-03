@@ -73,8 +73,8 @@ def submit(job: Job) -> dict[str, str]:
     jid = _enqueue(job.model_dump())
     return {"enqueued": jid, "queue_dir": str(QUEUE)}
   except Exception as e:
-    logger.error(f"Error submitting job: {e}")
-    return {"error": str(e)}
+    logger.exception("Error submitting job.")
+    return {"error": "Internal server error"}
 
 
 def _systemctl_show(service: str) -> dict[str, str]:
