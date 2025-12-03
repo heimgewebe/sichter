@@ -1,5 +1,6 @@
 # apps/api/main.py
 import json
+import logging
 import os
 import subprocess
 import tempfile
@@ -16,9 +17,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
-from lib.config import CONFIG, EVENTS, QUEUE, ensure_directories
+from lib.config import CONFIG, EVENTS, QUEUE, ensure_directories, get_policy_path, load_yaml
 
 ensure_directories()
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("sichter.api")
 
 app = FastAPI(title="Sichter API", version="0.1.1")
 # CORS für Dashboard (Vite etc.)
@@ -42,7 +50,11 @@ class Job(BaseModel):
 def _enqueue(job: dict) -> str:
   jid = f"{int(time.time())}-{uuid.uuid4().hex[:8]}"
   f = QUEUE / f"{jid}.json"
-  f.write_text(json.dumps(job, ensure_ascii=False, indent=2))
+  try:
+    f.write_text(json.dumps(job, ensure_ascii=False, indent=2))
+  except OSError as e:
+    logger.error(f"Failed to enqueue job: {e}")
+    raise
   return jid
 
 
@@ -57,8 +69,12 @@ def healthz() -> str:
 
 @app.post("/jobs/submit")
 def submit(job: Job) -> dict[str, str]:
-  jid = _enqueue(job.model_dump())
-  return {"enqueued": jid, "queue_dir": str(QUEUE)}
+  try:
+    jid = _enqueue(job.model_dump())
+    return {"enqueued": jid, "queue_dir": str(QUEUE)}
+  except Exception as e:
+    logger.exception("Error submitting job.")
+    return {"error": "Internal server error"}
 
 
 def _systemctl_show(service: str) -> dict[str, str]:
@@ -77,7 +93,8 @@ def _systemctl_show(service: str) -> dict[str, str]:
       text=True,
       env=env,
     )
-  except (subprocess.CalledProcessError, FileNotFoundError, PermissionError):
+  except (subprocess.CalledProcessError, FileNotFoundError, PermissionError) as e:
+    logger.debug(f"systemctl show failed for {service}: {e}")
     return {}
   result: dict[str, str] = {}
   for line in raw.splitlines():
@@ -123,7 +140,8 @@ def _queue_state(limit: int = 10) -> dict[str, int | list[dict]]:
   for fp in recent_files:
     try:
       payload = json.loads(fp.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError) as e:
+      logger.warning(f"Failed to read/parse queue file {fp}: {e}")
       payload = {}
     items.append(
       {
@@ -169,12 +187,14 @@ def _tail_file(path: Path, n: int, block_size: int = 4096) -> list[str]:
               break
 
       # Convert to text
+      # Note: errors="ignore" might drop characters at block boundaries if they are multi-byte
       text = data.decode("utf-8", errors="ignore")
       lines = text.splitlines()
 
       # Return last n lines
       return lines[-n:]
-  except OSError:
+  except OSError as e:
+    logger.error(f"Failed to tail file {path}: {e}")
     return []
 
 
@@ -227,12 +247,11 @@ def _collect_events(limit: int = 200) -> list[dict[str, str | dict]]:
 
 
 def _read_policy() -> dict:
-  from lib.config import get_policy_path
-
   policy_path = get_policy_path()
   try:
     return {"path": str(policy_path), "content": policy_path.read_text()}
-  except OSError:
+  except OSError as e:
+    logger.error(f"Failed to read policy from {policy_path}: {e}")
     return {"path": str(policy_path), "content": ""}
 
 
@@ -245,8 +264,6 @@ def _resolve_repos() -> list[str]:
   repos: list[str] = []
 
   # Try to load from policy file
-  from lib.config import get_policy_path, load_yaml
-
   try:
     policy_path = get_policy_path()
     if policy_path.exists():
@@ -256,8 +273,8 @@ def _resolve_repos() -> list[str]:
         repos = [str(repo) for repo in allowlist if repo]
         if repos:
           return sorted(repos)
-  except (OSError, ValueError):
-    pass
+  except (OSError, ValueError) as e:
+    logger.warning(f"Failed to load repos from policy: {e}")
 
   # Fallback to environment-based discovery
   org = os.environ.get("HAUSKI_ORG")
@@ -268,8 +285,8 @@ def _resolve_repos() -> list[str]:
       if base.exists() and base.is_dir():
         repos = [f"{org}/{entry.name}" for entry in base.iterdir()
             if entry.is_dir() and not entry.name.startswith(".")]
-    except OSError:
-      pass
+    except OSError as e:
+      logger.warning(f"Failed to discover repos in {remote_base}: {e}")
 
   # Last resort: single repo from environment
   if not repos:
@@ -344,9 +361,24 @@ def write_policy(content: Annotated[dict, Body()]) -> dict[str, str]:
     with os.fdopen(fd, "w") as f:
       f.write(text)
     os.rename(tmp_path, str(target))
-  finally:
+  except OSError as e:
+    logger.error(f"Failed to write policy: {e}")
     if tmp_path and os.path.exists(tmp_path):
       os.unlink(tmp_path)
+    raise
+  finally:
+    # Normally cleanup is handled, but if rename failed and we caught it, we handled it.
+    # If rename succeeded, tmp_path is gone.
+    # If os.fdopen failed, tmp_path exists and needs cleanup.
+    if tmp_path and os.path.exists(tmp_path):
+       # This might happen if os.rename fails and we raised exception,
+       # or if we are in the 'finally' block after a success but 'rename' works atomically?
+       # Actually os.rename removes the source.
+       # So this is for the case where something failed BEFORE rename.
+       try:
+         os.unlink(tmp_path)
+       except OSError:
+         pass
 
   return {"written": str(target)}
 
@@ -368,7 +400,8 @@ def _read_last_lines(path: Path, n: int) -> list[str]:
   try:
     # Use our optimized _tail_file here too!
     return _tail_file(path, n)
-  except OSError:
+  except OSError as e:
+    logger.error(f"Failed to read last lines of {path}: {e}")
     return []
 
 
@@ -435,8 +468,9 @@ async def events_stream(ws: WebSocket):
             for line in chunk.splitlines():
               if line.strip():
                 await ws.send_text(line)
-      except OSError:
+      except OSError as e:
         # Datei evtl. rotiert oder noch nicht lesbar - ignoriere einmal
+        logger.debug(f"Transient error reading {p}: {e}")
         pass
 
       # Heartbeat senden
@@ -446,9 +480,11 @@ async def events_stream(ws: WebSocket):
 
       await asyncio.sleep(1.0)
     except WebSocketDisconnect:
+      logger.info("WebSocket disconnected")
       break
     except Exception as exc:  # robust bleiben
       # Fehler ans UI senden, aber Stream nicht abbrechen
+      logger.error(f"WebSocket stream error: {exc}")
       try:
         await ws.send_text(json.dumps({"ts": _timestamp(), "type": "error", "detail": str(exc)}))
       except Exception:
