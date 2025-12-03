@@ -48,7 +48,7 @@ else
 
   if command -v shfmt >/dev/null 2>&1; then
     echo "[wgx.guard] shfmt (Dry-Run) läuft…"
-    shfmt -d "${files[@]}"
+    shfmt -d -i 2 -ci "${files[@]}"
   else
     echo "[wgx.guard] shfmt nicht gefunden, überspringe Format-Check."
   fi
