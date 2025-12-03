@@ -64,9 +64,9 @@ done
 # Ensure the post-run hook is symlinked to expected location if not already there
 POST_RUN_TARGET="$HOME/sichter/hooks/post-run"
 if [ ! -f "$POST_RUN_TARGET" ]; then
-    log "Richte post-run Hook ein"
-    mkdir -p "$(dirname "$POST_RUN_TARGET")"
-    ln -sf "$ROOT/hooks/post-run" "$POST_RUN_TARGET"
+  log "Richte post-run Hook ein"
+  mkdir -p "$(dirname "$POST_RUN_TARGET")"
+  ln -sf "$ROOT/hooks/post-run" "$POST_RUN_TARGET"
 fi
 
 log "Installiere systemd User-Units"
