@@ -36,6 +36,11 @@ Hook liegt nach `~/.config/omnipull/hooks/100-sichter-always-post.sh` und trigge
 - Dedupe-Logik erweitern (PR je Thema).
 - Reposets/Allow-/Denylist aus `config/policy.yml` berücksichtigen.
 
+## Konfiguration
+
+- `registry.sample.json`: Entwurf für eine globale Registry (Chronik-URL, Mirror-Pfade). Aktuell nicht aktiv genutzt.
+- `config/policy.yml`: Zentrale Konfiguration für Policies.
+
 ---
 
 🧵 WGX – Mini-Einführung für Dummies
