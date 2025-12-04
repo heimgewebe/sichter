@@ -5,6 +5,7 @@
 # Guard: Ensure we are running in Bash
 if [ -z "${BASH_SOURCE[0]+x}" ]; then
   echo "bin/sichter-env must be sourced from bash (BASH_SOURCE is not set)." >&2
+  # shellcheck disable=SC2317
   return 1 2>/dev/null || exit 1
 fi
 
@@ -21,6 +22,7 @@ fi
 # Verify executable
 if [ ! -x "$_YAML_GET" ]; then
   echo "Error: yaml-get not found or not executable at $_YAML_GET" >&2
+  # shellcheck disable=SC2317
   return 1 2>/dev/null || exit 1
 fi
 
