@@ -72,7 +72,7 @@ def submit(job: Job) -> dict[str, str]:
   try:
     jid = _enqueue(job.model_dump())
     return {"enqueued": jid, "queue_dir": str(QUEUE)}
-  except Exception as e:
+  except Exception:
     logger.exception("Error submitting job.")
     return {"error": "Internal server error"}
 
