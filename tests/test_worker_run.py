@@ -51,5 +51,33 @@ class TestWorkerRun(unittest.TestCase):
                 "test_repo", mock_ensure_repo.return_value, mock_fresh_branch.return_value, False
             )
 
+        # Test case 4: job with auto_pr=None (should fallback to policy)
+        job_none_value = {"repo": "test_repo", "auto_pr": None}
+        with patch("apps.worker.run.POLICY.auto_pr", True):
+            worker_run.handle_job(job_none_value)
+            mock_create_or_update_pr.assert_called_with(
+                "test_repo", mock_ensure_repo.return_value, mock_fresh_branch.return_value, True
+            )
+
+        with patch("apps.worker.run.POLICY.auto_pr", False):
+            worker_run.handle_job(job_none_value)
+            mock_create_or_update_pr.assert_called_with(
+                "test_repo", mock_ensure_repo.return_value, mock_fresh_branch.return_value, False
+            )
+
+        # Test case 5: job with non-bool auto_pr defaults to policy
+        job_invalid_type = {"repo": "test_repo", "auto_pr": "false"}
+        with patch("apps.worker.run.POLICY.auto_pr", True):
+            worker_run.handle_job(job_invalid_type)
+            mock_create_or_update_pr.assert_called_with(
+                "test_repo", mock_ensure_repo.return_value, mock_fresh_branch.return_value, True
+            )
+
+        with patch("apps.worker.run.POLICY.auto_pr", False):
+            worker_run.handle_job(job_invalid_type)
+            mock_create_or_update_pr.assert_called_with(
+                "test_repo", mock_ensure_repo.return_value, mock_fresh_branch.return_value, False
+            )
+
 if __name__ == "__main__":
     unittest.main()
