@@ -314,7 +314,17 @@ def create_or_update_pr(repo: str, repo_dir: Path, branch: str, auto_pr: bool) -
 def handle_job(job: dict) -> None:
   mode = job.get("mode", "changed")
   repo_one = job.get("repo")
-  auto_pr = job.get("auto_pr", POLICY.auto_pr)
+  auto_pr_job = job.get("auto_pr")
+  if "auto_pr" not in job or auto_pr_job is None:
+    auto_pr = POLICY.auto_pr
+  elif isinstance(auto_pr_job, bool):
+    auto_pr = auto_pr_job
+  else:
+    log(
+      "auto_pr wird als bool erwartet (z. B. aus JSON). "
+      f"Unerwarteter Typ {type(auto_pr_job).__name__}, verwende Policy-Default."
+    )
+    auto_pr = POLICY.auto_pr
   log(f"Job erhalten: mode={mode} repo={repo_one} auto_pr={auto_pr}")
 
   repos: Iterable[str]
