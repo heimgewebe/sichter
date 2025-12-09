@@ -36,6 +36,16 @@ Hook liegt nach `~/.config/omnipull/hooks/100-sichter-always-post.sh` und trigge
 - Dedupe-Logik erweitern (PR je Thema).
 - Reposets/Allow-/Denylist aus `config/policy.yml` berücksichtigen.
 
+## Entwicklungsumgebung
+
+Um Shell-Skripte konsistent zu formatieren (`shfmt`), nutze das bereitgestellte Skript:
+
+```bash
+tools/scripts/ensure-shfmt.sh
+```
+
+Es lädt die korrekte Version (definiert in `toolchain.versions.yml`) nach `.local/bin/`.
+
 ## Konfiguration
 
 - `registry.sample.json`: Entwurf für eine globale Registry (Chronik-URL, Mirror-Pfade). Aktuell nicht aktiv genutzt.

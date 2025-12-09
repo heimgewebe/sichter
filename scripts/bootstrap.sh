@@ -75,6 +75,14 @@ else
   fi
 fi
 
+# --- Toolchain (shfmt) ---
+if [ -x "tools/scripts/ensure-shfmt.sh" ]; then
+  log "Prüfe/Installiere shfmt..."
+  tools/scripts/ensure-shfmt.sh
+else
+  warn "tools/scripts/ensure-shfmt.sh nicht gefunden"
+fi
+
 # --- Executables (defensiv) ---
 for f in bin/omnicheck bin/sichter-pr-sweep bin/sichter-dashboard bin/sweep hooks/post-run hooks/omnipull/*.sh; do
   if [ -e "$f" ]; then
