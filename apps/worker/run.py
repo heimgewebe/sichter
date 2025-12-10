@@ -109,6 +109,14 @@ class Policy:
   checks: dict | None = None
   excludes: Iterable[str] = ()
 
+  @staticmethod
+  def _bool_with_default(value: object, default: bool) -> bool:
+    """Return boolean value while respecting explicit ``None`` as unset."""
+
+    if value is None:
+      return default
+    return bool(value)
+
   @classmethod
   def load(cls) -> Policy:
     from lib.config import get_policy_path, load_yaml
@@ -116,9 +124,12 @@ class Policy:
     policy_path = get_policy_path()
     data = load_yaml(policy_path) if policy_path.exists() else {}
 
+    auto_pr = cls._bool_with_default(data.get("auto_pr"), True)
+    sweep_on_omnipull = cls._bool_with_default(data.get("sweep_on_omnipull"), True)
+
     return cls(
-      auto_pr=bool(data.get("auto_pr", True)),
-      sweep_on_omnipull=bool(data.get("sweep_on_omnipull", True)),
+      auto_pr=auto_pr,
+      sweep_on_omnipull=sweep_on_omnipull,
       run_mode=str(data.get("run_mode", "deep")),
       org=str(data.get("org", DEFAULT_ORG)),
       llm=data.get("llm", {}),
