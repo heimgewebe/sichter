@@ -28,6 +28,14 @@ ensure_directories()
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _bool_with_default(value: object, default: bool) -> bool:
+  """Return a boolean while treating ``None`` as an unset value."""
+
+  if value is None:
+    return default
+  return bool(value)
+
+
 def resolve_policy(path: str | None) -> dict:
   """Resolve policy configuration from file path or defaults.
 
@@ -56,12 +64,13 @@ def write_job(policy: dict, mode: str, repo: str | None) -> Path:
   """
   job_type = "ScanAll" if mode == "all" else "ScanChanged"
   now = datetime.now(timezone.utc)
+  auto_pr = _bool_with_default(policy.get("auto_pr"), True)
   payload = {
     "type": job_type,
     "mode": mode,
     "org": policy.get("org", DEFAULT_ORG),
     "repo": repo,
-    "auto_pr": bool(policy.get("auto_pr", True)),
+    "auto_pr": auto_pr,
     "timestamp": now.isoformat(),
   }
   job_file = QUEUE_DIR / f"{int(now.timestamp())}-{uuid.uuid4().hex}.json"
@@ -117,7 +126,7 @@ def main(argv: list[str] | None = None) -> int:
     "job_file": str(job_file),
     "mode": args.mode,
     "org": policy.get("org"),
-    "auto_pr": bool(policy.get("auto_pr", True)),
+    "auto_pr": _bool_with_default(policy.get("auto_pr"), True),
     "extra_args": extras,
   }
   print(json.dumps(summary, indent=2, ensure_ascii=False))
