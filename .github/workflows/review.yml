@@ -32,9 +32,15 @@ jobs:
         with:
           node-version: '20'
 
-      - uses: reviewdog/action-setup@v1
-        with:
-          reviewdog_version: latest
+      - name: Install reviewdog
+        run: |
+          REVIEWDOG_VERSION=$(curl -s https://api.github.com/repos/reviewdog/reviewdog/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+          curl -Ls --retry 5 --retry-delay 10 \
+            -o reviewdog.tar.gz \
+            "https://github.com/reviewdog/reviewdog/releases/download/${REVIEWDOG_VERSION}/reviewdog_${REVIEWDOG_VERSION#v}_Linux_x86_64.tar.gz"
+          tar -xzf reviewdog.tar.gz -C /tmp
+          sudo mv /tmp/reviewdog /usr/local/bin/
+          rm reviewdog.tar.gz
 
       - name: Install tooling
         run: |
