@@ -45,7 +45,7 @@ ARCH="$(uname -m)"
 # Map architecture
 case "$ARCH" in
   x86_64) ARCH="amd64" ;;
-  aarch64|arm64) ARCH="arm64" ;;
+  aarch64 | arm64) ARCH="arm64" ;;
   *)
     echo "Error: Unsupported architecture $ARCH" >&2
     exit 1
