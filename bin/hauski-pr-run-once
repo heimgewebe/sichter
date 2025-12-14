@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-bash -euxo pipefail <<'SH'
-cd "$HOME/sichter"
-
-install -d bin
-cat > bin/hauski-pr-run-once <<"EOF"
-#!/usr/bin/env bash
 # --- SICHTER FRESH-BRANCH GUARD ---
 ensure_fresh_branch() {
   local base_remote=origin base_branch=main
@@ -40,25 +34,28 @@ set -euo pipefail
 
 # Source the shared library
 # shellcheck source=lib/common.sh
-source "$(dirname "$0")/../lib/common.sh"
+source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 parse_common_args "$@"
 
-LOG="$HOME/sichter/logs/pr-runner.log"
+# Use relative paths from repo root
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || dirname "$(dirname "$(readlink -f "$0")")")"
+LOG="$REPO_ROOT/logs/pr-runner.log"
 mkdir -p "$(dirname "$LOG")"
-STATE="$HOME/sichter/review/pr-processed.json"
+STATE="$REPO_ROOT/review/pr-processed.json"
+mkdir -p "$(dirname "$STATE")"
 [ -f "$STATE" ] || echo '{}' >"$STATE"
 
-ts()  { date -Is; }
+ts() { date -Is; }
 log() { echo "[runner] $*" | tee -a "$LOG"; }
-jqget(){ jq -r "$1" 2>/dev/null || echo ""; }
+jqget() { jq -r "$1" 2>/dev/null || echo ""; }
 
 # ensure WORK is defined
-WORK="${WORK:-$HOME}"
+WORK="${WORK:-$REPO_ROOT}"
 
 log "start $(ts)"
 
 # PRs holen (nur echte JSON-Zeilen)
-mapfile -t PRS < <("$HOME/sichter/bin/hauski-pr-watch" --once 2>>"$LOG" | grep -E '^\{')
+mapfile -t PRS < <("$REPO_ROOT/bin/hauski-pr-watch" --once 2>>"$LOG" | grep -E '^\{')
 if [ "${#PRS[@]}" -eq 0 ]; then
   log "ℹ️  keine PRs gefunden"
   log "done  $(ts)"
@@ -80,8 +77,8 @@ for J in "${PRS[@]}"; do
   fi
 
   meta="$(gh pr view -R "${repo}" "${num}" \
-           --json headRefName,headRefOid,headRepository,maintainerCanModify \
-           --jq '{headRefName, headRefOid, headRepo:(.headRepository.nameWithOwner//""), maintainerCanModify}')"
+    --json headRefName,headRefOid,headRepository,maintainerCanModify \
+    --jq '{headRefName, headRefOid, headRepo:(.headRepository.nameWithOwner//""), maintainerCanModify}')"
   sha="$(printf '%s' "$meta" | jqget '.headRefOid')"
   key="${repo}#${num}@${sha}"
 
@@ -100,8 +97,8 @@ for J in "${PRS[@]}"; do
 
   # Sichter-Autofix-Trigger (optional)
   touch "$WORK/sichter-enable"
-  if [ -x "$HOME/sichter/hooks/post-run" ]; then
-    HAUSKI_AUTO_APPLY=1 HAUSKI_AUTO_COMMIT=1 HAUSKI_AUTO_PR=0 "$HOME/sichter/hooks/post-run" || true
+  if [ -x "$REPO_ROOT/hooks/post-run" ]; then
+    HAUSKI_AUTO_APPLY=1 HAUSKI_AUTO_COMMIT=1 HAUSKI_AUTO_PR=0 "$REPO_ROOT/hooks/post-run" || true
   fi
 
   # Commit & PR nur bei Änderungen
@@ -118,13 +115,3 @@ for J in "${PRS[@]}"; do
 done
 
 log "done  $(ts)"
-EOF
-
-chmod +x bin/hauski-pr-run-once
-
-# optional: minimale Lint-Fixups (wenn vorhanden)
-command -v shfmt >/dev/null 2>&1 && shfmt -w bin/hauski-pr-run-once || true
-command -v shellcheck >/dev/null 2>&1 && shellcheck bin/hauski-pr-run-once || true
-
-echo "✅ hauski-pr-run-once aktualisiert."
-SH
