@@ -1,18 +1,33 @@
-ai_context_version: 1.0
-
-# Dieses Repo ist Teil des Heimgewebes.
-# Systemweiter Kontext durch Heimgeist:
-#   metarepo/ai-contexts/heimgeist.ai-context.yml
-
-system_context:
-  heimgeist: "../metarepo/ai-contexts/heimgeist.ai-context.yml"
+---
+ai_context_version: 1.1
 
 project:
   name: sichter
-  summary: Autonomer Code-Reviewer + Auto-PR Engine
-  role: code_review_automation
-  primary_language: python
+  summary: Review/QA gate for content, policies, and outputs.
+  role: gatekeeper_quality_checks
+  primary_language: mixed
   visibility: internal
+
+heimgewebe:
+  axis: [Motorik, Contracts, Decisions]
+  fleet:
+    enabled: true
+  wgx:
+    profile_expected: true
+    guard_smoke_expected: true
+
+interfaces:
+  consumes:
+    - "repolens-agent/v1 snapshots"
+    - "policies"
+    - "validation_schemas"
+  produces:
+    - "quality findings (machine-readable)"
+
+contracts:
+  schemas:
+    - path: "contracts/*.schema.json"
+      note: "Validate against canonical contracts."
 
 dependencies:
   internal:
@@ -26,6 +41,14 @@ dependencies:
     - name: uvicorn
     - name: pydantic
     - name: PyYAML
+    - name: ajv-cli
+
+boundaries:
+  not_responsible_for:
+    - "Defining canonical schemas (metarepo/contracts do that)."
+    - "Mutating repos; it only reports findings."
+  dangerous_assumptions:
+    - "Treat style as policy without explicit rule."
 
 architecture:
   entrypoints:
