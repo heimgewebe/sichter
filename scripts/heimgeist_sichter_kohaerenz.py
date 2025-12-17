@@ -3,7 +3,7 @@
 
 """
 heimgeist.sichter.kohaerenz
-===========================
+==========================
 
 Kohärenz-Scanner für repoLens JSON-Snapshots.
 Er erzeugt Befunde aus einem Snapshot, ohne ins Live-Repo zu schauen.
@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -113,6 +112,10 @@ def _has_any_file(paths: List[str], names: List[str]) -> bool:
     return any(n in s for n in names)
 
 
+def _severity_rank(sev: str) -> int:
+    return {"info": 1, "warn": 2, "crit": 3}.get(sev, 0)
+
+
 # -----------------------------
 # Core checks
 # -----------------------------
@@ -189,15 +192,22 @@ def _meta_sanity(doc: Dict[str, Any]) -> List[Finding]:
     return findings
 
 
-def _duplicates_within_repo(files: List[Dict[str, Any]]) -> List[Tuple[str, str]]:
+def _duplicates_within_repo(files: List[Dict[str, Any]]) -> Tuple[List[Tuple[str, str]], bool]:
+    """
+    Returns (duplicates, has_unknown_repos).
+    has_unknown_repos is True if any file has missing/empty repo field.
+    """
     seen = set()
     dups = set()
+    has_unknown = False
     for repo, path in _iter_paths(files):
+        if not repo:
+            has_unknown = True
         key = (repo, path)
         if key in seen:
             dups.add(key)
         seen.add(key)
-    return sorted(dups)
+    return sorted(dups), has_unknown
 
 
 def _repo_marker_findings(repo: str, repo_paths: List[str]) -> List[Finding]:
@@ -305,27 +315,18 @@ def build_report(doc: Dict[str, Any], input_path: Path) -> Report:
     findings: List[Finding] = []
     findings.extend(_meta_sanity(doc))
 
-    dups = _duplicates_within_repo(files)
+    dups, has_unknown_repos = _duplicates_within_repo(files)
     if dups:
-        for r, p in dups:
-            # If repo is unknown/empty, we can't be sure it's a true duplicate or just artifacts from multiple unknown sources.
-            # Downgrade to WARN.
-            if not r:
-                findings.append(Finding(
-                    severity="warn",
-                    code="HG-SICHTER-021",
-                    title="Doppelter Pfad (unbekanntes Repo)",
-                    detail=f"Pfad '{p}' kommt mehrfach vor, aber Repo-Attribut fehlt. Kann Artefakt sein.",
-                    repo=r or None
-                ))
-            else:
-                findings.append(Finding(
-                    severity="crit",
-                    code="HG-SICHTER-020",
-                    title="Doppelter Pfad innerhalb desselben Repo",
-                    detail=f"Repo '{r}': Pfad '{p}' ist mehrfach im Snapshot.",
-                    repo=r
-                ))
+        show = ", ".join([f"{r}:{p}" for (r, p) in dups[:40]])
+        severity = "warn" if has_unknown_repos else "crit"
+        title_suffix = " (Repo-Zuordnung teilweise unbekannt)" if has_unknown_repos else ""
+        detail_suffix = " Hinweis: Repo-Zuordnung fehlt, daher unsicher ob echte Duplikate." if has_unknown_repos else ""
+        findings.append(Finding(
+            severity=severity,
+            code="HG-SICHTER-020",
+            title="Doppelte Pfade" + title_suffix,
+            detail=show + (" …" if len(dups) > 40 else "") + detail_suffix,
+        ))
 
     for r in sorted(repo_to_paths.keys()):
         findings.extend(_repo_marker_findings(r, repo_to_paths[r]))
@@ -347,7 +348,7 @@ def build_report(doc: Dict[str, Any], input_path: Path) -> Report:
 
     return Report(
         generated_at=_now_iso(),
-        agent="heimgeist.sichter.kohaerenz",  # Consistent ID
+        agent="heimgeist.sichter.kohaerenz",
         input_path=str(input_path),
         meta=meta,
         scope=scope,
@@ -426,13 +427,31 @@ def render_markdown(rep: Report) -> str:
     return "\n".join(lines)
 
 
+def _emit_summary(rep: Report) -> str:
+    rank = {"info": 1, "warn": 2, "crit": 3}
+    max_severity = "info"
+    max_rank = 1
+    for f in rep.findings:
+        r = rank.get(f.severity, 0)
+        if r > max_rank:
+            max_rank = r
+            max_severity = f.severity
+    summary = {
+        "max_severity": max_severity,
+        "total_findings": len(rep.findings),
+        "crit_count": sum(1 for f in rep.findings if f.severity == "crit"),
+        "warn_count": sum(1 for f in rep.findings if f.severity == "warn"),
+        "info_count": sum(1 for f in rep.findings if f.severity == "info"),
+    }
+    return json.dumps(summary, ensure_ascii=False)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("snapshot_json", help="Pfad zu einem repoLens JSON Snapshot")
     ap.add_argument("--out", default="reports/heimgeist.sichter", help="Ausgabeordner")
     ap.add_argument("--json", action="store_true", help="Zusätzlich JSON-Befund schreiben")
-    ap.add_argument("--gate-out", help="Pfad für Gate-Output-Variablen (max_severity=..., should_fail=...)")
-    ap.add_argument("--fail-on", default="crit", choices=["none", "warn", "crit"], help="Schwelle für should_fail (für Gate-Output)")
+    ap.add_argument("--emit-summary", action="store_true", help="Einzeilige JSON-Zusammenfassung nach stdout (für CI-Gates)")
     args = ap.parse_args()
 
     in_path = Path(args.snapshot_json).expanduser()
@@ -449,33 +468,17 @@ def main() -> int:
     md_path = out_dir / f"{stem}__heimgeist.sichter.kohaerenz.md"
     md_path.write_text(render_markdown(rep), encoding="utf-8")
 
+    js_path: Optional[Path] = None
     if args.json:
         js_path = out_dir / f"{stem}__heimgeist.sichter.kohaerenz.json"
         js_path.write_text(json.dumps(asdict(rep), ensure_ascii=False, indent=2), encoding="utf-8")
 
-    print(f"Wrote: {md_path}")
-    if args.json:
-        print(f"Wrote: {js_path}")
-
-    if args.gate_out:
-        rank = {"info": 1, "warn": 2, "crit": 3}
-        maxsev = "info"
-        mx = 1
-        for f in rep.findings:
-            sev = f.severity
-            r = rank.get(sev, 0)
-            if r > mx:
-                mx = r
-                maxsev = sev
-
-        th = {"none": 99, "warn": 2, "crit": 3}[args.fail_on]
-        should_fail = (mx >= th) and (args.fail_on != "none")
-
-        with open(args.gate_out, "w", encoding="utf-8") as gf:
-            gf.write(f"max_severity={maxsev}\n")
-            gf.write(f"should_fail={'true' if should_fail else 'false'}\n")
-        print(f"Gate decision written to: {args.gate_out}")
-
+    if args.emit_summary:
+        print(_emit_summary(rep))
+    else:
+        print(f"Wrote: {md_path}")
+        if js_path is not None:
+            print(f"Wrote: {js_path}")
     return 0
 
 
