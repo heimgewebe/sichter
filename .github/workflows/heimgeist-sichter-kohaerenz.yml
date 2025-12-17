@@ -1,0 +1,150 @@
+name: heimgeist.sichter.kohaerenz
+
+on:
+  workflow_dispatch:
+    inputs:
+      repolens_json_path:
+        description: "Pfad zu einem repoLens JSON Snapshot (im Repo-Workspace, z.B. merges/foo.json)"
+        required: true
+        type: string
+      out_dir:
+        description: "Ausgabeordner für Reports"
+        required: false
+        default: "reports/heimgeist.sichter"
+        type: string
+      fail_on:
+        description: "Workflow failen bei Severity >= (none|warn|crit)"
+        required: false
+        default: "crit"
+        type: string
+      commit_report:
+        description: "Report committen & pushen (ACHTUNG: schreibt ins Repo)"
+        required: false
+        default: "false"
+        type: string
+
+# Default: read-only. Write wird nur im optionalen Commit-Job genutzt.
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    outputs:
+      max_severity: ${{ steps.gate.outputs.max_severity }}
+      should_fail: ${{ steps.gate.outputs.should_fail }}
+      out_dir: ${{ steps.gate.outputs.out_dir }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run heimgeist.sichter.kohaerenz (repoLens)
+        id: run
+        run: |
+          set -euo pipefail
+          python3 scripts/heimgeist_sichter_kohaerenz.py \
+            "${{ inputs.repolens_json_path }}" \
+            --out "${{ inputs.out_dir }}" \
+            --json
+
+      # Gate-Entscheidung wird aus dem JSON-Befund abgeleitet (robust, CI-sicher)
+      - name: Gate decision (after report is produced)
+        id: gate
+        run: |
+          set -euo pipefail
+          OUT_DIR="${{ inputs.out_dir }}"
+          SNAP="${{ inputs.repolens_json_path }}"
+          STEM="$(basename "$SNAP")"
+          STEM="${STEM%.*}"
+          REPORT_JSON="${OUT_DIR}/${STEM}__heimgeist.sichter.kohaerenz.json"
+
+          if [ ! -f "$REPORT_JSON" ]; then
+            echo "Report JSON not found: $REPORT_JSON" >&2
+            exit 3
+          fi
+
+          python3 - <<'PY' "$REPORT_JSON" "${{ inputs.fail_on }}"
+import json, sys
+path = sys.argv[1]
+fail_on = sys.argv[2]
+doc = json.load(open(path, "r", encoding="utf-8"))
+findings = doc.get("findings", []) or []
+rank = {"info": 1, "warn": 2, "crit": 3}
+maxsev = "info"
+mx = 1
+for f in findings:
+    sev = f.get("severity", "info")
+    r = rank.get(sev, 0)
+    if r > mx:
+        mx = r
+        maxsev = sev
+th = {"none": 99, "warn": 2, "crit": 3}[fail_on]
+should_fail = (mx >= th) and (fail_on != "none")
+print(f"max_severity={maxsev}")
+print(f"should_fail={'true' if should_fail else 'false'}")
+PY > gate.out
+
+          cat gate.out
+          MAX_SEV="$(grep '^max_severity=' gate.out | cut -d= -f2)"
+          SHOULD_FAIL="$(grep '^should_fail=' gate.out | cut -d= -f2)"
+
+          echo "max_severity=$MAX_SEV" >> "$GITHUB_OUTPUT"
+          echo "should_fail=$SHOULD_FAIL" >> "$GITHUB_OUTPUT"
+          echo "out_dir=$OUT_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Upload report artifact (always)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: heimgeist-sichter-kohaerenz-report
+          path: ${{ inputs.out_dir }}
+
+  gate:
+    runs-on: ubuntu-latest
+    needs: [scan]
+    steps:
+      - name: Fail workflow if threshold hit (after artifact upload)
+        run: |
+          set -euo pipefail
+          echo "max_severity=${{ needs.scan.outputs.max_severity }}"
+          echo "should_fail=${{ needs.scan.outputs.should_fail }}"
+          if [ "${{ needs.scan.outputs.should_fail }}" = "true" ]; then
+            echo "Failing due to severity threshold."
+            exit 2
+          fi
+          echo "No fail threshold hit."
+
+  commit:
+    runs-on: ubuntu-latest
+    needs: [scan, gate]
+    if: ${{ inputs.commit_report == 'true' }}
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download report artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: heimgeist-sichter-kohaerenz-report
+          path: ${{ needs.scan.outputs.out_dir }}
+
+      - name: Commit report (optional)
+        run: |
+          set -euo pipefail
+          OUT_DIR="${{ needs.scan.outputs.out_dir }}"
+          if git status --porcelain | grep -q .; then
+            git config user.name "heimgeist-sichter"
+            git config user.email "heimgeist-sichter@users.noreply.github.com"
+            git add "$OUT_DIR"
+            git commit -m "reports: add heimgeist.sichter.kohaerenz output"
+            git push
+          else
+            echo "No changes."
+          fi
