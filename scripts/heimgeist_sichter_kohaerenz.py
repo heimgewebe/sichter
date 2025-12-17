@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-heimgeist.sichter.kohärenz (kohaerenz)
-=====================================
+heimgeist.sichter.kohaerenz
+===========================
 
 Kohärenz-Scanner für repoLens JSON-Snapshots.
 Er erzeugt Befunde aus einem Snapshot, ohne ins Live-Repo zu schauen.
@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -306,13 +307,25 @@ def build_report(doc: Dict[str, Any], input_path: Path) -> Report:
 
     dups = _duplicates_within_repo(files)
     if dups:
-        show = ", ".join([f"{r}:{p}" for (r, p) in dups[:40]])
-        findings.append(Finding(
-            severity="crit",
-            code="HG-SICHTER-020",
-            title="Doppelte Pfade innerhalb desselben Repo",
-            detail=show + (" …" if len(dups) > 40 else ""),
-        ))
+        for r, p in dups:
+            # If repo is unknown/empty, we can't be sure it's a true duplicate or just artifacts from multiple unknown sources.
+            # Downgrade to WARN.
+            if not r:
+                findings.append(Finding(
+                    severity="warn",
+                    code="HG-SICHTER-021",
+                    title="Doppelter Pfad (unbekanntes Repo)",
+                    detail=f"Pfad '{p}' kommt mehrfach vor, aber Repo-Attribut fehlt. Kann Artefakt sein.",
+                    repo=r or None
+                ))
+            else:
+                findings.append(Finding(
+                    severity="crit",
+                    code="HG-SICHTER-020",
+                    title="Doppelter Pfad innerhalb desselben Repo",
+                    detail=f"Repo '{r}': Pfad '{p}' ist mehrfach im Snapshot.",
+                    repo=r
+                ))
 
     for r in sorted(repo_to_paths.keys()):
         findings.extend(_repo_marker_findings(r, repo_to_paths[r]))
@@ -334,7 +347,7 @@ def build_report(doc: Dict[str, Any], input_path: Path) -> Report:
 
     return Report(
         generated_at=_now_iso(),
-        agent="heimgeist.sichter.kohärenz",
+        agent="heimgeist.sichter.kohaerenz",  # Consistent ID
         input_path=str(input_path),
         meta=meta,
         scope=scope,
@@ -418,6 +431,8 @@ def main() -> int:
     ap.add_argument("snapshot_json", help="Pfad zu einem repoLens JSON Snapshot")
     ap.add_argument("--out", default="reports/heimgeist.sichter", help="Ausgabeordner")
     ap.add_argument("--json", action="store_true", help="Zusätzlich JSON-Befund schreiben")
+    ap.add_argument("--gate-out", help="Pfad für Gate-Output-Variablen (max_severity=..., should_fail=...)")
+    ap.add_argument("--fail-on", default="crit", choices=["none", "warn", "crit"], help="Schwelle für should_fail (für Gate-Output)")
     args = ap.parse_args()
 
     in_path = Path(args.snapshot_json).expanduser()
@@ -441,6 +456,26 @@ def main() -> int:
     print(f"Wrote: {md_path}")
     if args.json:
         print(f"Wrote: {js_path}")
+
+    if args.gate_out:
+        rank = {"info": 1, "warn": 2, "crit": 3}
+        maxsev = "info"
+        mx = 1
+        for f in rep.findings:
+            sev = f.severity
+            r = rank.get(sev, 0)
+            if r > mx:
+                mx = r
+                maxsev = sev
+
+        th = {"none": 99, "warn": 2, "crit": 3}[args.fail_on]
+        should_fail = (mx >= th) and (args.fail_on != "none")
+
+        with open(args.gate_out, "w", encoding="utf-8") as gf:
+            gf.write(f"max_severity={maxsev}\n")
+            gf.write(f"should_fail={'true' if should_fail else 'false'}\n")
+        print(f"Gate decision written to: {args.gate_out}")
+
     return 0
 
 

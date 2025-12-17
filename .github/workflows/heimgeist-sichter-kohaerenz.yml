@@ -50,52 +50,17 @@ jobs:
           python3 scripts/heimgeist_sichter_kohaerenz.py \
             "${{ inputs.repolens_json_path }}" \
             --out "${{ inputs.out_dir }}" \
-            --json
+            --json \
+            --gate-out gate.env \
+            --fail-on "${{ inputs.fail_on }}"
 
-      # Gate-Entscheidung wird aus dem JSON-Befund abgeleitet (robust, CI-sicher)
-      - name: Gate decision (after report is produced)
+      - name: Capture Gate Decision
         id: gate
         run: |
           set -euo pipefail
-          OUT_DIR="${{ inputs.out_dir }}"
-          SNAP="${{ inputs.repolens_json_path }}"
-          STEM="$(basename "$SNAP")"
-          STEM="${STEM%.*}"
-          REPORT_JSON="${OUT_DIR}/${STEM}__heimgeist.sichter.kohaerenz.json"
-
-          if [ ! -f "$REPORT_JSON" ]; then
-            echo "Report JSON not found: $REPORT_JSON" >&2
-            exit 3
-          fi
-
-          python3 - <<'PY' "$REPORT_JSON" "${{ inputs.fail_on }}"
-import json, sys
-path = sys.argv[1]
-fail_on = sys.argv[2]
-doc = json.load(open(path, "r", encoding="utf-8"))
-findings = doc.get("findings", []) or []
-rank = {"info": 1, "warn": 2, "crit": 3}
-maxsev = "info"
-mx = 1
-for f in findings:
-    sev = f.get("severity", "info")
-    r = rank.get(sev, 0)
-    if r > mx:
-        mx = r
-        maxsev = sev
-th = {"none": 99, "warn": 2, "crit": 3}[fail_on]
-should_fail = (mx >= th) and (fail_on != "none")
-print(f"max_severity={maxsev}")
-print(f"should_fail={'true' if should_fail else 'false'}")
-PY > gate.out
-
-          cat gate.out
-          MAX_SEV="$(grep '^max_severity=' gate.out | cut -d= -f2)"
-          SHOULD_FAIL="$(grep '^should_fail=' gate.out | cut -d= -f2)"
-
-          echo "max_severity=$MAX_SEV" >> "$GITHUB_OUTPUT"
-          echo "should_fail=$SHOULD_FAIL" >> "$GITHUB_OUTPUT"
-          echo "out_dir=$OUT_DIR" >> "$GITHUB_OUTPUT"
+          cat gate.env
+          cat gate.env >> "$GITHUB_OUTPUT"
+          echo "out_dir=${{ inputs.out_dir }}" >> "$GITHUB_OUTPUT"
 
       - name: Upload report artifact (always)
         if: ${{ always() }}
