@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# sichter - Main entry point wrapper
+
+# Ensure we can find scripts in the same directory
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# If no arguments, or if argument is 'dashboard', launch the TUI dashboard
+if [[ $# -eq 0 ]] || [[ "$1" == "dashboard" ]]; then
+  if [[ "$1" == "dashboard" ]]; then
+    shift
+  fi
+  exec "$DIR/sichter-top" "$@"
+fi
+
+CMD="$1"
+shift
+
+case "$CMD" in
+  check | omnicheck)
+    exec "$DIR/omnicheck" "$@"
+    ;;
+  sweep)
+    exec "$DIR/sweep" "$@"
+    ;;
+  status)
+    exec "$DIR/hauski-status" "$@"
+    ;;
+  *)
+    echo "Usage: sichter [command] [args]"
+    echo ""
+    echo "Commands:"
+    echo "  (default)   Launch TUI dashboard"
+    echo "  dashboard   Launch TUI dashboard"
+    echo "  check       Run omnicheck (local changes)"
+    echo "  sweep       Run sweep (all repos)"
+    echo "  status      Show system status"
+    exit 1
+    ;;
+esac

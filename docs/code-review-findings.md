@@ -35,7 +35,7 @@ The codebase contains a mix of "hauski" and "sichter" naming:
 - **Repository name**: heimgewebe/sichter
 - **Directory structure**: All paths use ~/sichter
 - **Service files**: sichter-api.service, sichter-worker.service (in pkg/systemd/user/)
-- **CLI tools**: cli/omnicheck, cli/sweep
+- **CLI tools**: bin/omnicheck, bin/sweep
 
 **Recommendation**: This appears to be a transitional state where "hauski" is the old name and "sichter" is the new name. Consider:
 1. Renaming hauski-* binaries to sichter-* for consistency

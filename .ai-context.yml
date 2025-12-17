@@ -31,8 +31,8 @@ architecture:
   entrypoints:
     - apps/api/main.py
     - apps/worker/run.py
-    - cli/omnicheck
-    - cli/sweep
+    - bin/omnicheck
+    - bin/sweep
 
 conventions:
   branching: "main, feature/*"
