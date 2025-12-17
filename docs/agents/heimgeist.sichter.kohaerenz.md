@@ -1,4 +1,4 @@
-# heimgeist.sichter.kohärenz (kohaerenz)
+# heimgeist.sichter.kohaerenz
 
 ## Zweck
 Dieser Agent produziert **Kohärenz-Befunde** aus **repoLens** Snapshots (JSON).
@@ -44,11 +44,20 @@ Hinweis: Snapshots können **multi-repo** sein. Dann werden Findings pro Repo ge
 
 ## Aufruf (lokal)
 ```sh
+# Standard: Markdown + JSON Report
 python3 scripts/heimgeist_sichter_kohaerenz.py /path/to/repolens.json --out reports/heimgeist.sichter --json
+
+# Mit Summary-Output für CI-Gates
+python3 scripts/heimgeist_sichter_kohaerenz.py /path/to/repolens.json --out reports/heimgeist.sichter --emit-summary
 ```
 
 ## CI-Nutzung (GitHub Actions)
 - Workflow: `.github/workflows/heimgeist-sichter-kohaerenz.yml`
 - Standard: Report wird **immer** als Artifact hochgeladen (auch bei kritischen Findings).
-- Gate: Fail passiert **nach** dem Artifact-Upload.
+- Gate: Nutzt `--emit-summary` für strukturierte Severity-Auswertung (kein Inline-Python).
+- Fail passiert **nach** dem Artifact-Upload.
 - Optional: Commit des Reports via `commit_report=true` (bewusstes Risiko).
+
+## Robustheit
+- **Unknown-Repo-Fallback**: Wenn `repo`-Feld fehlt, werden Duplicate-Findings als "warn" statt "crit" markiert (mit Hinweis auf fehlende Repo-Zuordnung).
+- **Severity-Summary**: `--emit-summary` gibt JSON-Zusammenfassung aus mit `max_severity`, `total_findings`, und Counts pro Severity.

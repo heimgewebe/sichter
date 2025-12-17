@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-heimgeist.sichter.kohärenz (kohaerenz)
-=====================================
+heimgeist.sichter.kohaerenz
+============================
 
 Kohärenz-Scanner für repoLens JSON-Snapshots.
 Er erzeugt Befunde aus einem Snapshot, ohne ins Live-Repo zu schauen.
@@ -188,15 +188,22 @@ def _meta_sanity(doc: Dict[str, Any]) -> List[Finding]:
     return findings
 
 
-def _duplicates_within_repo(files: List[Dict[str, Any]]) -> List[Tuple[str, str]]:
+def _duplicates_within_repo(files: List[Dict[str, Any]]) -> Tuple[List[Tuple[str, str]], bool]:
+    """
+    Returns (duplicates, has_unknown_repos).
+    has_unknown_repos is True if any file has missing/empty repo field.
+    """
     seen = set()
     dups = set()
+    has_unknown = False
     for repo, path in _iter_paths(files):
+        if not repo:
+            has_unknown = True
         key = (repo, path)
         if key in seen:
             dups.add(key)
         seen.add(key)
-    return sorted(dups)
+    return sorted(dups), has_unknown
 
 
 def _repo_marker_findings(repo: str, repo_paths: List[str]) -> List[Finding]:
@@ -304,14 +311,19 @@ def build_report(doc: Dict[str, Any], input_path: Path) -> Report:
     findings: List[Finding] = []
     findings.extend(_meta_sanity(doc))
 
-    dups = _duplicates_within_repo(files)
+    dups, has_unknown_repos = _duplicates_within_repo(files)
     if dups:
         show = ", ".join([f"{r}:{p}" for (r, p) in dups[:40]])
+        # If repo info is unknown, we can't be certain duplicates are within same repo
+        # so downgrade to warn instead of crit
+        severity = "warn" if has_unknown_repos else "crit"
+        title_suffix = " (Repo-Zuordnung teilweise unbekannt)" if has_unknown_repos else ""
+        detail_suffix = " Hinweis: Repo-Zuordnung fehlt, daher unsicher ob echte Duplikate." if has_unknown_repos else ""
         findings.append(Finding(
-            severity="crit",
+            severity=severity,
             code="HG-SICHTER-020",
-            title="Doppelte Pfade innerhalb desselben Repo",
-            detail=show + (" …" if len(dups) > 40 else ""),
+            title="Doppelte Pfade" + title_suffix,
+            detail=show + (" …" if len(dups) > 40 else "") + detail_suffix,
         ))
 
     for r in sorted(repo_to_paths.keys()):
@@ -334,7 +346,7 @@ def build_report(doc: Dict[str, Any], input_path: Path) -> Report:
 
     return Report(
         generated_at=_now_iso(),
-        agent="heimgeist.sichter.kohärenz",
+        agent="heimgeist.sichter.kohaerenz",
         input_path=str(input_path),
         meta=meta,
         scope=scope,
@@ -418,6 +430,7 @@ def main() -> int:
     ap.add_argument("snapshot_json", help="Pfad zu einem repoLens JSON Snapshot")
     ap.add_argument("--out", default="reports/heimgeist.sichter", help="Ausgabeordner")
     ap.add_argument("--json", action="store_true", help="Zusätzlich JSON-Befund schreiben")
+    ap.add_argument("--emit-summary", action="store_true", help="Einzeilige JSON-Zusammenfassung nach stdout (für CI-Gates)")
     args = ap.parse_args()
 
     in_path = Path(args.snapshot_json).expanduser()
@@ -438,9 +451,29 @@ def main() -> int:
         js_path = out_dir / f"{stem}__heimgeist.sichter.kohaerenz.json"
         js_path.write_text(json.dumps(asdict(rep), ensure_ascii=False, indent=2), encoding="utf-8")
 
-    print(f"Wrote: {md_path}")
-    if args.json:
-        print(f"Wrote: {js_path}")
+    if args.emit_summary:
+        # Emit single-line JSON summary for CI gate logic
+        rank = {"info": 1, "warn": 2, "crit": 3}
+        max_severity = "info"
+        max_rank = 1
+        for f in rep.findings:
+            r = rank.get(f.severity, 0)
+            if r > max_rank:
+                max_rank = r
+                max_severity = f.severity
+        summary = {
+            "max_severity": max_severity,
+            "total_findings": len(rep.findings),
+            "crit_count": sum(1 for f in rep.findings if f.severity == "crit"),
+            "warn_count": sum(1 for f in rep.findings if f.severity == "warn"),
+            "info_count": sum(1 for f in rep.findings if f.severity == "info"),
+        }
+        print(json.dumps(summary))
+    else:
+        print(f"Wrote: {md_path}")
+        if args.json:
+            print(f"Wrote: {js_path}")
+    
     return 0
 
 
