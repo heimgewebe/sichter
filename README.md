@@ -13,11 +13,11 @@ scripts/bootstrap.sh
 Hook liegt nach `~/.config/omnipull/hooks/100-sichter-always-post.sh` und triggert nach jedem Pull:
 
 ```
-~/sichter/cli/omnicheck --changed
+~/sichter/bin/omnicheck --changed
 ```
 ## CLI
-- `~/sichter/cli/omnicheck --changed|--all`
-- `~/sichter/cli/sweep --changed|--all`
+- `~/sichter/bin/omnicheck --changed|--all`
+- `~/sichter/bin/sweep --changed|--all`
 
 ## Dienste
 - API: `systemctl --user status sichter-api.service`
