@@ -1,18 +1,29 @@
 # Python
-.venv/
+.venv
 __pycache__/
-*.pyc
-
-# Logs
-*.log
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 
 # Node
 node_modules/
-.vite/
-metrics.json
-.venv/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
-# lokale Build-/Cache-Verzeichnisse, die im Repomerge sichtbar waren
+# Vite / SvelteKit
+apps/dashboard/.svelte-kit/
 apps/dashboard/.vite/
-tmp/
-tmp/*.lock
+apps/dashboard/dist/
+
+# OS
+.DS_Store
+
+# Local secrets / env
+secrets.env
+.env
