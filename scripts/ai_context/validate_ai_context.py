@@ -9,8 +9,9 @@ from typing import Any, Dict, List, Tuple
 
 try:
     import yaml
-except Exception as e:
+except ImportError as exc:
     print("ERROR: PyYAML missing. Install with: pip install pyyaml", file=sys.stderr)
+    print(f"DEBUG: import failed: {exc}", file=sys.stderr)
     raise
 
 
