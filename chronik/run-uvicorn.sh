@@ -8,7 +8,7 @@ cd "$REPO_ROOT"
 
 # Load secrets if available (local dev only)
 if [ -f "$REPO_ROOT/secrets.env" ]; then
-  # shellcheck disable=SC1090
+  # shellcheck disable=SC1090,SC1091
   source "$REPO_ROOT/secrets.env"
 else
   echo "No secrets.env found - continuing without it"
