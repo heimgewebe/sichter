@@ -20,8 +20,12 @@ EXT_RE='\.((rs|toml|sh|py|ts|js|go|c|cpp|yml|yaml|md))$'
 EXCLUDE_DIRS='/(\.git|target|node_modules|dist|build)/'
 
 # Safety guard: prevent empty regex from filtering everything (grep -vE "")
-if [[ -z "$EXT_RE" ]] || [[ -z "$EXCLUDE_DIRS" ]]; then
-  echo "❌ Configuration error: EXT_RE or EXCLUDE_DIRS is empty" | tee -a "$LOG"
+if [[ -z "$EXT_RE" ]]; then
+  echo "❌ Configuration error: EXT_RE is empty" | tee -a "$LOG"
+  exit 1
+fi
+if [[ -z "$EXCLUDE_DIRS" ]]; then
+  echo "❌ Configuration error: EXCLUDE_DIRS is empty" | tee -a "$LOG"
   exit 1
 fi
 
