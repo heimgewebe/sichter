@@ -19,6 +19,12 @@ EXT_RE='\.((rs|toml|sh|py|ts|js|go|c|cpp|yml|yaml|md))$'
 # 2) Und ignorieren laute Verzeichnisse
 EXCLUDE_DIRS='/(\.git|target|node_modules|dist|build)/'
 
+# Safety guard: prevent empty regex from filtering everything (grep -vE "")
+if [[ -z "$EXT_RE" ]] || [[ -z "$EXCLUDE_DIRS" ]]; then
+  echo "❌ Configuration error: EXT_RE or EXCLUDE_DIRS is empty" | tee -a "$LOG"
+  exit 1
+fi
+
 # Debounce: 1 Job / Repo pro 3 Sekunden
 declare -A LAST
 DEBOUNCE=3
