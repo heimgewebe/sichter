@@ -115,6 +115,19 @@ class Policy:
 
     if value is None:
       return default
+    if isinstance(value, bool):
+      return value
+    if isinstance(value, str):
+      normalized = value.strip().lower()
+      if normalized in {"true", "1", "yes", "y", "on"}:
+        return True
+      if normalized in {"false", "0", "no", "n", "off"}:
+        return False
+      log(
+        "Ungültiger boolescher Wert in Policy gefunden: "
+        f"{value!r} (verwende Default={default})"
+      )
+      return default
     return bool(value)
 
   @classmethod

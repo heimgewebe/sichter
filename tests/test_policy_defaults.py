@@ -28,3 +28,25 @@ def test_write_job_defaults_auto_pr_when_none(tmp_path):
 
   payload = json.loads(job_file.read_text(encoding="utf-8"))
   assert payload["auto_pr"] is True
+
+
+def test_policy_bool_with_default_accepts_string_variants():
+  true_values = ["true", "True", "1", "yes", "Y", "on"]
+  false_values = ["false", "False", "0", "no", "N", "off"]
+
+  for value in true_values:
+    assert worker_run.Policy._bool_with_default(value, False) is True
+
+  for value in false_values:
+    assert worker_run.Policy._bool_with_default(value, True) is False
+
+
+def test_policy_bool_with_default_logs_on_unknown_string():
+  with patch("apps.worker.run.log") as mock_log:
+    result = worker_run.Policy._bool_with_default("flase", True)
+
+  mock_log.assert_called_once()
+  message = mock_log.call_args[0][0]
+  assert "flase" in message
+  assert "Default=" in message
+  assert result is True
