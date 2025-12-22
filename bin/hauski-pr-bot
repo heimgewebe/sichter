@@ -27,12 +27,12 @@ LEN="$(echo -n "$HEAD_MD" | wc -c | tr -d ' ')"
 
 post_comment() { # $1=PR
   local pr="$1"
-  local COMMENT
-  COMMENT=$(
-    cat <<EOF
-🧪 **HausKI Review Report** (auto)
+  local ts
+  ts="$(date '+%F %T')"
+  local comment
+  comment="🧪 **HausKI Review Report** (auto)
 - Repo: \`$REPO_NAME\`
-- Zeitpunkt: \`$(date '+%F %T')\`
+- Zeitpunkt: \`$ts\`
 - Datei (lokal): \`$LAST\`
 
 <details><summary>Auszug (Top)</summary>
@@ -42,9 +42,8 @@ $HEAD_MD
 \`\`\`
 
 </details>
-EOF
-  )
-  gh pr comment "$pr" --body "$COMMENT" >/dev/null && echo "💬 PR #$pr kommentiert."
+"
+  gh pr comment "$pr" --body "$comment" >/dev/null && echo "💬 PR #$pr kommentiert."
 }
 
 if [ "$OPEN_ALL" = "1" ]; then

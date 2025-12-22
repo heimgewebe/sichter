@@ -27,3 +27,4 @@ apps/dashboard/dist/
 # Local secrets / env
 secrets.env
 .env
+.smoke-logs/

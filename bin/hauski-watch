@@ -19,22 +19,28 @@ EXT_RE='\.((rs|toml|sh|py|ts|js|go|c|cpp|yml|yaml|md))$'
 # 2) Und ignorieren laute Verzeichnisse
 EXCLUDE_DIRS='/(\.git|target|node_modules|dist|build)/'
 
+# Safety guard: prevent empty regex from filtering everything (grep -vE "")
+if [[ -z "$EXT_RE" ]]; then
+  echo "❌ Configuration error: EXT_RE is empty" | tee -a "$LOG"
+  exit 1
+fi
+if [[ -z "$EXCLUDE_DIRS" ]]; then
+  echo "❌ Configuration error: EXCLUDE_DIRS is empty" | tee -a "$LOG"
+  exit 1
+fi
+
 # Debounce: 1 Job / Repo pro 3 Sekunden
 declare -A LAST
 DEBOUNCE=3
 
 echo "▶ watcher gestartet (quiet+debounce): $(date)" | tee -a "$LOG"
-inotifywait -mr -e close_write,modify,create,move,moved_to --format '%w%f' "$WATCH" |
-  while read -r file; do
-    # exclude dirs
-    if echo "$file" | grep -Eq "$EXCLUDE_DIRS"; then
-      continue
-    fi
-    # extension filter
-    if ! echo "$file" | grep -Eqi "$EXT_RE"; then
-      continue
-    fi
 
+# Optimized: filter with grep before reading into the loop
+# Use --line-buffered to avoid delay
+inotifywait -mr -e close_write,modify,create,move,moved_to --format '%w%f' "$WATCH" |
+  grep --line-buffered -vE "$EXCLUDE_DIRS" |
+  grep --line-buffered -Ei "$EXT_RE" |
+  while read -r file; do
     dir="$(dirname "$file")"
     root="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || true)"
     if [ -z "$root" ] || [ ! -d "$root/.git" ]; then
