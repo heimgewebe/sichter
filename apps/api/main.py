@@ -182,7 +182,7 @@ def _tail_file(path: Path, n: int, block_size: int = 4096) -> list[str]:
           chunk = f.read(read_len)
           data = chunk + data
           if data.count(b'\n') >= n + 1:
-                break
+              break
           if seek_pos == 0:
               break
 
