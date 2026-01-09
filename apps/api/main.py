@@ -1,4 +1,5 @@
 # apps/api/main.py
+import errno
 import json
 import logging
 import os
@@ -12,7 +13,7 @@ from pathlib import Path
 from typing import Annotated
 
 import yaml
-from fastapi import Body, FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
@@ -47,6 +48,21 @@ class Job(BaseModel):
   auto_pr: bool = True
 
 
+class JobSubmitResponse(BaseModel):
+  enqueued: str
+  queue_dir: str
+
+
+class ErrorDetail(BaseModel):
+  error: str
+  code: str | None = None
+  retryable: bool | None = None
+
+
+class ErrorResponse(BaseModel):
+  detail: ErrorDetail
+
+
 def _enqueue(job: dict) -> str:
   jid = f"{int(time.time())}-{uuid.uuid4().hex[:8]}"
   f = QUEUE / f"{jid}.json"
@@ -67,14 +83,23 @@ def healthz() -> str:
   return "ok"
 
 
-@app.post("/jobs/submit")
-def submit(job: Job) -> dict[str, str]:
+@app.post("/jobs/submit", response_model=JobSubmitResponse, responses={500: {"model": ErrorResponse}})
+def submit(job: Job) -> JobSubmitResponse:
   try:
     jid = _enqueue(job.model_dump())
-    return {"enqueued": jid, "queue_dir": str(QUEUE)}
-  except Exception:
+    return JobSubmitResponse(enqueued=jid, queue_dir=str(QUEUE))
+  except OSError as exc:
     logger.exception("Error submitting job.")
-    return {"error": "Internal server error"}
+    non_retryable_errnos = {errno.EPERM, errno.EACCES, errno.EROFS, errno.ENOSPC}
+    retryable = exc.errno is not None and exc.errno not in non_retryable_errnos
+    raise HTTPException(
+      status_code=500,
+      detail={
+        "error": "Internal server error",
+        "code": "ENQUEUE_FAILED",
+        "retryable": retryable,
+      },
+    )
 
 
 def _systemctl_show(service: str) -> dict[str, str]:
