@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.responses import FileResponse, JSONResponse
@@ -13,11 +14,13 @@ from fastapi.staticfiles import StaticFiles
 APP_ROOT = Path(__file__).resolve().parent
 
 class Settings:
-    def __init__(self):
-        self.state_root = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state")))
+    def __init__(self, state_root: Optional[Path] = None, review_root: Optional[Path] = None):
+        self.state_root = state_root or Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state")))
+        self.review_root = review_root or Path(os.environ.get("REVIEW_ROOT", str(Path.home() / "sichter" / "review")))
+
+        # Derived paths
         self.queue_dir = self.state_root / "sichter/queue"
         self.events_dir = self.state_root / "sichter/events"
-        self.review_root = Path(os.environ.get("REVIEW_ROOT", str(Path.home() / "sichter" / "review")))
         self.index = self.review_root / "index.json"
 
 @lru_cache()
