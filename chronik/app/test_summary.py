@@ -10,22 +10,22 @@ sys.path.insert(0, str(APP_ROOT.parent))
 if "REVIEW_ROOT" not in os.environ:
     os.environ["REVIEW_ROOT"] = str(Path.cwd() / "sichter" / "review")
 
-# IMPORTANT: Import the module *after* setting the env var
+# Import module and classes
 from app import main  # noqa: E402
+from app.main import Settings
 
-# a little hack to make sure the test uses the correct REVIEW_ROOT and INDEX
-# Ensure main module picks up the env var if it wasn't already loaded
-main.REVIEW_ROOT = Path(os.environ["REVIEW_ROOT"])
-main.INDEX = main.REVIEW_ROOT / "index.json"
+# Explicitly create settings with the desired configuration
+# The Settings class reads os.environ in __init__, so setting it above works.
+settings = Settings()
 
 print(f"Current working directory: {Path.cwd()}")
-print(f"REVIEW_ROOT from env: {os.environ['REVIEW_ROOT']}")
-print(f"INDEX path being used: {main.INDEX}")
+print(f"REVIEW_ROOT from settings: {settings.review_root}")
+print(f"INDEX path from settings: {settings.index}")
 
 if __name__ == "__main__":
-    result = main.summary()
+    # Pass settings explicitly to the function
+    result = main.summary(settings=settings)
     print(result)
-    # Adjust assertions to be less brittle or dependent on exact test data state if needed
-    # but for now keeping them as they verify the test logic
+
     assert "total_repos" in result
-    print(f"Tests passed (REVIEW_ROOT={main.REVIEW_ROOT})!")
+    print(f"Tests passed (REVIEW_ROOT={settings.review_root})!")

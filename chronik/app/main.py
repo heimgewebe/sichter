@@ -3,26 +3,33 @@ import os
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 APP_ROOT = Path(__file__).resolve().parent
-# Standard: Sichter-Layout
-STATE_ROOT = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state")))
-QUEUE_DIR = STATE_ROOT / "sichter/queue"
-EVENTS_DIR = STATE_ROOT / "sichter/events"
-REVIEW_ROOT = Path(os.environ.get("REVIEW_ROOT", str(Path.home() / "sichter" / "review")))
-INDEX = REVIEW_ROOT / "index.json"
 
+class Settings:
+    def __init__(self):
+        self.state_root = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state")))
+        self.queue_dir = self.state_root / "sichter/queue"
+        self.events_dir = self.state_root / "sichter/events"
+        self.review_root = Path(os.environ.get("REVIEW_ROOT", str(Path.home() / "sichter" / "review")))
+        self.index = self.review_root / "index.json"
+
+@lru_cache()
+def get_settings():
+    return Settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    QUEUE_DIR.mkdir(parents=True, exist_ok=True)
-    EVENTS_DIR.mkdir(parents=True, exist_ok=True)
+    settings = get_settings()
+    settings.queue_dir.mkdir(parents=True, exist_ok=True)
+    settings.events_dir.mkdir(parents=True, exist_ok=True)
     yield
     # Shutdown (nothing to do here)
 
@@ -41,11 +48,11 @@ def healthz():
 def health():
     return {"ok": True, "ts": datetime.now(timezone.utc).isoformat(timespec="seconds")+"Z"}
 
-def load_index():
-    if not INDEX.exists():
+def load_index(settings: Settings):
+    if not settings.index.exists():
         return {"repos": []}
     try:
-        data = json.loads(INDEX.read_text(encoding="utf-8"))
+        data = json.loads(settings.index.read_text(encoding="utf-8"))
         return data if isinstance(data, dict) else {"repos": data}
     except Exception as e:
         raise HTTPException(500, f"index.json unreadable: {e}") from e
@@ -66,15 +73,15 @@ def collect_repo_report(repo_dir: Path):
     return {}
 
 @app.get("/api/summary")
-def summary():
-    idx = load_index()
+def summary(settings: Settings = Depends(get_settings)):
+    idx = load_index(settings)
     repos = idx.get("repos", [])
     total = len(repos)
     errors = critical = warning = 0
 
     for r in repos:
         name = r.get("name") or r.get("repo") or "unknown"
-        rep = collect_repo_report(REVIEW_ROOT / name)
+        rep = collect_repo_report(settings.review_root / name)
         sev = (rep.get("severity") or rep.get("level") or "").lower()
         findings = rep.get("findings") or rep.get("issues") or []
         if sev == "critical":
@@ -95,12 +102,12 @@ def summary():
     }
 
 @app.get("/api/repos")
-def api_repos():
-    idx = load_index()
+def api_repos(settings: Settings = Depends(get_settings)):
+    idx = load_index(settings)
     out = []
     for r in idx.get("repos", []):
         name = r.get("name") or r.get("repo") or "unknown"
-        repo_dir = REVIEW_ROOT / name
+        repo_dir = settings.review_root / name
         rep = collect_repo_report(repo_dir)
         updated = None
         try:
@@ -114,15 +121,15 @@ def api_repos():
     return {"items": out}
 
 @app.get("/api/report/{repo}")
-def api_report(repo: str):
+def api_report(repo: str, settings: Settings = Depends(get_settings)):
     # Validate: repo name must not contain path separators or traversal
     import re
     INVALID = re.compile(r"[\\/]|^\.\.?$|^$")
     if INVALID.search(repo):
         raise HTTPException(403, "Invalid repo name")
-    repo_dir = (REVIEW_ROOT / repo).resolve()
+    repo_dir = (settings.review_root / repo).resolve()
     try:
-        repo_dir.relative_to(REVIEW_ROOT.resolve())
+        repo_dir.relative_to(settings.review_root.resolve())
     except ValueError as e:
         raise HTTPException(403, "Invalid repo path") from e
     if not repo_dir.exists():
@@ -130,13 +137,13 @@ def api_report(repo: str):
     rep = collect_repo_report(repo_dir)
     return rep or {}
 
-def _collect_events(n=100):
-    if not EVENTS_DIR.exists():
+def _collect_events(settings: Settings, n=100):
+    if not settings.events_dir.exists():
         return []
 
     # both json and jsonl are supported
-    files = sorted(EVENTS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-    files.extend(sorted(EVENTS_DIR.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True))
+    files = sorted(settings.events_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    files.extend(sorted(settings.events_dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True))
 
     events = []
     for f in files:
@@ -158,11 +165,11 @@ def _collect_events(n=100):
     return events[:n]
 
 @app.get("/api/events/recent")
-def events_recent(n: int = 100):
-    return _collect_events(n)
+def events_recent(n: int = 100, settings: Settings = Depends(get_settings)):
+    return _collect_events(settings, n)
 
 @app.post("/api/jobs/submit")
-async def job_submit(req: Request):
+async def job_submit(req: Request, settings: Settings = Depends(get_settings)):
     try:
         payload = await req.json()
     except Exception as e:
@@ -177,8 +184,8 @@ async def job_submit(req: Request):
         "status": "pending",
     }
     try:
-        (QUEUE_DIR / f"{jid}.json.new").write_text(json.dumps(data, indent=2), encoding="utf-8")
-        (QUEUE_DIR / f"{jid}.json.new").rename(QUEUE_DIR / f"{jid}.json")
+        (settings.queue_dir / f"{jid}.json.new").write_text(json.dumps(data, indent=2), encoding="utf-8")
+        (settings.queue_dir / f"{jid}.json.new").rename(settings.queue_dir / f"{jid}.json")
     except OSError as e:
         raise HTTPException(500, f"failed to write job to queue: {e}") from e
     return JSONResponse({"enqueued": jid, "status_url": f"/api/jobs/{jid}"}, 202)
