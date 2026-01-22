@@ -84,7 +84,7 @@ Ausführen:
 ./wgx/wgx smoke
 ```
 
-### guard — Fehler finden, bevor sie peinlich werden
+### guard — Fehler finden, BEVOR sie peinlich werden
 
 Was macht das?
 
