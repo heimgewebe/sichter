@@ -31,6 +31,8 @@ Hook liegt nach `~/.config/omnipull/hooks/100-sichter-always-post.sh` und trigge
 ---
 
 ## Was noch? (nice nexts)
+
+- Roadmap: siehe [docs/ROADMAP_REVIEWER.md](docs/ROADMAP_REVIEWER.md).
 - LLM-Analysen in `apps/worker/run.py` integrieren (Prompt + Patch-Synthese).
 - Dashboard (Vite/React) hinter `/` der API bereitstellen.
 - Dedupe-Logik erweitern (PR je Thema).
