@@ -69,6 +69,8 @@ Alles läuft über ein einziges Kommando:
 ./wgx/wgx <task>
 ```
 
+**Hinweis:** Die autoritative Quelle für Tasks ist `wgx/wgx --help`; dieses README ist Einstieg, kein Vertrag.
+
 ### smoke — Schnelltest („geht das Repo überhaupt?“)
 
 Was macht das?
@@ -114,7 +116,7 @@ Ausführen:
 
 ### snapshot — aktuell leer
 
-Kein Inhalt. Kann später Dinge tun (Backups, Exporte etc.).
+Platzhalter – bewusst leer, um Schnittstelle zu reservieren. Kann später Dinge tun (Backups, Exporte etc.).
 
 ### Wenn etwas kaputt geht
 
