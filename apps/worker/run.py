@@ -184,10 +184,18 @@ def get_changed_files(repo_dir: Path, base: str, excludes: Iterable[str]) -> lis
     return []
   files: list[Path] = []
   for line in result.stdout.splitlines():
-    path = (repo_dir / line.strip()).resolve()
-    if not line.strip() or not path.exists():
+    rel_path_str = line.strip()
+    if not rel_path_str:
       continue
-    rel = path.relative_to(repo_dir)
+    path = repo_dir / rel_path_str
+    if not path.exists():
+      continue
+    # Avoid resolve() to prevent ValueError with symlinks outside repo
+    try:
+      rel = path.relative_to(repo_dir)
+    except ValueError:
+      # Skip paths that are not within the repository directory (e.g., via symlinks)
+      continue
     if any(fnmatch(str(rel), ex) for ex in excludes):
       continue
     files.append(path)
@@ -213,6 +221,10 @@ def run_shellcheck(repo_dir: Path, files: Iterable[Path] | None = None) -> list[
 
   Args:
     repo_dir: Repository directory
+    files: Optional list of files to check; if None, checks all .sh files
+  
+  Returns:
+    List of Finding objects, one per shellcheck diagnostic
   """
   if not POLICY.checks or not POLICY.checks.get("shellcheck", False):
     return []
@@ -224,23 +236,56 @@ def run_shellcheck(repo_dir: Path, files: Iterable[Path] | None = None) -> list[
   for script in candidates:
     if script.suffix != ".sh":
       continue
-    result = run_cmd(["shellcheck", "-x", str(script)], repo_dir, check=False)
+    # Use gcc format for single-line, parseable output: path:line:col: severity: message [SCxxxx]
+    result = run_cmd(["shellcheck", "-f", "gcc", "-x", str(script)], repo_dir, check=False)
     if result.returncode != 0:
       output = result.stdout or result.stderr
-      log(f"shellcheck: {script}: {output}")
       for line in (output or "").splitlines():
-        if not line.strip():
+        line = line.strip()
+        if not line:
           continue
-        findings.append(
-          Finding(
-            severity="warning",
-            category="correctness",
-            file=str(script.relative_to(repo_dir)),
-            line=None,
-            message=line.strip(),
-            tool="shellcheck",
+        # Parse gcc format: path:line:col: severity: message [SCxxxx]
+        # Example: script.sh:10:5: warning: Use $(...) instead of legacy `...` [SC2006]
+        parts = line.split(":", 3)
+        if len(parts) >= 4:
+          file_path = parts[0]
+          line_num = parts[1]
+          # col = parts[2]
+          rest = parts[3].strip()
+          # Extract severity and message
+          if ": " in rest:
+            severity_msg = rest.split(": ", 1)
+            severity = severity_msg[0].lower()
+            message = severity_msg[1] if len(severity_msg) > 1 else rest
+          else:
+            severity = "warning"
+            message = rest
+          # Extract rule_id (SCxxxx) from message
+          rule_id = None
+          if "[SC" in message and "]" in message:
+            rule_start = message.rfind("[SC")
+            rule_end = message.find("]", rule_start)
+            if rule_end > rule_start:
+              rule_id = message[rule_start + 1 : rule_end]
+          # Convert to int or None
+          try:
+            line_int = int(line_num)
+          except ValueError:
+            line_int = None
+          findings.append(
+            Finding(
+              severity="warning" if severity not in {"error", "info", "warning"} else severity,  # type: ignore
+              category="correctness",
+              file=file_path,
+              line=line_int,
+              message=message,
+              tool="shellcheck",
+              rule_id=rule_id,
+            )
           )
-        )
+        else:
+          # Fallback for unparseable lines
+          log(f"shellcheck: {script}: unparseable line: {line}")
   return findings
 
 
@@ -249,6 +294,10 @@ def run_yamllint(repo_dir: Path, files: Iterable[Path] | None = None) -> list[Fi
 
   Args:
     repo_dir: Repository directory
+    files: Optional list of files to check; if None, checks all .yml/.yaml files
+  
+  Returns:
+    List of Finding objects, one per yamllint diagnostic
   """
   if not POLICY.checks or not POLICY.checks.get("yamllint", False):
     return []
@@ -262,23 +311,57 @@ def run_yamllint(repo_dir: Path, files: Iterable[Path] | None = None) -> list[Fi
   else:
     candidates = [p for p in files if p.suffix in {".yml", ".yaml"}]
   for doc in candidates:
-    result = run_cmd(["yamllint", "-s", str(doc)], repo_dir, check=False)
+    # Use parseable format for single-line output: path:line:col: [severity] message (rule-name)
+    result = run_cmd(["yamllint", "-f", "parsable", str(doc)], repo_dir, check=False)
     if result.returncode != 0:
       output = result.stdout or result.stderr
-      log(f"yamllint: {doc}: {output}")
       for line in (output or "").splitlines():
-        if not line.strip():
+        line = line.strip()
+        if not line:
           continue
-        findings.append(
-          Finding(
-            severity="warning",
-            category="correctness",
-            file=str(doc.relative_to(repo_dir)),
-            line=None,
-            message=line.strip(),
-            tool="yamllint",
+        # Parse format: path:line:col: [severity] message (rule-name)
+        # Example: file.yml:10:5: [error] trailing spaces (trailing-spaces)
+        parts = line.split(":", 3)
+        if len(parts) >= 4:
+          file_path = parts[0]
+          line_num = parts[1]
+          # col = parts[2]
+          rest = parts[3].strip()
+          # Extract severity and message
+          severity = "warning"
+          message = rest
+          rule_id = None
+          if rest.startswith("["):
+            bracket_end = rest.find("]")
+            if bracket_end > 0:
+              severity = rest[1:bracket_end].lower()
+              message = rest[bracket_end + 1 :].strip()
+          # Extract rule_id from message (rule-name)
+          if "(" in message and ")" in message:
+            paren_start = message.rfind("(")
+            paren_end = message.find(")", paren_start)
+            if paren_end > paren_start:
+              rule_id = message[paren_start + 1 : paren_end]
+              message = message[:paren_start].strip()
+          # Convert line to int or None
+          try:
+            line_int = int(line_num)
+          except ValueError:
+            line_int = None
+          findings.append(
+            Finding(
+              severity="warning" if severity not in {"error", "info", "warning"} else severity,  # type: ignore
+              category="correctness",
+              file=file_path,
+              line=line_int,
+              message=message,
+              tool="yamllint",
+              rule_id=rule_id,
+            )
           )
-        )
+        else:
+          # Fallback for unparseable lines
+          log(f"yamllint: {doc}: unparseable line: {line}")
   return findings
 
 
