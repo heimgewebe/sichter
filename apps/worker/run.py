@@ -246,7 +246,7 @@ def normalize_severity(severity: str) -> Severity:
   """
   severity_lower = severity.lower()
   if severity_lower in {"info", "warning", "error", "critical", "question"}:
-    return severity_lower  # type: ignore[return-value]
+    return severity_lower  # type: ignore
   return "warning"
 
 
@@ -301,7 +301,7 @@ def run_shellcheck(repo_dir: Path, files: Iterable[Path] | None = None) -> list[
             rule_end = message.find("]", rule_start)
             if rule_end > rule_start:
               rule_id = message[rule_start + 1 : rule_end]
-              # Remove the trailing [SCxxxx] from message to avoid duplication
+              # Remove the [SCxxxx] marker from message to avoid duplication
               message = message[:rule_start].rstrip()
           # Convert to int or None
           try:
