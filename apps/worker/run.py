@@ -25,7 +25,7 @@ from lib.config import (
   STATE,
   ensure_directories,
 )
-from lib.findings import Finding
+from lib.findings import Finding, Severity
 
 PID_FILE = STATE / "worker.pid"
 LOG_DIR = HOME / "sichter/logs"
@@ -183,6 +183,13 @@ def get_changed_files(repo_dir: Path, base: str, excludes: Iterable[str]) -> lis
   if result.returncode != 0:
     log(f"git diff failed for base={base}: {result.stderr.strip()}")
     return []
+  
+  # Resolve repo_dir once for consistent symlink checking
+  try:
+    repo_root = repo_dir.resolve()
+  except (OSError, RuntimeError):
+    repo_root = repo_dir
+  
   files: list[Path] = []
   for line in result.stdout.splitlines():
     rel_path_str = line.strip()
@@ -191,12 +198,23 @@ def get_changed_files(repo_dir: Path, base: str, excludes: Iterable[str]) -> lis
     path = repo_dir / rel_path_str
     if not path.exists():
       continue
-    # Avoid resolve() which can lead paths outside the repo; relative_to() would then raise ValueError
+    
+    # Check that resolved path stays within repo (catches symlinks pointing outside)
+    try:
+      resolved = path.resolve(strict=False)
+      # Verify resolved path is under repo root
+      resolved.relative_to(repo_root)
+    except (ValueError, OSError, RuntimeError):
+      # Skip paths that resolve outside the repository
+      log(f"Skipping {rel_path_str}: resolves outside repository")
+      continue
+    
+    # Check excludes against the original relative path
     try:
       rel = path.relative_to(repo_dir)
     except ValueError:
-      # Skip paths that are not within the repository directory (e.g., via symlinks)
       continue
+    
     if any(fnmatch(str(rel), ex) for ex in excludes):
       continue
     files.append(path)
@@ -217,7 +235,7 @@ def run_cmd(cmd: list[str], cwd: Path, check: bool = True) -> subprocess.Complet
   return subprocess.run(cmd, cwd=cwd, text=True, capture_output=True, check=check)
 
 
-def normalize_severity(severity: str) -> str:
+def normalize_severity(severity: str) -> Severity:
   """Normalize severity string to valid Finding severity literal.
   
   Args:
@@ -228,7 +246,7 @@ def normalize_severity(severity: str) -> str:
   """
   severity_lower = severity.lower()
   if severity_lower in {"info", "warning", "error", "critical", "question"}:
-    return severity_lower
+    return severity_lower  # type: ignore[return-value]
   return "warning"
 
 
@@ -283,6 +301,8 @@ def run_shellcheck(repo_dir: Path, files: Iterable[Path] | None = None) -> list[
             rule_end = message.find("]", rule_start)
             if rule_end > rule_start:
               rule_id = message[rule_start + 1 : rule_end]
+              # Remove the trailing [SCxxxx] from message to avoid duplication
+              message = message[:rule_start].rstrip()
           # Convert to int or None
           try:
             line_int = int(line_num)
@@ -299,7 +319,7 @@ def run_shellcheck(repo_dir: Path, files: Iterable[Path] | None = None) -> list[
             file_rel = file_path
           findings.append(
             Finding(
-              severity=normalize_severity(severity),  # type: ignore
+              severity=normalize_severity(severity),
               category="correctness",
               file=file_rel,
               line=line_int,
@@ -384,7 +404,7 @@ def run_yamllint(repo_dir: Path, files: Iterable[Path] | None = None) -> list[Fi
             file_rel = file_path
           findings.append(
             Finding(
-              severity=normalize_severity(severity),  # type: ignore
+              severity=normalize_severity(severity),
               category="correctness",
               file=file_rel,
               line=line_int,

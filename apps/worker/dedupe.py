@@ -23,8 +23,9 @@ def should_create_pr(findings: Iterable[Finding]) -> bool:
   Actionable findings are those with severity "error" or "critical", 
   or findings that have an available fix.
   
-  Note: This function converts the iterable to a list to avoid consuming
-  an iterator that might be reused by the caller.
+  Note: This function converts iterables to a list, which will consume
+  iterator inputs. Callers that need to reuse an iterator should materialize
+  it (e.g., with list(...)) before calling this function.
   """
   findings_list = list(findings)
   return any(

@@ -1,7 +1,7 @@
 
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import call, patch
 
 from apps.worker import run as worker_run
 from lib.findings import Finding
