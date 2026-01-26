@@ -295,7 +295,7 @@ def run_shellcheck(repo_dir: Path, files: Iterable[Path] | None = None) -> list[
               file_rel = str(file_path_obj.relative_to(repo_dir))
             else:
               file_rel = file_path
-          except (ValueError, Exception):
+          except (ValueError, OSError):
             file_rel = file_path
           findings.append(
             Finding(
@@ -380,7 +380,7 @@ def run_yamllint(repo_dir: Path, files: Iterable[Path] | None = None) -> list[Fi
               file_rel = str(file_path_obj.relative_to(repo_dir))
             else:
               file_rel = file_path
-          except (ValueError, Exception):
+          except (ValueError, OSError):
             file_rel = file_path
           findings.append(
             Finding(
