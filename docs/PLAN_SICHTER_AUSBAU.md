@@ -6,21 +6,81 @@
 
 ## Ausgangslage
 
-| Komponente | Status | Pfad |
-|------------|--------|------|
-| API (FastAPI) | ✅ funktional | `apps/api/main.py` |
-| Worker (Job-Queue) | ✅ funktional | `apps/worker/run.py` |
-| Dashboard (Vite/React) | ✅ Grundgerüst | `apps/dashboard/` |
-| LLM-Review | ⚠️ nur Placeholder | `llm_review()` in run.py |
-| Statische Checks | ⚠️ shellcheck + yamllint | keine Python/JS-Checks |
-| Dedupe/Themen-Bündelung | ❌ fehlt | – |
-| Caching | ❌ fehlt | – |
+**Komponentenstatus:**
+
+- API (FastAPI): ✅ funktional (`apps/api/main.py`)
+- Worker (Job-Queue): ✅ funktional (`apps/worker/run.py`)
+- Dashboard (Vite/React): ✅ Grundgerüst (`apps/dashboard/`)
+- LLM-Review: ⚠️ nur Placeholder (`llm_review()` in run.py)
+- Statische Checks: ⚠️ shellcheck + yamllint (keine Python/JS-Checks)
+- Dedupe/Themen-Bündelung: ❌ fehlt
+- Caching: ❌ fehlt
 
 **Lokale Umgebung:**
+
 - Repos: `~/repos/<reponame>`
 - Policy: `~/.config/sichter/policy.yml`
 - LLM: Ollama lokal (`qwen2.5-coder:7b`) oder OpenAI remote
 - GitHub CLI (`gh`) für PR-Erstellung/Zugriff
+
+---
+
+## Epistemische Ergänzungen (∴fore)
+
+> **Leitgedanke:** Sichter ist kein Richter, sondern ein Wahrnehmungsfilter. Er entscheidet, ob ein Problem überhaupt die Würde eines Problems besitzt.
+
+### A) Unsicherheitsartefakte explizit machen
+
+**Ziel:** Risiko ≠ Unsicherheit. Unsicherheit wird als eigenes Artefakt dokumentiert.
+
+```json
+"uncertainty": {
+    "level": 0.32,
+    "sources": ["diff_size", "missing_context", "llm_hallucination"],
+    "productive": true
+}
+```
+
+**Konsequenz:**
+
+- Unsicherheit wird im Review immer ausgewiesen.
+- LLM-Ausgaben enthalten einen kurzen Unsicherheitskommentar.
+
+### B) Findings-Typ `question`
+
+**Ziel:** Auffälligkeiten, die nicht sicher bewertbar sind, sollen als Frage erscheinen, nicht als Urteil.
+
+**Beispiel:**
+
+- *„Ist das beabsichtigt, dass …?“* statt *„Das ist falsch.“*
+
+### C) Drift ≠ Fehler
+
+**Ziel:** Drift-Findings sind Beobachtungen, nicht Reparaturen.
+
+**Regeln:**
+
+- Drift-Checks niemals auto-fixen.
+- Drift-PRs optional, standardmäßig deaktiviert.
+- Drift bevorzugt als **Beobachtung** im Review.
+
+### D) Provider-Provenienz im Review
+
+**Ziel:** Wenn der LLM-Provider wechselt, wird dies transparent gemacht.
+
+**Beispiel:**
+
+> „Review wurde mit Provider-Wechsel erzeugt: `ollama` → `openai`“
+
+### E) Dedupe-Key stabilisieren (mittelfristig)
+
+**Problem:** Message-basierte Keys sind volatil.
+
+**Ziel:** Dedupe-Key aus stabilen Quellen ableiten:
+
+- Tool-ID + Rule-ID (z. B. ruff rule)
+- AST-Anchor (Datei + Symbol)
+- Normalisierte Message (ohne variable Teile)
 
 ---
 
@@ -36,7 +96,7 @@
 # lib/findings.py
 @dataclass
 class Finding:
-    severity: Literal["info", "warning", "error", "critical"]
+    severity: Literal["info", "warning", "error", "critical", "question"]
     category: Literal["style", "correctness", "security", "maintainability", "drift"]
     file: str
     line: int | None
@@ -44,13 +104,15 @@ class Finding:
     evidence: str | None = None
     fix_available: bool = False
     dedupe_key: str = ""  # für Gruppierung
-    
+    uncertainty: dict | None = None  # z. B. {level: 0.32, sources: [...], productive: true}
+
     def __post_init__(self):
         if not self.dedupe_key:
             self.dedupe_key = f"{self.category}:{self.file}:{self.message[:50]}"
 ```
 
 **Dateien:**
+
 - [ ] Neu: `lib/findings.py`
 - [ ] Anpassen: `apps/worker/run.py` – Checks geben `list[Finding]` zurück
 
@@ -59,6 +121,7 @@ class Finding:
 **Problem:** Aktuell kann jeder Check-Lauf einen PR erzeugen → PR-Spam.
 
 **Maßnahme:**
+
 ```python
 # apps/worker/dedupe.py
 def dedupe_findings(findings: list[Finding]) -> dict[str, list[Finding]]:
@@ -71,14 +134,22 @@ def should_create_pr(repo: str, findings: list[Finding], existing_prs: list[str]
 ```
 
 **Dateien:**
+
 - [ ] Neu: `apps/worker/dedupe.py`
 - [ ] Anpassen: `apps/worker/run.py` – vor PR-Erstellung deduplizieren
+
+**Dedupe-Key (Stabilisierungspfad):**
+
+- Kurzfristig: Message-Hash + Datei (wie oben)
+- Mittelfristig: Tool-ID + Rule-ID + Symbol-Anchor
+- Langfristig: Semantischer Hash (AST + Normalisierung)
 
 ### 0.3 Inkrementelles Scanning (nur Changed Files)
 
 **Problem:** `run_shellcheck()` / `run_yamllint()` scannen alle Dateien.
 
 **Maßnahme:**
+
 ```python
 def get_changed_files(repo_dir: Path, base: str = "origin/main") -> list[Path]:
     """Liefere nur geänderte Dateien seit base."""
@@ -87,6 +158,7 @@ def get_changed_files(repo_dir: Path, base: str = "origin/main") -> list[Path]:
 ```
 
 **Dateien:**
+
 - [ ] Anpassen: `apps/worker/run.py` – `iter_paths()` durch `get_changed_files()` ersetzen bei `mode=changed`
 
 ---
@@ -111,6 +183,7 @@ def get_provider(policy: dict) -> LLMProvider:
 ```
 
 **Dateien:**
+
 - [ ] Neu: `lib/llm/__init__.py`
 - [ ] Neu: `lib/llm/provider.py`
 - [ ] Neu: `lib/llm/ollama.py`
@@ -128,31 +201,39 @@ def build_review_prompt(
 ) -> str:
     """
     Generiere fokussierten Review-Prompt.
-    
+
     Output-Format (JSON):
-    {
-      "summary": "...",
-      "risk_overall": "low|medium|high",
-      "suggestions": [
         {
-          "theme": "security",
-          "recommendation": "...",
-          "risk": "high",
-          "why": "...",
-          "files": ["path/to/file.py"]
+            "summary": "...",
+            "risk_overall": "low|medium|high",
+            "uncertainty": {
+                "level": 0.0,
+                "sources": ["..."],
+                "productive": true
+            },
+            "suggestions": [
+                {
+                    "theme": "security",
+                    "recommendation": "...",
+                    "risk": "high",
+                    "why": "...",
+                    "files": ["path/to/file.py"]
+                }
+            ]
         }
-      ]
-    }
     """
 ```
 
 **Prompt-Design-Prinzipien:**
+
 - Maximal 3 Vorschläge (Guardrail aus Roadmap)
 - Jeder Vorschlag mit Risiko-Indikator
+- Unsicherheit als eigenes Feld (nicht nur Risiko)
 - Diff-fokussiert (nicht ganzer Code)
 - Secrets-Redaction vor Prompt-Erstellung
 
 **Dateien:**
+
 - [ ] Neu: `lib/llm/prompts.py`
 - [ ] Neu: `lib/llm/sanitize.py` (Secrets entfernen)
 
@@ -164,9 +245,12 @@ def build_review_prompt(
 class ReviewResult:
     summary: str
     risk_overall: Literal["low", "medium", "high"]
+    uncertainty: dict
     suggestions: list[Suggestion]
     raw_response: str
     model: str
+    provider: str
+    provider_switched: bool
     tokens_used: int
 
 def parse_review_response(raw: str) -> ReviewResult:
@@ -176,6 +260,7 @@ def parse_review_response(raw: str) -> ReviewResult:
 **Speicherung:** Reviews als JSONL in `~/.local/state/sichter/reviews/`
 
 **Dateien:**
+
 - [ ] Neu: `lib/llm/review.py`
 - [ ] Anpassen: `apps/worker/run.py` – `llm_review()` implementieren
 
@@ -193,6 +278,7 @@ llm:
 ```
 
 **Dateien:**
+
 - [ ] Anpassen: `config/policy.yml`
 - [ ] Neu: `lib/llm/budget.py`
 
@@ -207,30 +293,31 @@ llm:
 class Check(Protocol):
     name: str
     languages: list[str]
-    
+
     def detect(self, repo_dir: Path) -> bool:
         """Ist dieser Check für das Repo relevant?"""
-    
+
     def run(self, files: list[Path]) -> list[Finding]:
         """Führe Check aus, liefere Findings."""
-    
+
     def autofix(self, findings: list[Finding]) -> list[Path]:
         """Optional: Wende Fixes an, liefere geänderte Dateien."""
 ```
 
 ### 2.2 Neue Checks implementieren
 
-| Check | Tool | Priorität | Auto-Fix |
-|-------|------|-----------|----------|
-| Python Lint | `ruff` | ⭐⭐⭐ | ✅ `ruff --fix` |
-| Python Security | `bandit` | ⭐⭐ | ❌ |
-| Python Types | `pyright` (optional) | ⭐ | ❌ |
-| JS/TS Lint | `eslint` | ⭐⭐ | ✅ `--fix` |
-| Rust | `clippy` | ⭐ | ✅ |
-| Markdown | `markdownlint` | ⭐ | ✅ |
-| TOML/JSON Schema | `check-jsonschema` | ⭐ | ❌ |
+**Neue Checks (Übersicht):**
+
+- Python Lint — `ruff` — ⭐⭐⭐ — Auto-Fix: ✅ (`ruff --fix`)
+- Python Security — `bandit` — ⭐⭐ — Auto-Fix: ❌
+- Python Types — `pyright` (optional) — ⭐ — Auto-Fix: ❌
+- JS/TS Lint — `eslint` — ⭐⭐ — Auto-Fix: ✅ (`--fix`)
+- Rust — `clippy` — ⭐ — Auto-Fix: ✅
+- Markdown — `markdownlint` — ⭐ — Auto-Fix: ✅
+- TOML/JSON Schema — `check-jsonschema` — ⭐ — Auto-Fix: ❌
 
 **Dateien:**
+
 - [ ] Neu: `lib/checks/__init__.py`
 - [ ] Neu: `lib/checks/base.py`
 - [ ] Neu: `lib/checks/python.py`
@@ -266,7 +353,7 @@ checks:
 def analyze_churn(repo_dir: Path, days: int = 90) -> list[Hotspot]:
     """
     Finde Dateien mit hoher Änderungsfrequenz.
-    
+
     git log --since="90 days ago" --name-only --format="" | sort | uniq -c | sort -rn
     """
 ```
@@ -298,6 +385,7 @@ def find_similar_code(repo_dir: Path, threshold: float = 0.8) -> list[Finding]:
 ```
 
 **Dateien:**
+
 - [ ] Neu: `lib/heuristics/__init__.py`
 - [ ] Neu: `lib/heuristics/hotspots.py`
 - [ ] Neu: `lib/heuristics/drift.py`
@@ -370,11 +458,12 @@ Diese PR adressiert 3 Style-Findings in `lib/config.py`.
 ### Vorschläge
 1. **Unused imports entfernen** (low risk)
    - `os` wird importiert aber nicht verwendet
-   
+
 2. **Type hints ergänzen** (low risk)
    - Funktion `load_yaml` hat keinen Rückgabetyp
 
 ### Betroffene Dateien
+
 - `lib/config.py` (2 Änderungen)
 ```
 
@@ -422,7 +511,7 @@ class ReviewMetrics:
 
 ## Implementierungsreihenfolge (empfohlen)
 
-```
+```text
 Woche 1:
 ├── Phase 0.1: Finding-Format .............. [4h]
 ├── Phase 0.2: Dedupe-Logik ................ [4h]
@@ -453,40 +542,44 @@ Woche 4:
 ## Quick Wins (sofort umsetzbar)
 
 1. **Ruff aktivieren** – schnellster Python-Linter, ersetzt flake8+isort+black
-   ```bash
-   pip install ruff
-   # In policy.yml: checks.python.ruff: true
-   ```
+
+    ```bash
+    pip install ruff
+    # In policy.yml: checks.python.ruff: true
+    ```
 
 2. **Ollama-Modell upgraden** – `qwen2.5-coder:14b` oder `deepseek-coder:6.7b` für bessere Reviews
-   ```bash
-   ollama pull qwen2.5-coder:14b
-   ```
+
+    ```bash
+    ollama pull qwen2.5-coder:14b
+    ```
 
 3. **Changed-Files-Mode als Default** – in `config/policy.yml`:
-   ```yaml
-   run_mode: changed  # statt "deep"
-   ```
+
+    ```yaml
+    run_mode: changed  # statt "deep"
+    ```
 
 4. **gh CLI cachen** – API-Rate-Limits vermeiden:
-   ```bash
-   gh auth status  # prüfen
-   gh cache list   # Cache-Status
-   ```
+
+    ```bash
+    gh auth status  # prüfen
+    gh cache list   # Cache-Status
+    ```
 
 ---
 
 ## Offene Entscheidungen
 
-| Frage | Optionen | Empfehlung |
-|-------|----------|------------|
-| LLM lokal vs. remote? | Ollama / OpenAI / Anthropic | Ollama default, OpenAI fallback |
-| Auto-Fix automatisch committen? | Ja / Nein / Nur bei low-risk | Nur bei low-risk + Policy-Flag |
-| PR pro Thema oder einer für alles? | Themen-PRs / Single-PR | Themen-PRs (weniger Noise) |
-| Security-Findings veröffentlichen? | Ja / Nein / Nur intern | Nur intern (kein öffentlicher PR) |
-
----
-
-## Nächster Schritt
-
-Sag mir, mit welcher Phase ich starten soll, oder ob du Anpassungen am Plan möchtest. Ich kann direkt mit der Implementierung beginnen.
+- LLM lokal vs. remote?
+  - Optionen: Ollama / OpenAI / Anthropic
+  - Empfehlung: Ollama default, OpenAI fallback
+- Auto-Fix automatisch committen?
+  - Optionen: Ja / Nein / Nur bei low-risk
+  - Empfehlung: Nur bei low-risk + Policy-Flag
+- PR pro Thema oder einer für alles?
+  - Optionen: Themen-PRs / Single-PR
+  - Empfehlung: Themen-PRs (weniger Noise)
+- Security-Findings veröffentlichen?
+  - Optionen: Ja / Nein / Nur intern
+  - Empfehlung: Nur intern (kein öffentlicher PR)
