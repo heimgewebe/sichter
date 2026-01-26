@@ -190,7 +190,7 @@ def get_changed_files(repo_dir: Path, base: str, excludes: Iterable[str]) -> lis
     path = repo_dir / rel_path_str
     if not path.exists():
       continue
-    # Avoid resolve() to prevent ValueError with symlinks outside repo
+    # Avoid resolve() which can raise ValueError for symlinks pointing outside the repository
     try:
       rel = path.relative_to(repo_dir)
     except ValueError:
@@ -214,6 +214,21 @@ def run_cmd(cmd: list[str], cwd: Path, check: bool = True) -> subprocess.Complet
     Completed process result
   """
   return subprocess.run(cmd, cwd=cwd, text=True, capture_output=True, check=check)
+
+
+def normalize_severity(severity: str) -> str:
+  """Normalize severity string to valid Finding severity literal.
+  
+  Args:
+    severity: Severity string from linter output
+  
+  Returns:
+    Normalized severity: "info", "warning", "error", "critical", or "question"
+  """
+  severity_lower = severity.lower()
+  if severity_lower in {"info", "warning", "error", "critical", "question"}:
+    return severity_lower
+  return "warning"
 
 
 def run_shellcheck(repo_dir: Path, files: Iterable[Path] | None = None) -> list[Finding]:
@@ -274,7 +289,7 @@ def run_shellcheck(repo_dir: Path, files: Iterable[Path] | None = None) -> list[
             line_int = None
           findings.append(
             Finding(
-              severity="warning" if severity not in {"error", "info", "warning"} else severity,  # type: ignore
+              severity=normalize_severity(severity),  # type: ignore
               category="correctness",
               file=file_path,
               line=line_int,
@@ -350,7 +365,7 @@ def run_yamllint(repo_dir: Path, files: Iterable[Path] | None = None) -> list[Fi
             line_int = None
           findings.append(
             Finding(
-              severity="warning" if severity not in {"error", "info", "warning"} else severity,  # type: ignore
+              severity=normalize_severity(severity),  # type: ignore
               category="correctness",
               file=file_path,
               line=line_int,
