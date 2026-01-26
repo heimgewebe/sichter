@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from fnmatch import fnmatch
 from pathlib import Path
 
+from apps.worker.dedupe import dedupe_findings
 from lib.config import (
   DEFAULT_BRANCH,
   DEFAULT_ORG,
@@ -24,6 +25,7 @@ from lib.config import (
   STATE,
   ensure_directories,
 )
+from lib.findings import Finding
 
 PID_FILE = STATE / "worker.pid"
 LOG_DIR = HOME / "sichter/logs"
@@ -172,6 +174,26 @@ def iter_paths(repo_dir: Path, pattern: str, excludes: Iterable[str]) -> Iterabl
     yield path
 
 
+def get_changed_files(repo_dir: Path, base: str, excludes: Iterable[str]) -> list[Path]:
+  """Return changed files since base, filtered by excludes.
+
+  Falls zurück auf leere Liste, wenn git diff fehlschlägt.
+  """
+  result = run_cmd(["git", "diff", "--name-only", "--diff-filter=ACMRT", base], repo_dir, check=False)
+  if result.returncode != 0:
+    return []
+  files: list[Path] = []
+  for line in result.stdout.splitlines():
+    path = (repo_dir / line.strip()).resolve()
+    if not line.strip() or not path.exists():
+      continue
+    rel = path.relative_to(repo_dir)
+    if any(fnmatch(str(rel), ex) for ex in excludes):
+      continue
+    files.append(path)
+  return files
+
+
 def run_cmd(cmd: list[str], cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
   """Run a command and return the result.
 
@@ -186,42 +208,78 @@ def run_cmd(cmd: list[str], cwd: Path, check: bool = True) -> subprocess.Complet
   return subprocess.run(cmd, cwd=cwd, text=True, capture_output=True, check=check)
 
 
-def run_shellcheck(repo_dir: Path) -> None:
+def run_shellcheck(repo_dir: Path, files: Iterable[Path] | None = None) -> list[Finding]:
   """Run shellcheck on all shell scripts if enabled in policy.
 
   Args:
     repo_dir: Repository directory
   """
   if not POLICY.checks or not POLICY.checks.get("shellcheck", False):
-    return
+    return []
   if not shutil.which("shellcheck"):
     log("shellcheck nicht gefunden - überspringe")
-    return
-  for script in iter_paths(repo_dir, "*.sh", POLICY.excludes):
+    return []
+  findings: list[Finding] = []
+  candidates = files if files is not None else iter_paths(repo_dir, "*.sh", POLICY.excludes)
+  for script in candidates:
+    if script.suffix != ".sh":
+      continue
     result = run_cmd(["shellcheck", "-x", str(script)], repo_dir, check=False)
     if result.returncode != 0:
-      log(f"shellcheck: {script}: {result.stdout or result.stderr}")
+      output = result.stdout or result.stderr
+      log(f"shellcheck: {script}: {output}")
+      for line in (output or "").splitlines():
+        if not line.strip():
+          continue
+        findings.append(
+          Finding(
+            severity="warning",
+            category="correctness",
+            file=str(script.relative_to(repo_dir)),
+            line=None,
+            message=line.strip(),
+            tool="shellcheck",
+          )
+        )
+  return findings
 
 
-def run_yamllint(repo_dir: Path) -> None:
+def run_yamllint(repo_dir: Path, files: Iterable[Path] | None = None) -> list[Finding]:
   """Run yamllint on all YAML files if enabled in policy.
 
   Args:
     repo_dir: Repository directory
   """
   if not POLICY.checks or not POLICY.checks.get("yamllint", False):
-    return
+    return []
   if not shutil.which("yamllint"):
     log("yamllint nicht gefunden - überspringe")
-    return
-  for doc in iter_paths(repo_dir, "*.yml", POLICY.excludes):
+    return []
+  findings: list[Finding] = []
+  if files is None:
+    candidates = list(iter_paths(repo_dir, "*.yml", POLICY.excludes))
+    candidates.extend(iter_paths(repo_dir, "*.yaml", POLICY.excludes))
+  else:
+    candidates = [p for p in files if p.suffix in {".yml", ".yaml"}]
+  for doc in candidates:
     result = run_cmd(["yamllint", "-s", str(doc)], repo_dir, check=False)
     if result.returncode != 0:
-      log(f"yamllint: {doc}: {result.stdout or result.stderr}")
-  for doc in iter_paths(repo_dir, "*.yaml", POLICY.excludes):
-    result = run_cmd(["yamllint", "-s", str(doc)], repo_dir, check=False)
-    if result.returncode != 0:
-      log(f"yamllint: {doc}: {result.stdout or result.stderr}")
+      output = result.stdout or result.stderr
+      log(f"yamllint: {doc}: {output}")
+      for line in (output or "").splitlines():
+        if not line.strip():
+          continue
+        findings.append(
+          Finding(
+            severity="warning",
+            category="correctness",
+            file=str(doc.relative_to(repo_dir)),
+            line=None,
+            message=line.strip(),
+            tool="yamllint",
+          )
+        )
+  return findings
 
 
 def llm_review(repo: str, repo_dir: Path) -> None:
@@ -364,8 +422,27 @@ def handle_job(job: dict) -> None:
     if not repo_dir:
       continue
     branch = fresh_branch(repo_dir)
-    run_shellcheck(repo_dir)
-    run_yamllint(repo_dir)
+    changed_files: list[Path] | None
+    if mode == "changed":
+      changed_files = get_changed_files(repo_dir, f"origin/{DEFAULT_BRANCH}", POLICY.excludes)
+      if not changed_files:
+        log(f"Keine geänderten Dateien für {repo} (mode=changed)")
+    else:
+      changed_files = None
+    findings: list[Finding] = []
+    findings.extend(run_shellcheck(repo_dir, changed_files))
+    findings.extend(run_yamllint(repo_dir, changed_files))
+    grouped = dedupe_findings(findings)
+    if findings:
+      log(f"{repo}: {len(findings)} Findings ({len(grouped)} dedupliziert)")
+      append_event(
+        {
+          "type": "findings",
+          "repo": repo,
+          "count": len(findings),
+          "deduped": len(grouped),
+        }
+      )
     llm_review(repo, repo_dir)
     if commit_if_changes(repo_dir):
       create_or_update_pr(repo, repo_dir, branch, auto_pr)
