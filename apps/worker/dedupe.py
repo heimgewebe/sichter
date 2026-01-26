@@ -20,8 +20,14 @@ def dedupe_findings(findings: Iterable[Finding]) -> dict[str, list[Finding]]:
 def should_create_pr(findings: Iterable[Finding]) -> bool:
   """Return True if there are any actionable findings.
   
+  Actionable findings are those with severity "error" or "critical", 
+  or findings that have an available fix.
+  
   Note: This function converts the iterable to a list to avoid consuming
   an iterator that might be reused by the caller.
   """
-  findings_list = list(findings) if not isinstance(findings, (list, tuple)) else findings
-  return bool(findings_list)
+  findings_list = list(findings)
+  return any(
+    f.severity in {"error", "critical"} or f.fix_available
+    for f in findings_list
+  )

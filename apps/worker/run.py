@@ -181,6 +181,7 @@ def get_changed_files(repo_dir: Path, base: str, excludes: Iterable[str]) -> lis
   """
   result = run_cmd(["git", "diff", "--name-only", "--diff-filter=ACMRT", base], repo_dir, check=False)
   if result.returncode != 0:
+    log(f"git diff failed for base={base}: {result.stderr.strip()}")
     return []
   files: list[Path] = []
   for line in result.stdout.splitlines():
@@ -190,7 +191,7 @@ def get_changed_files(repo_dir: Path, base: str, excludes: Iterable[str]) -> lis
     path = repo_dir / rel_path_str
     if not path.exists():
       continue
-    # Avoid resolve() which can raise ValueError for symlinks pointing outside the repository
+    # Avoid resolve() which can lead paths outside the repo; relative_to() would then raise ValueError
     try:
       rel = path.relative_to(repo_dir)
     except ValueError:
@@ -287,11 +288,20 @@ def run_shellcheck(repo_dir: Path, files: Iterable[Path] | None = None) -> list[
             line_int = int(line_num)
           except ValueError:
             line_int = None
+          # Normalize file_path to repo-relative
+          try:
+            file_path_obj = Path(file_path)
+            if file_path_obj.is_absolute():
+              file_rel = str(file_path_obj.relative_to(repo_dir))
+            else:
+              file_rel = file_path
+          except (ValueError, Exception):
+            file_rel = file_path
           findings.append(
             Finding(
               severity=normalize_severity(severity),  # type: ignore
               category="correctness",
-              file=file_path,
+              file=file_rel,
               line=line_int,
               message=message,
               tool="shellcheck",
@@ -363,11 +373,20 @@ def run_yamllint(repo_dir: Path, files: Iterable[Path] | None = None) -> list[Fi
             line_int = int(line_num)
           except ValueError:
             line_int = None
+          # Normalize file_path to repo-relative
+          try:
+            file_path_obj = Path(file_path)
+            if file_path_obj.is_absolute():
+              file_rel = str(file_path_obj.relative_to(repo_dir))
+            else:
+              file_rel = file_path
+          except (ValueError, Exception):
+            file_rel = file_path
           findings.append(
             Finding(
               severity=normalize_severity(severity),  # type: ignore
               category="correctness",
-              file=file_path,
+              file=file_rel,
               line=line_int,
               message=message,
               tool="yamllint",
