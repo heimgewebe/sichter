@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from fnmatch import fnmatch
 from pathlib import Path
+from typing import cast
 
 from apps.worker.dedupe import dedupe_findings
 from lib.config import (
@@ -25,7 +26,7 @@ from lib.config import (
   STATE,
   ensure_directories,
 )
-from lib.findings import Finding
+from lib.findings import Finding, Severity
 
 PID_FILE = STATE / "worker.pid"
 LOG_DIR = HOME / "sichter/logs"
@@ -181,16 +182,53 @@ def get_changed_files(repo_dir: Path, base: str, excludes: Iterable[str]) -> lis
   """
   result = run_cmd(["git", "diff", "--name-only", "--diff-filter=ACMRT", base], repo_dir, check=False)
   if result.returncode != 0:
+    log(f"git diff failed for base={base}: {result.stderr.strip()}")
     return []
+  
+  # Resolve repo_dir once for consistent symlink checking
+  try:
+    repo_root = repo_dir.resolve()
+  except (OSError, RuntimeError):
+    repo_root = repo_dir
+  
   files: list[Path] = []
+  skipped_outside: list[str] = []
+  
   for line in result.stdout.splitlines():
-    path = (repo_dir / line.strip()).resolve()
-    if not line.strip() or not path.exists():
+    rel_path_str = line.strip()
+    if not rel_path_str:
       continue
-    rel = path.relative_to(repo_dir)
+    path = repo_dir / rel_path_str
+    if not path.exists():
+      continue
+    
+    # Check that resolved path stays within repo (catches symlinks pointing outside)
+    try:
+      resolved = path.resolve(strict=False)
+      # Verify resolved path is under repo root
+      resolved.relative_to(repo_root)
+    except (ValueError, OSError, RuntimeError):
+      # Collect paths that resolve outside the repository
+      skipped_outside.append(rel_path_str)
+      continue
+    
+    # Check excludes against the original relative path
+    try:
+      rel = path.relative_to(repo_dir)
+    except ValueError:
+      continue
+    
     if any(fnmatch(str(rel), ex) for ex in excludes):
       continue
     files.append(path)
+  
+  # Log summary of skipped files to avoid spam
+  if skipped_outside:
+    MAX_DISPLAYED = 3
+    examples = ", ".join(skipped_outside[:MAX_DISPLAYED])
+    suffix = "..." if len(skipped_outside) > MAX_DISPLAYED else ""
+    log(f"Skipped {len(skipped_outside)} file(s) that resolve outside repository: {examples}{suffix}")
+  
   return files
 
 
@@ -208,11 +246,30 @@ def run_cmd(cmd: list[str], cwd: Path, check: bool = True) -> subprocess.Complet
   return subprocess.run(cmd, cwd=cwd, text=True, capture_output=True, check=check)
 
 
+def normalize_severity(severity: str) -> Severity:
+  """Normalize severity string to valid Finding severity literal.
+  
+  Args:
+    severity: Severity string from linter output
+  
+  Returns:
+    Normalized severity: "info", "warning", "error", "critical", or "question"
+  """
+  severity_lower = severity.lower()
+  if severity_lower in {"info", "warning", "error", "critical", "question"}:
+    return cast(Severity, severity_lower)
+  return "warning"
+
+
 def run_shellcheck(repo_dir: Path, files: Iterable[Path] | None = None) -> list[Finding]:
   """Run shellcheck on all shell scripts if enabled in policy.
 
   Args:
     repo_dir: Repository directory
+    files: Optional list of files to check; if None, checks all .sh files
+  
+  Returns:
+    List of Finding objects, one per shellcheck diagnostic
   """
   if not POLICY.checks or not POLICY.checks.get("shellcheck", False):
     return []
@@ -224,23 +281,67 @@ def run_shellcheck(repo_dir: Path, files: Iterable[Path] | None = None) -> list[
   for script in candidates:
     if script.suffix != ".sh":
       continue
-    result = run_cmd(["shellcheck", "-x", str(script)], repo_dir, check=False)
+    # Use gcc format for single-line, parseable output: path:line:col: severity: message [SCxxxx]
+    result = run_cmd(["shellcheck", "-f", "gcc", "-x", str(script)], repo_dir, check=False)
     if result.returncode != 0:
       output = result.stdout or result.stderr
-      log(f"shellcheck: {script}: {output}")
       for line in (output or "").splitlines():
-        if not line.strip():
+        line = line.strip()
+        if not line:
           continue
-        findings.append(
-          Finding(
-            severity="warning",
-            category="correctness",
-            file=str(script.relative_to(repo_dir)),
-            line=None,
-            message=line.strip(),
-            tool="shellcheck",
+        # Parse gcc format: path:line:col: severity: message [SCxxxx]
+        # Example: script.sh:10:5: warning: Use $(...) instead of legacy `...` [SC2006]
+        parts = line.split(":", 3)
+        if len(parts) >= 4:
+          file_path = parts[0]
+          line_num = parts[1]
+          # col = parts[2]
+          rest = parts[3].strip()
+          # Extract severity and message
+          if ": " in rest:
+            severity_msg = rest.split(": ", 1)
+            severity = severity_msg[0].lower()
+            message = severity_msg[1] if len(severity_msg) > 1 else rest
+          else:
+            severity = "warning"
+            message = rest
+          # Extract rule_id (SCxxxx) from message
+          rule_id = None
+          if "[SC" in message and "]" in message:
+            rule_start = message.rfind("[SC")
+            rule_end = message.find("]", rule_start)
+            if rule_end > rule_start:
+              rule_id = message[rule_start + 1 : rule_end]
+              # Remove the [SCxxxx] marker from message to avoid duplication
+              message = message[:rule_start].rstrip()
+          # Convert to int or None
+          try:
+            line_int = int(line_num)
+          except ValueError:
+            line_int = None
+          # Normalize file_path to repo-relative
+          try:
+            file_path_obj = Path(file_path)
+            if file_path_obj.is_absolute():
+              file_rel = str(file_path_obj.relative_to(repo_dir))
+            else:
+              file_rel = file_path
+          except (ValueError, OSError):
+            file_rel = file_path
+          findings.append(
+            Finding(
+              severity=normalize_severity(severity),
+              category="correctness",
+              file=file_rel,
+              line=line_int,
+              message=message,
+              tool="shellcheck",
+              rule_id=rule_id,
+            )
           )
-        )
+        else:
+          # Fallback for unparseable lines
+          log(f"shellcheck: {script}: unparseable line: {line}")
   return findings
 
 
@@ -249,6 +350,10 @@ def run_yamllint(repo_dir: Path, files: Iterable[Path] | None = None) -> list[Fi
 
   Args:
     repo_dir: Repository directory
+    files: Optional list of files to check; if None, checks all .yml/.yaml files
+  
+  Returns:
+    List of Finding objects, one per yamllint diagnostic
   """
   if not POLICY.checks or not POLICY.checks.get("yamllint", False):
     return []
@@ -262,23 +367,66 @@ def run_yamllint(repo_dir: Path, files: Iterable[Path] | None = None) -> list[Fi
   else:
     candidates = [p for p in files if p.suffix in {".yml", ".yaml"}]
   for doc in candidates:
-    result = run_cmd(["yamllint", "-s", str(doc)], repo_dir, check=False)
+    # Use parseable format for single-line output: path:line:col: [severity] message (rule-name)
+    result = run_cmd(["yamllint", "-f", "parsable", str(doc)], repo_dir, check=False)
     if result.returncode != 0:
       output = result.stdout or result.stderr
-      log(f"yamllint: {doc}: {output}")
       for line in (output or "").splitlines():
-        if not line.strip():
+        line = line.strip()
+        if not line:
           continue
-        findings.append(
-          Finding(
-            severity="warning",
-            category="correctness",
-            file=str(doc.relative_to(repo_dir)),
-            line=None,
-            message=line.strip(),
-            tool="yamllint",
+        # Parse format: path:line:col: [severity] message (rule-name)
+        # Example: file.yml:10:5: [error] trailing spaces (trailing-spaces)
+        parts = line.split(":", 3)
+        if len(parts) >= 4:
+          file_path = parts[0]
+          line_num = parts[1]
+          # col = parts[2]
+          rest = parts[3].strip()
+          # Extract severity and message
+          severity = "warning"
+          message = rest
+          rule_id = None
+          if rest.startswith("["):
+            bracket_end = rest.find("]")
+            if bracket_end > 0:
+              severity = rest[1:bracket_end].lower()
+              message = rest[bracket_end + 1 :].strip()
+          # Extract rule_id from message (rule-name)
+          if "(" in message and ")" in message:
+            paren_start = message.rfind("(")
+            paren_end = message.find(")", paren_start)
+            if paren_end > paren_start:
+              rule_id = message[paren_start + 1 : paren_end]
+              message = message[:paren_start].strip()
+          # Convert line to int or None
+          try:
+            line_int = int(line_num)
+          except ValueError:
+            line_int = None
+          # Normalize file_path to repo-relative
+          try:
+            file_path_obj = Path(file_path)
+            if file_path_obj.is_absolute():
+              file_rel = str(file_path_obj.relative_to(repo_dir))
+            else:
+              file_rel = file_path
+          except (ValueError, OSError):
+            file_rel = file_path
+          findings.append(
+            Finding(
+              severity=normalize_severity(severity),
+              category="correctness",
+              file=file_rel,
+              line=line_int,
+              message=message,
+              tool="yamllint",
+              rule_id=rule_id,
+            )
           )
-        )
+        else:
+          # Fallback for unparseable lines
+          log(f"yamllint: {doc}: unparseable line: {line}")
   return findings
 
 
