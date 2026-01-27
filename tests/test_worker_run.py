@@ -249,5 +249,76 @@ class TestWorkerRun(unittest.TestCase):
         self.assertEqual(event["deduped"], 2)
 
 
+    @patch("apps.worker.run.POLICY")
+    @patch("apps.worker.run.run_cmd")
+    def test_run_shellcheck_applies_excludes_with_files(
+        self, mock_run_cmd, mock_policy
+    ):
+        """Test that run_shellcheck applies POLICY.excludes when files are provided."""
+        mock_policy.checks = {"shellcheck": True}
+        mock_policy.excludes = ["vendor/*", "*.generated.sh"]
+        
+        repo_dir = Path("/fake/repo")
+        files = [
+            Path("/fake/repo/script.sh"),
+            Path("/fake/repo/vendor/dep.sh"),  # should be excluded
+            Path("/fake/repo/test.generated.sh"),  # should be excluded
+            Path("/fake/repo/valid.sh"),
+        ]
+        
+        # Mock run_cmd to return no findings
+        mock_run_cmd.return_value.returncode = 0
+        mock_run_cmd.return_value.stdout = ""
+        mock_run_cmd.return_value.stderr = ""
+        
+        with patch("shutil.which", return_value="/usr/bin/shellcheck"):
+            worker_run.run_shellcheck(repo_dir, files)
+        
+        # Verify shellcheck was called only for non-excluded files
+        # Command format: ["shellcheck", "-f", "gcc", "-x", str(script)]
+        calls = mock_run_cmd.call_args_list
+        checked_files = [c[0][0][4] for c in calls]  # index 4 is the file path
+        
+        self.assertIn(str(Path("/fake/repo/script.sh")), checked_files)
+        self.assertIn(str(Path("/fake/repo/valid.sh")), checked_files)
+        self.assertNotIn(str(Path("/fake/repo/vendor/dep.sh")), checked_files)
+        self.assertNotIn(str(Path("/fake/repo/test.generated.sh")), checked_files)
+
+    @patch("apps.worker.run.POLICY")
+    @patch("apps.worker.run.run_cmd")
+    def test_run_yamllint_applies_excludes_with_files(
+        self, mock_run_cmd, mock_policy
+    ):
+        """Test that run_yamllint applies POLICY.excludes when files are provided."""
+        mock_policy.checks = {"yamllint": True}
+        mock_policy.excludes = ["vendor/*", "*.generated.yml"]
+        
+        repo_dir = Path("/fake/repo")
+        files = [
+            Path("/fake/repo/config.yml"),
+            Path("/fake/repo/vendor/dep.yaml"),  # should be excluded
+            Path("/fake/repo/test.generated.yml"),  # should be excluded
+            Path("/fake/repo/valid.yaml"),
+        ]
+        
+        # Mock run_cmd to return no findings
+        mock_run_cmd.return_value.returncode = 0
+        mock_run_cmd.return_value.stdout = ""
+        mock_run_cmd.return_value.stderr = ""
+        
+        with patch("shutil.which", return_value="/usr/bin/yamllint"):
+            worker_run.run_yamllint(repo_dir, files)
+        
+        # Verify yamllint was called only for non-excluded files
+        # Command format: ["yamllint", "-f", "parsable", str(doc)]
+        calls = mock_run_cmd.call_args_list
+        checked_files = [c[0][0][3] for c in calls]  # index 3 is the file path
+        
+        self.assertIn(str(Path("/fake/repo/config.yml")), checked_files)
+        self.assertIn(str(Path("/fake/repo/valid.yaml")), checked_files)
+        self.assertNotIn(str(Path("/fake/repo/vendor/dep.yaml")), checked_files)
+        self.assertNotIn(str(Path("/fake/repo/test.generated.yml")), checked_files)
+
+
 if __name__ == "__main__":
     unittest.main()
