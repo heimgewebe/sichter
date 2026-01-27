@@ -297,6 +297,7 @@ def run_shellcheck(repo_dir: Path, files: Iterable[Path] | None = None) -> list[
       try:
         rel = script.relative_to(repo_dir)
       except ValueError:
+        # Skip files not relative to repo_dir (e.g., external files or symlinks outside repo)
         continue
       if any(fnmatch(str(rel), ex) for ex in POLICY.excludes):
         continue
@@ -398,6 +399,7 @@ def run_yamllint(repo_dir: Path, files: Iterable[Path] | None = None) -> list[Fi
       try:
         rel = p.relative_to(repo_dir)
       except ValueError:
+        # Skip files not relative to repo_dir (e.g., external files or symlinks outside repo)
         continue
       if any(fnmatch(str(rel), ex) for ex in POLICY.excludes):
         continue
