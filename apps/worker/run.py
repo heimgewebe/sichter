@@ -285,12 +285,24 @@ def run_shellcheck(repo_dir: Path, files: Iterable[Path] | None = None) -> list[
     return []
 
   findings: list[Finding] = []
-  candidates = files if files is not None else iter_paths(repo_dir, "*.sh", POLICY.excludes)
+  
+  if files is None:
+    candidates = iter_paths(repo_dir, "*.sh", POLICY.excludes)
+  else:
+    # Apply suffix and excludes filter when files are provided
+    candidates = []
+    for script in files:
+      if script.suffix != ".sh":
+        continue
+      try:
+        rel = script.relative_to(repo_dir)
+      except ValueError:
+        continue
+      if any(fnmatch(str(rel), ex) for ex in POLICY.excludes):
+        continue
+      candidates.append(script)
 
   for script in candidates:
-    if script.suffix != ".sh":
-      continue
-
     # gcc format: path:line:col: severity: message [SCxxxx]
     result = run_cmd(["shellcheck", "-f", "gcc", "-x", str(script)], repo_dir, check=False)
     if result.returncode == 0:
@@ -378,7 +390,18 @@ def run_yamllint(repo_dir: Path, files: Iterable[Path] | None = None) -> list[Fi
     candidates = list(iter_paths(repo_dir, "*.yml", POLICY.excludes))
     candidates.extend(iter_paths(repo_dir, "*.yaml", POLICY.excludes))
   else:
-    candidates = [p for p in files if p.suffix in {".yml", ".yaml"}]
+    # Apply suffix and excludes filter when files are provided
+    candidates = []
+    for p in files:
+      if p.suffix not in {".yml", ".yaml"}:
+        continue
+      try:
+        rel = p.relative_to(repo_dir)
+      except ValueError:
+        continue
+      if any(fnmatch(str(rel), ex) for ex in POLICY.excludes):
+        continue
+      candidates.append(p)
 
   for doc in candidates:
     # parsable format: path:line:col: [severity] message (rule-name)
