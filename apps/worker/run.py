@@ -3,6 +3,7 @@ from __future__ import annotations
 import atexit
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -172,6 +173,47 @@ def iter_paths(repo_dir: Path, pattern: str, excludes: Iterable[str]) -> Iterabl
     yield path
 
 
+def get_changed_files(repo_dir: Path, base: str = "origin/main") -> list[Path]:
+  """Get changed files relative to base, skipping files outside repo.
+
+  Args:
+    repo_dir: Repository directory
+    base: Base ref for diff
+
+  Returns:
+    List of changed files inside the repository
+  """
+  result = run_cmd(["git", "diff", "--name-only", base], repo_dir, check=False)
+  paths: list[Path] = []
+  skipped_outside = 0
+  skipped_examples: list[str] = []
+
+  for line in result.stdout.splitlines():
+    line = line.strip()
+    if not line:
+      continue
+    path = repo_dir / line
+    # Resolve to check if it points outside
+    try:
+      resolved = path.resolve()
+      resolved_repo = repo_dir.resolve()
+      if resolved.is_relative_to(resolved_repo):
+        paths.append(path)
+      else:
+        skipped_outside += 1
+        if len(skipped_examples) < 3:
+          skipped_examples.append(line)
+    except (ValueError, OSError):
+      # Path might not exist or be weird
+      continue
+
+  if skipped_outside > 0:
+    ex_str = ", ".join(skipped_examples)
+    log(f"Skipped {skipped_outside} changed paths resolving outside repo (examples: {ex_str})")
+
+  return paths
+
+
 def run_cmd(cmd: list[str], cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
   """Run a command and return the result.
 
@@ -186,42 +228,102 @@ def run_cmd(cmd: list[str], cwd: Path, check: bool = True) -> subprocess.Complet
   return subprocess.run(cmd, cwd=cwd, text=True, capture_output=True, check=check)
 
 
-def run_shellcheck(repo_dir: Path) -> None:
-  """Run shellcheck on all shell scripts if enabled in policy.
+def run_shellcheck(repo_dir: Path, files: Iterable[Path] | None = None) -> None:
+  """Run shellcheck on shell scripts (all or list) if enabled.
 
   Args:
     repo_dir: Repository directory
+    files: Optional list of files to scan
   """
   if not POLICY.checks or not POLICY.checks.get("shellcheck", False):
     return
   if not shutil.which("shellcheck"):
     log("shellcheck nicht gefunden - überspringe")
     return
-  for script in iter_paths(repo_dir, "*.sh", POLICY.excludes):
-    result = run_cmd(["shellcheck", "-x", str(script)], repo_dir, check=False)
+
+  targets: Iterable[Path]
+  if files is None:
+    targets = iter_paths(repo_dir, "*.sh", POLICY.excludes)
+  else:
+    targets = [
+      f
+      for f in files
+      if f.suffix == ".sh"
+      and not any(fnmatch(str(f.relative_to(repo_dir)), ex) for ex in POLICY.excludes)
+    ]
+
+  # ShellCheck gcc: file:line:col: severity: message
+  gcc_pattern = re.compile(
+    r"^(?P<file>.+?):(?P<line>\d+):(?P<col>\d+):\s*(?P<sev>\w+):\s*(?P<msg>.*)$"
+  )
+
+  for script in targets:
+    result = run_cmd(["shellcheck", "-f", "gcc", "-x", str(script)], repo_dir, check=False)
     if result.returncode != 0:
-      log(f"shellcheck: {script}: {result.stdout or result.stderr}")
+      output = result.stdout or result.stderr
+      for line in output.splitlines():
+        line = line.strip()
+        if not line:
+          continue
+        m = gcc_pattern.match(line)
+        if m:
+          log(
+            f"shellcheck: {m.group('file')}:{m.group('line')}: "
+            f"{m.group('sev')}: {m.group('msg')}"
+          )
+        else:
+          log(f"shellcheck (raw): {line}")
 
 
-def run_yamllint(repo_dir: Path) -> None:
-  """Run yamllint on all YAML files if enabled in policy.
+def run_yamllint(repo_dir: Path, files: Iterable[Path] | None = None) -> None:
+  """Run yamllint on YAML files (all or list) if enabled.
 
   Args:
     repo_dir: Repository directory
+    files: Optional list of files to scan
   """
   if not POLICY.checks or not POLICY.checks.get("yamllint", False):
     return
   if not shutil.which("yamllint"):
     log("yamllint nicht gefunden - überspringe")
     return
-  for doc in iter_paths(repo_dir, "*.yml", POLICY.excludes):
-    result = run_cmd(["yamllint", "-s", str(doc)], repo_dir, check=False)
+
+  targets: Iterable[Path]
+  if files is None:
+    yml = iter_paths(repo_dir, "*.yml", POLICY.excludes)
+    yaml = iter_paths(repo_dir, "*.yaml", POLICY.excludes)
+    # manual chain
+    targets_list = list(yml)
+    targets_list.extend(yaml)
+    targets = targets_list
+  else:
+    targets = [
+      f
+      for f in files
+      if f.suffix in (".yml", ".yaml")
+      and not any(fnmatch(str(f.relative_to(repo_dir)), ex) for ex in POLICY.excludes)
+    ]
+
+  # Yamllint parsable: file:line:col: rest
+  parsable_pattern = re.compile(
+    r"^(?P<file>.+?):(?P<line>\d+):(?P<col>\d+):\s*(?P<rest>.*)$"
+  )
+
+  for doc in targets:
+    result = run_cmd(["yamllint", "-f", "parsable", str(doc)], repo_dir, check=False)
     if result.returncode != 0:
-      log(f"yamllint: {doc}: {result.stdout or result.stderr}")
-  for doc in iter_paths(repo_dir, "*.yaml", POLICY.excludes):
-    result = run_cmd(["yamllint", "-s", str(doc)], repo_dir, check=False)
-    if result.returncode != 0:
-      log(f"yamllint: {doc}: {result.stdout or result.stderr}")
+      output = result.stdout or result.stderr
+      for line in output.splitlines():
+        line = line.strip()
+        if not line:
+          continue
+        m = parsable_pattern.match(line)
+        if m:
+          log(
+            f"yamllint: {m.group('file')}:{m.group('line')}: {m.group('rest')}"
+          )
+        else:
+          log(f"yamllint (raw): {line}")
 
 
 def llm_review(repo: str, repo_dir: Path) -> None:
@@ -364,8 +466,13 @@ def handle_job(job: dict) -> None:
     if not repo_dir:
       continue
     branch = fresh_branch(repo_dir)
-    run_shellcheck(repo_dir)
-    run_yamllint(repo_dir)
+
+    changed_files = None
+    if mode == "changed":
+      changed_files = get_changed_files(repo_dir)
+
+    run_shellcheck(repo_dir, changed_files)
+    run_yamllint(repo_dir, changed_files)
     llm_review(repo, repo_dir)
     if commit_if_changes(repo_dir):
       create_or_update_pr(repo, repo_dir, branch, auto_pr)
