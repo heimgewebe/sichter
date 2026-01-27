@@ -178,7 +178,7 @@ def get_changed_files(repo_dir: Path, base: str | None = None) -> list[Path]:
 
   Args:
     repo_dir: Repository directory
-    base: Base ref for diff (default: origin/{DEFAULT_BRANCH})
+    base: Base ref for diff (defaults to origin/{DEFAULT_BRANCH})
 
   Returns:
     List of changed files inside the repository
