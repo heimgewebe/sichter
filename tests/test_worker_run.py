@@ -1,4 +1,3 @@
-
 import unittest
 from pathlib import Path
 from unittest.mock import call, patch
@@ -31,14 +30,20 @@ class TestWorkerRun(unittest.TestCase):
         job_false = {"repo": "test_repo", "auto_pr": False}
         worker_run.handle_job(job_false)
         mock_create_or_update_pr.assert_called_with(
-            "test_repo", mock_ensure_repo.return_value, mock_fresh_branch.return_value, False
+            "test_repo",
+            mock_ensure_repo.return_value,
+            mock_fresh_branch.return_value,
+            False,
         )
 
         # Test case 2: job with auto_pr=True
         job_true = {"repo": "test_repo", "auto_pr": True}
         worker_run.handle_job(job_true)
         mock_create_or_update_pr.assert_called_with(
-            "test_repo", mock_ensure_repo.return_value, mock_fresh_branch.return_value, True
+            "test_repo",
+            mock_ensure_repo.return_value,
+            mock_fresh_branch.return_value,
+            True,
         )
 
         # Test case 3: job without auto_pr (fallback to policy)
@@ -46,13 +51,19 @@ class TestWorkerRun(unittest.TestCase):
         with patch("apps.worker.run.POLICY.auto_pr", True):
             worker_run.handle_job(job_none)
             mock_create_or_update_pr.assert_called_with(
-                "test_repo", mock_ensure_repo.return_value, mock_fresh_branch.return_value, True
+                "test_repo",
+                mock_ensure_repo.return_value,
+                mock_fresh_branch.return_value,
+                True,
             )
 
         with patch("apps.worker.run.POLICY.auto_pr", False):
             worker_run.handle_job(job_none)
             mock_create_or_update_pr.assert_called_with(
-                "test_repo", mock_ensure_repo.return_value, mock_fresh_branch.return_value, False
+                "test_repo",
+                mock_ensure_repo.return_value,
+                mock_fresh_branch.return_value,
+                False,
             )
 
         # Test case 4: job with auto_pr=None (should fallback to policy)
@@ -60,13 +71,19 @@ class TestWorkerRun(unittest.TestCase):
         with patch("apps.worker.run.POLICY.auto_pr", True):
             worker_run.handle_job(job_none_value)
             mock_create_or_update_pr.assert_called_with(
-                "test_repo", mock_ensure_repo.return_value, mock_fresh_branch.return_value, True
+                "test_repo",
+                mock_ensure_repo.return_value,
+                mock_fresh_branch.return_value,
+                True,
             )
 
         with patch("apps.worker.run.POLICY.auto_pr", False):
             worker_run.handle_job(job_none_value)
             mock_create_or_update_pr.assert_called_with(
-                "test_repo", mock_ensure_repo.return_value, mock_fresh_branch.return_value, False
+                "test_repo",
+                mock_ensure_repo.return_value,
+                mock_fresh_branch.return_value,
+                False,
             )
 
         # Test case 5: job with non-bool auto_pr defaults to policy
@@ -74,13 +91,19 @@ class TestWorkerRun(unittest.TestCase):
         with patch("apps.worker.run.POLICY.auto_pr", True):
             worker_run.handle_job(job_invalid_type)
             mock_create_or_update_pr.assert_called_with(
-                "test_repo", mock_ensure_repo.return_value, mock_fresh_branch.return_value, True
+                "test_repo",
+                mock_ensure_repo.return_value,
+                mock_fresh_branch.return_value,
+                True,
             )
 
         with patch("apps.worker.run.POLICY.auto_pr", False):
             worker_run.handle_job(job_invalid_type)
             mock_create_or_update_pr.assert_called_with(
-                "test_repo", mock_ensure_repo.return_value, mock_fresh_branch.return_value, False
+                "test_repo",
+                mock_ensure_repo.return_value,
+                mock_fresh_branch.return_value,
+                False,
             )
 
     @patch("apps.worker.run.get_changed_files")
@@ -111,9 +134,7 @@ class TestWorkerRun(unittest.TestCase):
         job = {"repo": "test_repo", "mode": "changed"}
         worker_run.handle_job(job)
 
-        # Verify get_changed_files was called
         mock_get_changed_files.assert_called_once()
-        # Verify shellcheck and yamllint were called with changed files
         mock_run_shellcheck.assert_called_once_with(mock_repo_dir, mock_changed)
         mock_run_yamllint.assert_called_once_with(mock_repo_dir, mock_changed)
 
@@ -143,9 +164,7 @@ class TestWorkerRun(unittest.TestCase):
         job = {"repo": "test_repo", "mode": "all"}
         worker_run.handle_job(job)
 
-        # Verify get_changed_files was NOT called
         mock_get_changed_files.assert_not_called()
-        # Verify shellcheck and yamllint were called with None (all files)
         mock_run_shellcheck.assert_called_once_with(mock_repo_dir, None)
         mock_run_yamllint.assert_called_once_with(mock_repo_dir, None)
 
@@ -194,7 +213,6 @@ class TestWorkerRun(unittest.TestCase):
             tool="yamllint",
             rule_id="trailing-spaces",
         )
-        # Duplicate finding (same dedupe_key as finding1)
         finding3 = Finding(
             severity="warning",
             category="correctness",
@@ -207,20 +225,24 @@ class TestWorkerRun(unittest.TestCase):
 
         mock_run_shellcheck.return_value = [finding1, finding3]
         mock_run_yamllint.return_value = [finding2]
-        # Simulate dedupe returning 2 groups
-        mock_dedupe_findings.return_value = {"key1": [finding1, finding3], "key2": [finding2]}
+        mock_dedupe_findings.return_value = {
+            "key1": [finding1, finding3],
+            "key2": [finding2],
+        }
 
         job = {"repo": "test_repo"}
         worker_run.handle_job(job)
 
-        # Verify dedupe_findings was called with all findings
         mock_dedupe_findings.assert_called_once()
         args = mock_dedupe_findings.call_args[0][0]
         findings_list = list(args)
         self.assertEqual(len(findings_list), 3)
 
-        # Verify event was appended with correct counts
-        event_calls = [call for call in mock_append_event.call_args_list if call[0][0].get("type") == "findings"]
+        event_calls = [
+            c
+            for c in mock_append_event.call_args_list
+            if c[0][0].get("type") == "findings"
+        ]
         self.assertEqual(len(event_calls), 1)
         event = event_calls[0][0][0]
         self.assertEqual(event["count"], 3)

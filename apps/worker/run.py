@@ -115,7 +115,6 @@ class Policy:
   @staticmethod
   def _bool_with_default(value: object, default: bool) -> bool:
     """Return boolean value while respecting explicit ``None`` as unset."""
-
     if value is None:
       return default
     if isinstance(value, bool):
@@ -175,60 +174,75 @@ def iter_paths(repo_dir: Path, pattern: str, excludes: Iterable[str]) -> Iterabl
     yield path
 
 
-def get_changed_files(repo_dir: Path, base: str, excludes: Iterable[str]) -> list[Path]:
+def get_changed_files(
+  repo_dir: Path,
+  base: str | None = None,
+  excludes: Iterable[str] = (),
+) -> list[Path]:
   """Return changed files since base, filtered by excludes.
 
-  Falls zurück auf leere Liste, wenn git diff fehlschlägt.
+  Notes:
+    - Defaults base to origin/{DEFAULT_BRANCH}.
+    - Returns [] if git diff fails.
+    - Skips paths that resolve outside the repository (symlinks/outside traversal).
   """
-  result = run_cmd(["git", "diff", "--name-only", "--diff-filter=ACMRT", base], repo_dir, check=False)
+  if base is None:
+    base = f"origin/{DEFAULT_BRANCH}"
+
+  result = run_cmd(
+    ["git", "diff", "--name-only", "--diff-filter=ACMRT", base],
+    repo_dir,
+    check=False,
+  )
   if result.returncode != 0:
     log(f"git diff failed for base={base}: {result.stderr.strip()}")
     return []
-  
-  # Resolve repo_dir once for consistent symlink checking
+
   try:
     repo_root = repo_dir.resolve()
   except (OSError, RuntimeError):
     repo_root = repo_dir
-  
+
   files: list[Path] = []
   skipped_outside: list[str] = []
-  
-  for line in result.stdout.splitlines():
-    rel_path_str = line.strip()
+
+  for raw in result.stdout.splitlines():
+    rel_path_str = raw.strip()
     if not rel_path_str:
       continue
+
     path = repo_dir / rel_path_str
     if not path.exists():
       continue
-    
-    # Check that resolved path stays within repo (catches symlinks pointing outside)
+
+    # Ensure resolved target stays inside repo_root (catches symlinks pointing outside)
     try:
       resolved = path.resolve(strict=False)
-      # Verify resolved path is under repo root
       resolved.relative_to(repo_root)
     except (ValueError, OSError, RuntimeError):
-      # Collect paths that resolve outside the repository
       skipped_outside.append(rel_path_str)
       continue
-    
-    # Check excludes against the original relative path
+
     try:
       rel = path.relative_to(repo_dir)
     except ValueError:
       continue
-    
+
     if any(fnmatch(str(rel), ex) for ex in excludes):
       continue
+
     files.append(path)
-  
-  # Log summary of skipped files to avoid spam
+
   if skipped_outside:
-    MAX_DISPLAYED = 3
-    examples = ", ".join(skipped_outside[:MAX_DISPLAYED])
-    suffix = "..." if len(skipped_outside) > MAX_DISPLAYED else ""
-    log(f"Skipped {len(skipped_outside)} file(s) that resolve outside repository: {examples}{suffix}")
-  
+    max_displayed = 3
+    examples = ", ".join(skipped_outside[:max_displayed])
+    suffix = "..." if len(skipped_outside) > max_displayed else ""
+    log(
+      "Skipped "
+      f"{len(skipped_outside)} file(s) that resolve outside repository: "
+      f"{examples}{suffix}"
+    )
+
   return files
 
 
@@ -247,14 +261,7 @@ def run_cmd(cmd: list[str], cwd: Path, check: bool = True) -> subprocess.Complet
 
 
 def normalize_severity(severity: str) -> Severity:
-  """Normalize severity string to valid Finding severity literal.
-  
-  Args:
-    severity: Severity string from linter output
-  
-  Returns:
-    Normalized severity: "info", "warning", "error", "critical", or "question"
-  """
+  """Normalize severity string to valid Finding severity literal."""
   severity_lower = severity.lower()
   if severity_lower in {"info", "warning", "error", "critical", "question"}:
     return cast(Severity, severity_lower)
@@ -267,7 +274,7 @@ def run_shellcheck(repo_dir: Path, files: Iterable[Path] | None = None) -> list[
   Args:
     repo_dir: Repository directory
     files: Optional list of files to check; if None, checks all .sh files
-  
+
   Returns:
     List of Finding objects, one per shellcheck diagnostic
   """
@@ -276,72 +283,76 @@ def run_shellcheck(repo_dir: Path, files: Iterable[Path] | None = None) -> list[
   if not shutil.which("shellcheck"):
     log("shellcheck nicht gefunden - überspringe")
     return []
+
   findings: list[Finding] = []
   candidates = files if files is not None else iter_paths(repo_dir, "*.sh", POLICY.excludes)
+
   for script in candidates:
     if script.suffix != ".sh":
       continue
-    # Use gcc format for single-line, parseable output: path:line:col: severity: message [SCxxxx]
+
+    # gcc format: path:line:col: severity: message [SCxxxx]
     result = run_cmd(["shellcheck", "-f", "gcc", "-x", str(script)], repo_dir, check=False)
-    if result.returncode != 0:
-      output = result.stdout or result.stderr
-      for line in (output or "").splitlines():
-        line = line.strip()
-        if not line:
-          continue
-        # Parse gcc format: path:line:col: severity: message [SCxxxx]
-        # Example: script.sh:10:5: warning: Use $(...) instead of legacy `...` [SC2006]
-        parts = line.split(":", 3)
-        if len(parts) >= 4:
-          file_path = parts[0]
-          line_num = parts[1]
-          # col = parts[2]
-          rest = parts[3].strip()
-          # Extract severity and message
-          if ": " in rest:
-            severity_msg = rest.split(": ", 1)
-            severity = severity_msg[0].lower()
-            message = severity_msg[1] if len(severity_msg) > 1 else rest
-          else:
-            severity = "warning"
-            message = rest
-          # Extract rule_id (SCxxxx) from message
-          rule_id = None
-          if "[SC" in message and "]" in message:
-            rule_start = message.rfind("[SC")
-            rule_end = message.find("]", rule_start)
-            if rule_end > rule_start:
-              rule_id = message[rule_start + 1 : rule_end]
-              # Remove the [SCxxxx] marker from message to avoid duplication
-              message = message[:rule_start].rstrip()
-          # Convert to int or None
-          try:
-            line_int = int(line_num)
-          except ValueError:
-            line_int = None
-          # Normalize file_path to repo-relative
-          try:
-            file_path_obj = Path(file_path)
-            if file_path_obj.is_absolute():
-              file_rel = str(file_path_obj.relative_to(repo_dir))
-            else:
-              file_rel = file_path
-          except (ValueError, OSError):
-            file_rel = file_path
-          findings.append(
-            Finding(
-              severity=normalize_severity(severity),
-              category="correctness",
-              file=file_rel,
-              line=line_int,
-              message=message,
-              tool="shellcheck",
-              rule_id=rule_id,
-            )
-          )
+    if result.returncode == 0:
+      continue
+
+    output = result.stdout or result.stderr
+    for raw in (output or "").splitlines():
+      line = raw.strip()
+      if not line:
+        continue
+
+      parts = line.split(":", 3)
+      if len(parts) < 4:
+        log(f"shellcheck: {script}: unparseable line: {line}")
+        continue
+
+      file_path = parts[0]
+      line_num = parts[1]
+      rest = parts[3].strip()
+
+      if ": " in rest:
+        sev_part, msg_part = rest.split(": ", 1)
+        sev = sev_part.lower()
+        message = msg_part
+      else:
+        sev = "warning"
+        message = rest
+
+      rule_id = None
+      if "[SC" in message and "]" in message:
+        rule_start = message.rfind("[SC")
+        rule_end = message.find("]", rule_start)
+        if rule_end > rule_start:
+          rule_id = message[rule_start + 1 : rule_end]
+          message = message[:rule_start].rstrip()
+
+      try:
+        line_int = int(line_num)
+      except ValueError:
+        line_int = None
+
+      try:
+        fp = Path(file_path)
+        if fp.is_absolute():
+          file_rel = str(fp.relative_to(repo_dir))
         else:
-          # Fallback for unparseable lines
-          log(f"shellcheck: {script}: unparseable line: {line}")
+          file_rel = file_path
+      except (ValueError, OSError):
+        file_rel = file_path
+
+      findings.append(
+        Finding(
+          severity=normalize_severity(sev),
+          category="correctness",
+          file=file_rel,
+          line=line_int,
+          message=message,
+          tool="shellcheck",
+          rule_id=rule_id,
+        )
+      )
+
   return findings
 
 
@@ -351,7 +362,7 @@ def run_yamllint(repo_dir: Path, files: Iterable[Path] | None = None) -> list[Fi
   Args:
     repo_dir: Repository directory
     files: Optional list of files to check; if None, checks all .yml/.yaml files
-  
+
   Returns:
     List of Finding objects, one per yamllint diagnostic
   """
@@ -360,73 +371,79 @@ def run_yamllint(repo_dir: Path, files: Iterable[Path] | None = None) -> list[Fi
   if not shutil.which("yamllint"):
     log("yamllint nicht gefunden - überspringe")
     return []
+
   findings: list[Finding] = []
+
   if files is None:
     candidates = list(iter_paths(repo_dir, "*.yml", POLICY.excludes))
     candidates.extend(iter_paths(repo_dir, "*.yaml", POLICY.excludes))
   else:
     candidates = [p for p in files if p.suffix in {".yml", ".yaml"}]
+
   for doc in candidates:
-    # Use parseable format for single-line output: path:line:col: [severity] message (rule-name)
+    # parsable format: path:line:col: [severity] message (rule-name)
     result = run_cmd(["yamllint", "-f", "parsable", str(doc)], repo_dir, check=False)
-    if result.returncode != 0:
-      output = result.stdout or result.stderr
-      for line in (output or "").splitlines():
-        line = line.strip()
-        if not line:
-          continue
-        # Parse format: path:line:col: [severity] message (rule-name)
-        # Example: file.yml:10:5: [error] trailing spaces (trailing-spaces)
-        parts = line.split(":", 3)
-        if len(parts) >= 4:
-          file_path = parts[0]
-          line_num = parts[1]
-          # col = parts[2]
-          rest = parts[3].strip()
-          # Extract severity and message
-          severity = "warning"
-          message = rest
-          rule_id = None
-          if rest.startswith("["):
-            bracket_end = rest.find("]")
-            if bracket_end > 0:
-              severity = rest[1:bracket_end].lower()
-              message = rest[bracket_end + 1 :].strip()
-          # Extract rule_id from message (rule-name)
-          if "(" in message and ")" in message:
-            paren_start = message.rfind("(")
-            paren_end = message.find(")", paren_start)
-            if paren_end > paren_start:
-              rule_id = message[paren_start + 1 : paren_end]
-              message = message[:paren_start].strip()
-          # Convert line to int or None
-          try:
-            line_int = int(line_num)
-          except ValueError:
-            line_int = None
-          # Normalize file_path to repo-relative
-          try:
-            file_path_obj = Path(file_path)
-            if file_path_obj.is_absolute():
-              file_rel = str(file_path_obj.relative_to(repo_dir))
-            else:
-              file_rel = file_path
-          except (ValueError, OSError):
-            file_rel = file_path
-          findings.append(
-            Finding(
-              severity=normalize_severity(severity),
-              category="correctness",
-              file=file_rel,
-              line=line_int,
-              message=message,
-              tool="yamllint",
-              rule_id=rule_id,
-            )
-          )
+    if result.returncode == 0:
+      continue
+
+    output = result.stdout or result.stderr
+    for raw in (output or "").splitlines():
+      line = raw.strip()
+      if not line:
+        continue
+
+      parts = line.split(":", 3)
+      if len(parts) < 4:
+        log(f"yamllint: {doc}: unparseable line: {line}")
+        continue
+
+      file_path = parts[0]
+      line_num = parts[1]
+      rest = parts[3].strip()
+
+      sev = "warning"
+      message = rest
+      rule_id = None
+
+      if rest.startswith("["):
+        bracket_end = rest.find("]")
+        if bracket_end > 0:
+          sev = rest[1:bracket_end].lower()
+          message = rest[bracket_end + 1 :].strip()
+
+      if "(" in message and ")" in message:
+        paren_start = message.rfind("(")
+        paren_end = message.find(")", paren_start)
+        if paren_end > paren_start:
+          rule_id = message[paren_start + 1 : paren_end]
+          message = message[:paren_start].strip()
+
+      try:
+        line_int = int(line_num)
+      except ValueError:
+        line_int = None
+
+      try:
+        fp = Path(file_path)
+        if fp.is_absolute():
+          file_rel = str(fp.relative_to(repo_dir))
         else:
-          # Fallback for unparseable lines
-          log(f"yamllint: {doc}: unparseable line: {line}")
+          file_rel = file_path
+      except (ValueError, OSError):
+        file_rel = file_path
+
+      findings.append(
+        Finding(
+          severity=normalize_severity(sev),
+          category="correctness",
+          file=file_rel,
+          line=line_int,
+          message=message,
+          tool="yamllint",
+          rule_id=rule_id,
+        )
+      )
+
   return findings
 
 
@@ -478,7 +495,11 @@ def ensure_repo(repo: str) -> Path | None:
   repo_dir = HOME / "repos" / repo
   if not (repo_dir / ".git").exists():
     try:
-      result = run_cmd(["gh", "repo", "clone", f"{POLICY.org}/{repo}", str(repo_dir)], HOME, check=False)
+      result = run_cmd(
+        ["gh", "repo", "clone", f"{POLICY.org}/{repo}", str(repo_dir)],
+        HOME,
+        check=False,
+      )
       if result.returncode != 0:
         log(f"clone fehlgeschlagen für {repo}: {result.stderr}")
         return None
@@ -509,7 +530,6 @@ def create_or_update_pr(repo: str, repo_dir: Path, branch: str, auto_pr: bool) -
     append_event({"type": "push_failed", "repo": repo, "branch": branch, "error": str(exc)})
     return
 
-  # Check if PR already exists
   view = run_cmd(["gh", "pr", "view", branch, "--json", "url", "-q", ".url"], repo_dir, check=False)
   if view.returncode != 0 or not view.stdout.strip():
     try:
@@ -545,6 +565,7 @@ def handle_job(job: dict) -> None:
   mode = job.get("mode", "changed")
   repo_one = job.get("repo")
   auto_pr_job = job.get("auto_pr")
+
   if "auto_pr" not in job or auto_pr_job is None:
     auto_pr = POLICY.auto_pr
   elif isinstance(auto_pr_job, bool):
@@ -555,6 +576,7 @@ def handle_job(job: dict) -> None:
       f"Unerwarteter Typ {type(auto_pr_job).__name__}, verwende Policy-Default."
     )
     auto_pr = POLICY.auto_pr
+
   log(f"Job erhalten: mode={mode} repo={repo_one} auto_pr={auto_pr}")
 
   repos: Iterable[str]
@@ -569,17 +591,21 @@ def handle_job(job: dict) -> None:
     repo_dir = ensure_repo(repo)
     if not repo_dir:
       continue
+
     branch = fresh_branch(repo_dir)
+
     changed_files: list[Path] | None
     if mode == "changed":
-      changed_files = get_changed_files(repo_dir, f"origin/{DEFAULT_BRANCH}", POLICY.excludes)
+      changed_files = get_changed_files(repo_dir, base=None, excludes=POLICY.excludes)
       if not changed_files:
         log(f"Keine geänderten Dateien für {repo} (mode=changed)")
     else:
       changed_files = None
+
     findings: list[Finding] = []
     findings.extend(run_shellcheck(repo_dir, changed_files))
     findings.extend(run_yamllint(repo_dir, changed_files))
+
     grouped = dedupe_findings(findings)
     if findings:
       log(f"{repo}: {len(findings)} Findings ({len(grouped)} dedupliziert)")
@@ -591,7 +617,9 @@ def handle_job(job: dict) -> None:
           "deduped": len(grouped),
         }
       )
+
     llm_review(repo, repo_dir)
+
     if commit_if_changes(repo_dir):
       create_or_update_pr(repo, repo_dir, branch, auto_pr)
     else:
@@ -632,11 +660,9 @@ def main() -> int:
         try:
           job = json.loads(job_file.read_text(encoding="utf-8"))
           handle_job(job)
-        except Exception as exc: # pragma: no cover
+        except Exception as exc:  # pragma: no cover
           log(f"Fehler bei {job_file.name}: {exc}")
-          append_event(
-            {"type": "error", "message": f"Job {job_file.name} failed: {exc}"}
-          )
+          append_event({"type": "error", "message": f"Job {job_file.name} failed: {exc}"})
         finally:
           job_file.unlink(missing_ok=True)
   except KeyboardInterrupt:
