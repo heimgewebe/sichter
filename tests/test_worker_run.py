@@ -277,7 +277,7 @@ class TestWorkerRun(unittest.TestCase):
         # Verify shellcheck was called only for non-excluded files
         # Command format: ["shellcheck", "-f", "gcc", "-x", str(script)]
         calls = mock_run_cmd.call_args_list
-        checked_files = [call[0][0][4] for call in calls]  # index 4 is the file path
+        checked_files = [c[0][0][4] for c in calls]  # index 4 is the file path
         
         self.assertIn(str(Path("/fake/repo/script.sh")), checked_files)
         self.assertIn(str(Path("/fake/repo/valid.sh")), checked_files)
@@ -312,7 +312,7 @@ class TestWorkerRun(unittest.TestCase):
         # Verify yamllint was called only for non-excluded files
         # Command format: ["yamllint", "-f", "parsable", str(doc)]
         calls = mock_run_cmd.call_args_list
-        checked_files = [call[0][0][3] for call in calls]  # index 3 is the file path
+        checked_files = [c[0][0][3] for c in calls]  # index 3 is the file path
         
         self.assertIn(str(Path("/fake/repo/config.yml")), checked_files)
         self.assertIn(str(Path("/fake/repo/valid.yaml")), checked_files)
