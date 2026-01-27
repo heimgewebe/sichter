@@ -2,7 +2,7 @@ import unittest
 import tempfile
 import os
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from apps.worker import run as worker_run
 
 class TestGetChangedFiles(unittest.TestCase):

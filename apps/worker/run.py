@@ -173,16 +173,18 @@ def iter_paths(repo_dir: Path, pattern: str, excludes: Iterable[str]) -> Iterabl
     yield path
 
 
-def get_changed_files(repo_dir: Path, base: str = "origin/main") -> list[Path]:
+def get_changed_files(repo_dir: Path, base: str | None = None) -> list[Path]:
   """Get changed files relative to base, skipping files outside repo.
 
   Args:
     repo_dir: Repository directory
-    base: Base ref for diff
+    base: Base ref for diff (default: origin/{DEFAULT_BRANCH})
 
   Returns:
     List of changed files inside the repository
   """
+  if base is None:
+    base = f"origin/{DEFAULT_BRANCH}"
   result = run_cmd(["git", "diff", "--name-only", base], repo_dir, check=False)
   paths: list[Path] = []
   skipped_outside = 0
