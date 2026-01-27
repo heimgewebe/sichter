@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from fnmatch import fnmatch
 from pathlib import Path
+from typing import cast
 
 from apps.worker.dedupe import dedupe_findings
 from lib.config import (
@@ -191,6 +192,8 @@ def get_changed_files(repo_dir: Path, base: str, excludes: Iterable[str]) -> lis
     repo_root = repo_dir
   
   files: list[Path] = []
+  skipped_outside: list[str] = []
+  
   for line in result.stdout.splitlines():
     rel_path_str = line.strip()
     if not rel_path_str:
@@ -205,8 +208,8 @@ def get_changed_files(repo_dir: Path, base: str, excludes: Iterable[str]) -> lis
       # Verify resolved path is under repo root
       resolved.relative_to(repo_root)
     except (ValueError, OSError, RuntimeError):
-      # Skip paths that resolve outside the repository
-      log(f"Skipping {rel_path_str}: resolves outside repository")
+      # Collect paths that resolve outside the repository
+      skipped_outside.append(rel_path_str)
       continue
     
     # Check excludes against the original relative path
@@ -218,6 +221,11 @@ def get_changed_files(repo_dir: Path, base: str, excludes: Iterable[str]) -> lis
     if any(fnmatch(str(rel), ex) for ex in excludes):
       continue
     files.append(path)
+  
+  # Log summary of skipped files to avoid spam
+  if skipped_outside:
+    log(f"Skipped {len(skipped_outside)} file(s) that resolve outside repository: {', '.join(skipped_outside[:3])}{'...' if len(skipped_outside) > 3 else ''}")
+  
   return files
 
 
@@ -246,7 +254,7 @@ def normalize_severity(severity: str) -> Severity:
   """
   severity_lower = severity.lower()
   if severity_lower in {"info", "warning", "error", "critical", "question"}:
-    return severity_lower  # type: ignore
+    return cast(Severity, severity_lower)
   return "warning"
 
 
