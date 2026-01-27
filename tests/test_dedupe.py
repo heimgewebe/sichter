@@ -1,4 +1,3 @@
-
 import unittest
 
 from apps.worker.dedupe import should_create_pr
