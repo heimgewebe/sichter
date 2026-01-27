@@ -224,7 +224,10 @@ def get_changed_files(repo_dir: Path, base: str, excludes: Iterable[str]) -> lis
   
   # Log summary of skipped files to avoid spam
   if skipped_outside:
-    log(f"Skipped {len(skipped_outside)} file(s) that resolve outside repository: {', '.join(skipped_outside[:3])}{'...' if len(skipped_outside) > 3 else ''}")
+    MAX_DISPLAYED = 3
+    examples = ", ".join(skipped_outside[:MAX_DISPLAYED])
+    suffix = "..." if len(skipped_outside) > MAX_DISPLAYED else ""
+    log(f"Skipped {len(skipped_outside)} file(s) that resolve outside repository: {examples}{suffix}")
   
   return files
 
