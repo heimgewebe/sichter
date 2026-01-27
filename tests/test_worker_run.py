@@ -11,18 +11,21 @@ class TestWorkerRun(unittest.TestCase):
     @patch("apps.worker.run.llm_review")
     @patch("apps.worker.run.run_yamllint")
     @patch("apps.worker.run.run_shellcheck")
+    @patch("apps.worker.run.get_changed_files")
     @patch("apps.worker.run.fresh_branch")
     @patch("apps.worker.run.ensure_repo")
     def test_handle_job_respects_auto_pr_flag(
         self,
         mock_ensure_repo,
         mock_fresh_branch,
+        mock_get_changed_files,
         mock_run_shellcheck,
         mock_run_yamllint,
         mock_llm_review,
         mock_commit_if_changes,
         mock_create_or_update_pr,
     ):
+        mock_get_changed_files.return_value = []
         # Test case 1: job with auto_pr=False
         job_false = {"repo": "test_repo", "auto_pr": False}
         worker_run.handle_job(job_false)
