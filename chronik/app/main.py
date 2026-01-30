@@ -68,13 +68,19 @@ def collect_repo_report(repo_dir: Path):
         except Exception:
             return {"error": "report.json parse error"}, 0
     try:
-        newest = max(repo_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, default=None)
+        # Find newest json file by mtime.
+        # Use a generator to perform stat() only once per file.
+        mtime, newest = max(
+            ((p.stat().st_mtime, p) for p in repo_dir.glob("*.json")),
+            default=(0, None)
+        )
         if newest:
             try:
-                return json.loads(newest.read_text(encoding="utf-8")), newest.stat().st_mtime
+                return json.loads(newest.read_text(encoding="utf-8")), mtime
             except Exception:
                 return {"error": f"{newest.name} parse error"}, 0
-    except Exception:
+    except OSError:
+        # Ignore filesystem errors (e.g. permission denied)
         pass
     return {}, 0
 

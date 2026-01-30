@@ -1,25 +1,21 @@
 import json
-import shutil
 import time
 import os
 import sys
 from pathlib import Path
 from datetime import datetime, timezone
-from unittest.mock import MagicMock
+import pytest
 
-# Add the app directory to the Python path
-APP_ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(APP_ROOT.parent))
+# Add the app directory to the Python path if necessary
+# Assuming tests are run from repo root
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from app import main
-from app.main import Settings
+from chronik.app import main
+from chronik.app.main import Settings
 
-def setup_test_env(root: Path):
-    if root.exists():
-        shutil.rmtree(root)
-    root.mkdir(parents=True)
-
-    review_root = root / "review"
+@pytest.fixture
+def test_env(tmp_path):
+    review_root = tmp_path / "review"
     review_root.mkdir()
 
     # Repo 1: report.json exists
@@ -48,40 +44,25 @@ def setup_test_env(root: Path):
 
     return Settings(review_root=review_root), t1, t2
 
-def test_api_repos():
-    test_root = Path("test_temp_api_repos")
-    settings, t1, t2 = setup_test_env(test_root)
+def test_api_repos(test_env):
+    settings, t1, t2 = test_env
 
-    try:
-        # Mock load_index inside main because it reads from settings
-        # actually load_index uses settings, so it works naturally if settings is correct.
+    # Call api_repos
+    result = main.api_repos(settings=settings)
+    items = result["items"]
 
-        # Call api_repos
-        result = main.api_repos(settings=settings)
-        items = result["items"]
+    assert len(items) == 2
 
-        assert len(items) == 2
+    # Verify Repo 1
+    item1 = next(i for i in items if i["name"] == "repo1")
+    assert item1["severity"] == "critical"
+    # Timestamp should match t1
+    ts1_str = item1["updated"]
+    expected_ts1 = datetime.fromtimestamp(t1, tz=timezone.utc).isoformat(timespec="seconds")+"Z"
+    assert ts1_str == expected_ts1
 
-        # Verify Repo 1
-        item1 = next(i for i in items if i["name"] == "repo1")
-        assert item1["severity"] == "critical"
-        # Timestamp should match t1
-        ts1_str = item1["updated"]
-        # Convert back to float to compare? Or compare strings.
-        # Main.py adds "Z" manually: isoformat(timespec="seconds")+"Z"
-        expected_ts1 = datetime.fromtimestamp(t1, tz=timezone.utc).isoformat(timespec="seconds")+"Z"
-        assert ts1_str == expected_ts1
-
-        # Verify Repo 2
-        item2 = next(i for i in items if i["name"] == "repo2")
-        assert item2["severity"] == "high" # From scan_new.json
-        expected_ts2 = datetime.fromtimestamp(t2, tz=timezone.utc).isoformat(timespec="seconds")+"Z"
-        assert item2["updated"] == expected_ts2
-
-        print("test_api_repos PASSED")
-
-    finally:
-        shutil.rmtree(test_root)
-
-if __name__ == "__main__":
-    test_api_repos()
+    # Verify Repo 2
+    item2 = next(i for i in items if i["name"] == "repo2")
+    assert item2["severity"] == "high" # From scan_new.json
+    expected_ts2 = datetime.fromtimestamp(t2, tz=timezone.utc).isoformat(timespec="seconds")+"Z"
+    assert item2["updated"] == expected_ts2
