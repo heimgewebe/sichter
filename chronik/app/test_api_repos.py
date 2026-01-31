@@ -17,8 +17,8 @@ def test_env(tmp_path):
     r1 = review_root / "repo1"
     r1.mkdir()
     (r1 / "report.json").write_text('{"severity": "critical"}', encoding="utf-8")
-    # Set report.json mtime
-    t1 = time.time() - 3600
+    # Set report.json mtime (fixed timestamp to avoid flakiness)
+    t1 = 1_700_000_000.0
     os.utime(r1 / "report.json", (t1, t1))
 
     # Repo 2: fallback to json scan
@@ -30,7 +30,7 @@ def test_env(tmp_path):
 
     f2 = r2 / "scan_new.json"
     f2.write_text('{"severity": "high"}', encoding="utf-8")
-    t2 = time.time() - 100
+    t2 = 1_700_000_500.0
     os.utime(f2, (t2, t2))
 
     # Index
