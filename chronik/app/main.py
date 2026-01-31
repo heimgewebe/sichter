@@ -69,7 +69,7 @@ def collect_repo_report(repo_dir: Path) -> tuple[dict[str, Any], float]:
             try:
                 return {"error": "report.json parse error"}, report.stat().st_mtime
             except OSError:
-                 return {"error": "report.json parse error"}, 0
+                return {"error": "report.json parse error"}, 0
     try:
         # Find newest json file by mtime.
         # Use a generator to perform stat() only once per file.
