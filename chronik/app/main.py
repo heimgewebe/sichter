@@ -70,11 +70,12 @@ def collect_repo_report(repo_dir: Path):
     try:
         # Find newest json file by mtime.
         # Use a generator to perform stat() only once per file.
-        mtime, newest = max(
+        newest_entry = max(
             ((p.stat().st_mtime, p) for p in repo_dir.glob("*.json")),
-            default=(0, None)
+            default=None
         )
-        if newest:
+        if newest_entry:
+            mtime, newest = newest_entry
             try:
                 return json.loads(newest.read_text(encoding="utf-8")), mtime
             except Exception:

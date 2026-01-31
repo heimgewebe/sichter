@@ -6,9 +6,9 @@ from pathlib import Path
 from datetime import datetime, timezone
 import pytest
 
-# Add the app directory to the Python path if necessary
-# Assuming tests are run from repo root
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+# Ensure chronik is importable without setting PYTHONPATH manually
+if __name__ == "__main__" or True: # always execute for pytest collection
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from chronik.app import main
 from chronik.app.main import Settings
