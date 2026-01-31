@@ -8,24 +8,22 @@ import pytest
 from fastapi import Request
 from chronik.app.main import job_submit, Settings
 
-# Global to store thread IDs
-thread_ids = {"main": None, "write": None}
-
-# Define a slow write function that sleeps and records thread ID
-def slow_write_text_mock(self: Path, data: str, encoding=None, errors=None, newline=None):
-    thread_ids["write"] = threading.get_ident()
-    time.sleep(0.5) # Simulate blocking I/O
-    # Use self (Path) to write
-    with open(self, "w", encoding=encoding or "utf-8", errors=errors, newline=newline) as f:
-        return f.write(data)
-
 @pytest.mark.asyncio
 async def test_job_submit_is_non_blocking(tmp_path, monkeypatch):
     """
     Verifies that job_submit offloads file writing to a thread,
     preventing the event loop from being blocked by slow I/O.
     """
-    thread_ids["main"] = threading.get_ident()
+    # Local dictionary to store thread IDs, avoiding global state
+    thread_ids = {"main": threading.get_ident(), "write": None}
+
+    # Define a slow write function as a closure to capture thread_ids
+    def slow_write_text_mock(self: Path, data: str, encoding=None, errors=None, newline=None):
+        thread_ids["write"] = threading.get_ident()
+        time.sleep(0.5) # Simulate blocking I/O
+        # Use self (Path) to write
+        with open(self, "w", encoding=encoding or "utf-8", errors=errors, newline=newline) as f:
+            return f.write(data)
 
     # Setup settings with tmp_path and ensure queue_dir exists
     settings = Settings(state_root=tmp_path / "state", review_root=tmp_path / "review")
