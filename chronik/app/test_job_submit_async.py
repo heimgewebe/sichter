@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 import pytest
 from fastapi import Request
+import chronik.app.main
 from chronik.app.main import job_submit, Settings
 
 @pytest.mark.asyncio
@@ -17,16 +18,18 @@ async def test_job_submit_is_non_blocking(tmp_path, monkeypatch):
     # Local dictionary to store thread IDs, avoiding global state
     thread_ids = {"main": threading.get_ident(), "write": None}
 
-    # Define a slow write function as a closure to capture thread_ids
-    def slow_write_text_mock(self: Path, data: str, encoding=None, errors=None, newline=None):
+    # Capture original function to call it within wrapper
+    original_write = chronik.app.main.write_job_to_disk
+
+    # Wrapper to introduce delay and capture thread ID
+    def slow_write_wrapper(*args, **kwargs):
         thread_ids["write"] = threading.get_ident()
         time.sleep(0.5) # Simulate blocking I/O
-        # Use self (Path) to write
-        with open(self, "w", encoding=encoding or "utf-8", errors=errors, newline=newline) as f:
-            return f.write(data)
+        return original_write(*args, **kwargs)
 
     # Setup settings with tmp_path and ensure queue_dir exists
     settings = Settings(state_root=tmp_path / "state", review_root=tmp_path / "review")
+    # write_job_to_disk handles mkdir, but pre-creating is fine to be explicit
     settings.queue_dir.mkdir(parents=True, exist_ok=True)
 
     # Mock request
@@ -35,8 +38,8 @@ async def test_job_submit_is_non_blocking(tmp_path, monkeypatch):
     req = MagicMock(spec=Request)
     req.json = mock_json
 
-    # Monkeypatch Path.write_text to be slow
-    monkeypatch.setattr(Path, "write_text", slow_write_text_mock)
+    # Monkeypatch write_job_to_disk directly to reduce implementation coupling
+    monkeypatch.setattr(chronik.app.main, "write_job_to_disk", slow_write_wrapper)
 
     # Define a concurrent heartbeat task
     async def heartbeat():
