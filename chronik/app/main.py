@@ -181,7 +181,9 @@ def _collect_events(settings: Settings, n=100):
 def events_recent(n: int = 100, settings: Settings = Depends(get_settings)):
     return _collect_events(settings, n)
 
-def write_job_to_disk(queue_dir: Path, jid: str, data: dict):
+def write_job_to_disk(queue_dir: Path, jid: str, data: dict[str, Any]):
+    # Hardening: ensure directory exists even if startup script missed it
+    queue_dir.mkdir(parents=True, exist_ok=True)
     path_new = queue_dir / f"{jid}.json.new"
     path_final = queue_dir / f"{jid}.json"
     path_new.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -203,8 +205,7 @@ async def job_submit(req: Request, settings: Settings = Depends(get_settings)):
         "status": "pending",
     }
     try:
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, write_job_to_disk, settings.queue_dir, jid, data)
+        await asyncio.to_thread(write_job_to_disk, settings.queue_dir, jid, data)
     except OSError as e:
         raise HTTPException(500, f"failed to write job to queue: {e}") from e
     return JSONResponse({"enqueued": jid, "status_url": f"/api/jobs/{jid}"}, 202)
