@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 
 from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.responses import FileResponse, JSONResponse
@@ -60,13 +60,16 @@ def load_index(settings: Settings):
     except Exception as e:
         raise HTTPException(500, f"index.json unreadable: {e}") from e
 
-def collect_repo_report(repo_dir: Path):
+def collect_repo_report(repo_dir: Path) -> tuple[dict[str, Any], float]:
     report = repo_dir / "report.json"
     if report.exists():
         try:
             return json.loads(report.read_text(encoding="utf-8")), report.stat().st_mtime
         except Exception:
-            return {"error": "report.json parse error"}, 0
+            try:
+                return {"error": "report.json parse error"}, report.stat().st_mtime
+            except OSError:
+                 return {"error": "report.json parse error"}, 0
     try:
         # Find newest json file by mtime.
         # Use a generator to perform stat() only once per file.
@@ -79,7 +82,7 @@ def collect_repo_report(repo_dir: Path):
             try:
                 return json.loads(newest.read_text(encoding="utf-8")), mtime
             except Exception:
-                return {"error": f"{newest.name} parse error"}, 0
+                return {"error": f"{newest.name} parse error"}, mtime
     except OSError:
         # Ignore filesystem errors (e.g. permission denied)
         pass
