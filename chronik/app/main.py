@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 
 from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.responses import FileResponse, JSONResponse
@@ -60,20 +60,33 @@ def load_index(settings: Settings):
     except Exception as e:
         raise HTTPException(500, f"index.json unreadable: {e}") from e
 
-def collect_repo_report(repo_dir: Path):
+def collect_repo_report(repo_dir: Path) -> tuple[dict[str, Any], float]:
     report = repo_dir / "report.json"
     if report.exists():
         try:
-            return json.loads(report.read_text(encoding="utf-8"))
+            return json.loads(report.read_text(encoding="utf-8")), report.stat().st_mtime
         except Exception:
-            return {"error": "report.json parse error"}
-    jsons = sorted(repo_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-    if jsons:
-        try:
-            return json.loads(jsons[0].read_text(encoding="utf-8"))
-        except Exception:
-            return {"error": f"{jsons[0].name} parse error"}
-    return {}
+            try:
+                return {"error": "report.json parse error"}, report.stat().st_mtime
+            except OSError:
+                return {"error": "report.json parse error"}, 0
+    try:
+        # Find newest json file by mtime.
+        # Use a generator to perform stat() only once per file.
+        newest_entry = max(
+            ((p.stat().st_mtime, p) for p in repo_dir.glob("*.json")),
+            default=None
+        )
+        if newest_entry:
+            mtime, newest = newest_entry
+            try:
+                return json.loads(newest.read_text(encoding="utf-8")), mtime
+            except Exception:
+                return {"error": f"{newest.name} parse error"}, mtime
+    except OSError:
+        # Ignore filesystem errors (e.g. permission denied)
+        pass
+    return {}, 0
 
 @app.get("/api/summary")
 def summary(settings: Settings = Depends(get_settings)):
@@ -84,7 +97,7 @@ def summary(settings: Settings = Depends(get_settings)):
 
     for r in repos:
         name = r.get("name") or r.get("repo") or "unknown"
-        rep = collect_repo_report(settings.review_root / name)
+        rep, _ = collect_repo_report(settings.review_root / name)
         sev = (rep.get("severity") or rep.get("level") or "").lower()
         findings = rep.get("findings") or rep.get("issues") or []
         if sev == "critical":
@@ -111,14 +124,10 @@ def api_repos(settings: Settings = Depends(get_settings)):
     for r in idx.get("repos", []):
         name = r.get("name") or r.get("repo") or "unknown"
         repo_dir = settings.review_root / name
-        rep = collect_repo_report(repo_dir)
+        rep, mt = collect_repo_report(repo_dir)
         updated = None
-        try:
-            mt = max([p.stat().st_mtime for p in repo_dir.glob("*.json")], default=0)
-            if mt:
-                updated = datetime.fromtimestamp(mt, tz=timezone.utc).isoformat(timespec="seconds")+"Z"
-        except Exception:
-            pass
+        if mt:
+            updated = datetime.fromtimestamp(mt, tz=timezone.utc).isoformat(timespec="seconds")+"Z"
         sev = (rep.get("severity") or rep.get("level") or "").lower() or ("warning" if rep else "ok")
         out.append({"name": name, "severity": sev, "updated": updated, "snapshot": rep})
     return {"items": out}
@@ -137,7 +146,7 @@ def api_report(repo: str, settings: Settings = Depends(get_settings)):
         raise HTTPException(403, "Invalid repo path") from e
     if not repo_dir.exists():
         raise HTTPException(404, "repo not found")
-    rep = collect_repo_report(repo_dir)
+    rep, _ = collect_repo_report(repo_dir)
     return rep or {}
 
 def _collect_events(settings: Settings, n=100):
