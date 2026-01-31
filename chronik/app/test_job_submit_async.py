@@ -1,14 +1,19 @@
 import asyncio
 import time
 import json
+import threading
 from pathlib import Path
 from unittest.mock import MagicMock
 import pytest
 from fastapi import Request
 from chronik.app.main import job_submit, Settings
 
-# Define a slow write function that sleeps
+# Global to store thread IDs
+thread_ids = {"main": None, "write": None}
+
+# Define a slow write function that sleeps and records thread ID
 def slow_write_text_mock(self: Path, data: str, encoding=None, errors=None, newline=None):
+    thread_ids["write"] = threading.get_ident()
     time.sleep(0.5) # Simulate blocking I/O
     # Use self (Path) to write
     with open(self, "w", encoding=encoding or "utf-8", errors=errors, newline=newline) as f:
@@ -20,6 +25,8 @@ async def test_job_submit_is_non_blocking(tmp_path, monkeypatch):
     Verifies that job_submit offloads file writing to a thread,
     preventing the event loop from being blocked by slow I/O.
     """
+    thread_ids["main"] = threading.get_ident()
+
     # Setup settings with tmp_path and ensure queue_dir exists
     settings = Settings(state_root=tmp_path / "state", review_root=tmp_path / "review")
     settings.queue_dir.mkdir(parents=True, exist_ok=True)
@@ -48,24 +55,22 @@ async def test_job_submit_is_non_blocking(tmp_path, monkeypatch):
     delay = await task_heartbeat
 
     # Check assertions
+
+    # 1. Thread Offloading verification
+    assert thread_ids["write"] is not None, "Write function was not called"
+    assert thread_ids["write"] != thread_ids["main"], "File write occurred on the main thread!"
+
+    # 2. Non-blocking timing verification
     # If blocked, delay would be > 0.5s (sleep 0.5 + overhead)
     # If non-blocking, delay should be close to 0.1s (+ overhead)
-    # Using 0.45s threshold to be robust against CI load while still catching the 0.5s block
     assert delay < 0.45, f"Event loop was blocked! Delay: {delay:.4f}s"
 
-    # Verify file was actually written and contains correct payload
+    # 3. Verify file was actually written and contains correct payload
+    # glob("*.json") excludes .new automatically
     files = list(settings.queue_dir.glob("*.json"))
-    # We expect at least one file, and we find ours among them
-    found_payload = False
-    for f in files:
-        if f.suffix == ".new":
-            continue
-        try:
-            content = json.loads(f.read_text())
-            if content.get("payload") == {"test": "payload"}:
-                found_payload = True
-                break
-        except Exception:
-            pass
 
+    found_payload = any(
+        json.loads(f.read_text()).get("payload") == {"test": "payload"}
+        for f in files
+    )
     assert found_payload, "Job file with expected payload not found in queue"
