@@ -181,7 +181,7 @@ def _collect_events(settings: Settings, n=100):
 def events_recent(n: int = 100, settings: Settings = Depends(get_settings)):
     return _collect_events(settings, n)
 
-def write_job_to_disk(queue_dir: Path, jid: str, data: dict[str, Any]):
+def write_job_to_disk(queue_dir: Path, jid: str, data: dict[str, Any]) -> None:
     # Hardening: ensure directory exists even if startup script missed it
     queue_dir.mkdir(parents=True, exist_ok=True)
     path_new = queue_dir / f"{jid}.json.new"
