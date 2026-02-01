@@ -24,7 +24,8 @@ async def test_job_submit_is_non_blocking(tmp_path, monkeypatch):
     def slow_write_wrapper(queue_dir, jid, data) -> None:
         thread_ids["write"] = threading.get_ident()
         time.sleep(0.5) # Simulate blocking I/O
-        return original_write(queue_dir, jid, data)
+        original_write(queue_dir, jid, data)
+        return None
 
     # Setup settings with tmp_path and ensure queue_dir exists
     settings = Settings(state_root=tmp_path / "state", review_root=tmp_path / "review")
