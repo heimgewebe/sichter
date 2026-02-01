@@ -1,8 +1,6 @@
-import asyncio
 import time
 import json
 import threading
-from pathlib import Path
 from unittest.mock import MagicMock
 import pytest
 from fastapi import Request
@@ -23,7 +21,7 @@ async def test_job_submit_is_non_blocking(tmp_path, monkeypatch):
 
     # Wrapper to introduce delay and capture thread ID
     # Explicit signature ensures we catch API drifts early
-    def slow_write_wrapper(queue_dir, jid, data):
+    def slow_write_wrapper(queue_dir, jid, data) -> None:
         thread_ids["write"] = threading.get_ident()
         time.sleep(0.5) # Simulate blocking I/O
         return original_write(queue_dir, jid, data)
