@@ -8,7 +8,7 @@ import chronik.app.main
 from chronik.app.main import job_submit, Settings
 
 @pytest.mark.asyncio
-async def test_job_submit_is_non_blocking(tmp_path, monkeypatch):
+async def test_job_submit_offloads_write_to_thread(tmp_path, monkeypatch):
     """
     Verifies that job_submit offloads file writing to a thread,
     preventing the event loop from being blocked by slow I/O.
@@ -25,7 +25,6 @@ async def test_job_submit_is_non_blocking(tmp_path, monkeypatch):
         thread_ids["write"] = threading.get_ident()
         time.sleep(0.5) # Simulate blocking I/O
         original_write(queue_dir, jid, data)
-        return None
 
     # Setup settings with tmp_path and ensure queue_dir exists
     settings = Settings(state_root=tmp_path / "state", review_root=tmp_path / "review")
