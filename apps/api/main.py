@@ -430,7 +430,7 @@ def _read_last_lines(path: Path, n: int) -> list[str]:
     return []
 
 
-def _read_chunk(path: Path, offset: int, expected_inode: int | None = None, max_bytes: int = 1024 * 1024) -> tuple[str, int, int]:
+def _read_chunk(path: Path, offset: int, expected_inode: int | None = None, max_bytes: int = 1024 * 1024) -> tuple[str, int, int | None]:
   with path.open("rb") as fh:
     try:
       st = os.fstat(fh.fileno())
@@ -442,7 +442,7 @@ def _read_chunk(path: Path, offset: int, expected_inode: int | None = None, max_
         offset = 0
     except OSError:
       offset = 0
-      current_inode = 0
+      current_inode = None
 
     fh.seek(offset)
     chunk_bytes = fh.read(max_bytes)
@@ -484,7 +484,7 @@ async def events_stream(ws: WebSocket):
   # Tail-Loop (Polling + Rotation)
   # Wir merken uns pro Datei die gelesene Offset-Länge und Inode.
   offsets: dict[str, int] = {}
-  inodes: dict[str, int] = {}
+  inodes: dict[str, int | None] = {}
   last_heartbeat = time.time()
 
   while True:
@@ -505,10 +505,9 @@ async def events_stream(ws: WebSocket):
 
       if last_file is None or current != last_file:
         last_file = current
-        # Reset offset if switching files, unless we're tracking this file already
-        if p_key not in offsets:
-           offsets[p_key] = 0
-           inodes[p_key] = 0 # Will be updated after read
+
+      offsets.setdefault(p_key, 0)
+      inodes.setdefault(p_key, None)
 
       try:
         # Offload blocking I/O to a separate thread
