@@ -10,8 +10,8 @@ from chronik.app.main import job_submit, Settings
 @pytest.mark.asyncio
 async def test_job_submit_offloads_write_to_thread(tmp_path, monkeypatch):
     """
-    Verifies that job_submit offloads file writing to a thread,
-    preventing the event loop from being blocked by slow I/O.
+    Verifies that job_submit offloads the disk write to a worker thread (asyncio.to_thread),
+    rather than executing it on the main thread.
     """
     # Local dictionary to store thread IDs, avoiding global state
     thread_ids = {"main": threading.get_ident(), "write": None}
