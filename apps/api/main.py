@@ -430,6 +430,30 @@ def _read_last_lines(path: Path, n: int) -> list[str]:
     return []
 
 
+def _read_chunk(path: Path, offset: int, expected_inode: int | None = None, max_bytes: int = 1024 * 1024) -> tuple[str, int, int | None]:
+  with path.open("rb") as fh:
+    try:
+      st = os.fstat(fh.fileno())
+      current_inode = st.st_ino
+      current_size = st.st_size
+
+      # Check for file rotation (inode change) or truncation
+      if (expected_inode is not None and current_inode != expected_inode) or (offset > current_size):
+        offset = 0
+    except OSError:
+      offset = 0
+      current_inode = None
+
+    fh.seek(offset)
+    chunk_bytes = fh.read(max_bytes)
+    new_offset = fh.tell()
+
+    # Decode with error capability (replace or ignore)
+    chunk_str = chunk_bytes.decode("utf-8", errors="ignore")
+
+    return chunk_str, new_offset, current_inode
+
+
 @app.websocket("/events/stream")
 async def events_stream(ws: WebSocket):
   """
@@ -458,8 +482,9 @@ async def events_stream(ws: WebSocket):
     last_file = None
 
   # Tail-Loop (Polling + Rotation)
-  # Wir merken uns pro Datei die gelesene Offset-Länge.
+  # Wir merken uns pro Datei die gelesene Offset-Länge und Inode.
   offsets: dict[str, int] = {}
+  inodes: dict[str, int | None] = {}
   last_heartbeat = time.time()
 
   while True:
@@ -476,26 +501,29 @@ async def events_stream(ws: WebSocket):
 
       # Lese neue Zeilen aus der aktuellsten Datei; wenn eine neuere auftaucht, wechsle
       current = files[-1]
+      p_key = str(current)
+
       if last_file is None or current != last_file:
         last_file = current
-        offsets[str(current)] = 0  # reset offset for new file
 
-      p = current
-      p_key = str(p)
+      offsets.setdefault(p_key, 0)
+      inodes.setdefault(p_key, None)
+
       try:
-        with p.open("r", encoding="utf-8", errors="ignore") as fh:
-          if p_key not in offsets:
-            offsets[p_key] = 0
-          fh.seek(offsets[p_key])
-          chunk = fh.read()
-          offsets[p_key] = fh.tell()
-          if chunk:
-            for line in chunk.splitlines():
-              if line.strip():
-                await ws.send_text(line)
+        # Offload blocking I/O to a separate thread
+        chunk, new_offset, new_inode = await asyncio.to_thread(
+            _read_chunk, current, offsets.get(p_key, 0), inodes.get(p_key)
+        )
+        offsets[p_key] = new_offset
+        inodes[p_key] = new_inode
+
+        if chunk:
+          for line in chunk.splitlines():
+            if line.strip():
+              await ws.send_text(line)
       except OSError as e:
         # Datei evtl. rotiert oder noch nicht lesbar - ignoriere einmal
-        logger.debug(f"Transient error reading {p}: {e}")
+        logger.debug(f"Transient error reading {current}: {e}")
         pass
 
       # Heartbeat senden
