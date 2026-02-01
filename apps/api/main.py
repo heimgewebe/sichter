@@ -1,5 +1,6 @@
 # apps/api/main.py
 import errno
+import functools
 import json
 import logging
 import os
@@ -139,6 +140,15 @@ def _parse_timestamp(value: str | None) -> str | None:
   return value
 
 
+@functools.lru_cache(maxsize=128)
+def _read_queue_item_cached(path: Path, mtime: float, size: int) -> dict:
+  try:
+    return json.loads(path.read_text(encoding="utf-8"))
+  except (OSError, json.JSONDecodeError) as e:
+    logger.warning(f"Failed to read/parse queue file {path}: {e}")
+    return {}
+
+
 def _queue_state(limit: int = 10) -> dict[str, int | list[dict]]:
   """Get current queue state with most recent jobs.
 
@@ -148,34 +158,42 @@ def _queue_state(limit: int = 10) -> dict[str, int | list[dict]]:
   Returns:
     Dictionary with queue size and recent items
   """
-  # Collect all queue files first for counting
-  all_files = list(QUEUE.glob("*.json"))
-  total_size = len(all_files)
+  # Collect all queue files first for counting, using scandir for efficiency
+  entries: list[tuple[Path, float, int]] = []
+  try:
+    with os.scandir(QUEUE) as it:
+      for entry in it:
+        if entry.name.endswith(".json") and entry.is_file():
+          try:
+            stat = entry.stat()
+            entries.append((Path(entry.path), stat.st_mtime, stat.st_size))
+          except OSError:
+            pass
+  except OSError:
+    return {"size": 0, "items": []}
+
+  total_size = len(entries)
 
   # Sort only if needed and get the most recent ones
   if total_size == 0:
     return {"size": 0, "items": []}
 
   # Sort files by modification time (oldest first) and take last N
-  all_files.sort(key=os.path.getmtime)
-  recent_files = all_files[-limit:] if total_size > limit else all_files
+  entries.sort(key=lambda x: x[1])
+  recent_entries = entries[-limit:] if total_size > limit else entries
 
   # Build items in chronological order (oldest to newest)
   items: list[dict] = []
-  for fp in recent_files:
-    try:
-      payload = json.loads(fp.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as e:
-      logger.warning(f"Failed to read/parse queue file {fp}: {e}")
-      payload = {}
+  for path, mtime, size in recent_entries:
+    payload = _read_queue_item_cached(path, mtime, size)
     items.append(
       {
-        "id": fp.stem,
-        "path": str(fp),
+        "id": path.stem,
+        "path": str(path),
         "type": payload.get("type"),
         "mode": payload.get("mode"),
         "repo": payload.get("repo"),
-        "enqueuedAt": datetime.fromtimestamp(fp.stat().st_mtime, tz=timezone.utc).isoformat(),
+        "enqueuedAt": datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat(),
       }
     )
 
