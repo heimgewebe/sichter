@@ -430,11 +430,23 @@ def _read_last_lines(path: Path, n: int) -> list[str]:
     return []
 
 
-def _read_chunk(path: Path, offset: int) -> tuple[str, int]:
-  with path.open("r", encoding="utf-8", errors="ignore") as fh:
+def _read_chunk(path: Path, offset: int, max_bytes: int = 1024 * 1024) -> tuple[str, int]:
+  with path.open("rb") as fh:
+    # Check for file truncation/rotation
+    try:
+      if offset > os.fstat(fh.fileno()).st_size:
+        offset = 0
+    except OSError:
+      offset = 0
+
     fh.seek(offset)
-    chunk = fh.read()
-    return chunk, fh.tell()
+    chunk_bytes = fh.read(max_bytes)
+    new_offset = fh.tell()
+
+    # Decode with error capability (replace or ignore)
+    chunk_str = chunk_bytes.decode("utf-8", errors="ignore")
+
+    return chunk_str, new_offset
 
 
 @app.websocket("/events/stream")
