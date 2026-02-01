@@ -430,6 +430,13 @@ def _read_last_lines(path: Path, n: int) -> list[str]:
     return []
 
 
+def _read_chunk(path: Path, offset: int) -> tuple[str, int]:
+  with path.open("r", encoding="utf-8", errors="ignore") as fh:
+    fh.seek(offset)
+    chunk = fh.read()
+    return chunk, fh.tell()
+
+
 @app.websocket("/events/stream")
 async def events_stream(ws: WebSocket):
   """
@@ -483,16 +490,14 @@ async def events_stream(ws: WebSocket):
       p = current
       p_key = str(p)
       try:
-        with p.open("r", encoding="utf-8", errors="ignore") as fh:
-          if p_key not in offsets:
-            offsets[p_key] = 0
-          fh.seek(offsets[p_key])
-          chunk = fh.read()
-          offsets[p_key] = fh.tell()
-          if chunk:
-            for line in chunk.splitlines():
-              if line.strip():
-                await ws.send_text(line)
+        # Offload blocking I/O to a separate thread
+        chunk, new_offset = await asyncio.to_thread(_read_chunk, p, offsets.get(p_key, 0))
+        offsets[p_key] = new_offset
+
+        if chunk:
+          for line in chunk.splitlines():
+            if line.strip():
+              await ws.send_text(line)
       except OSError as e:
         # Datei evtl. rotiert oder noch nicht lesbar - ignoriere einmal
         logger.debug(f"Transient error reading {p}: {e}")
