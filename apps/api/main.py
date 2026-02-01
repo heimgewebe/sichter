@@ -141,11 +141,11 @@ def _parse_timestamp(value: str | None) -> str | None:
 
 
 @functools.lru_cache(maxsize=128)
-def _read_queue_item_cached(path: Path, mtime: float, size: int) -> dict:
+def _read_queue_item_cached(path_str: str, mtime_ns: int, size: int) -> dict:
   try:
-    return json.loads(path.read_text(encoding="utf-8"))
+    return json.loads(Path(path_str).read_text(encoding="utf-8"))
   except (OSError, json.JSONDecodeError) as e:
-    logger.warning(f"Failed to read/parse queue file {path}: {e}")
+    logger.warning(f"Failed to read/parse queue file {path_str}: {e}")
     return {}
 
 
@@ -159,18 +159,23 @@ def _queue_state(limit: int = 10) -> dict[str, int | list[dict]]:
     Dictionary with queue size and recent items
   """
   # Collect all queue files first for counting, using scandir for efficiency
-  entries: list[tuple[Path, float, int]] = []
+  entries: list[tuple[Path, int, int]] = []
+  skipped_count = 0
   try:
     with os.scandir(QUEUE) as it:
       for entry in it:
-        if entry.name.endswith(".json") and entry.is_file():
+        if entry.name.endswith(".json") and entry.is_file(follow_symlinks=False):
           try:
-            stat = entry.stat()
-            entries.append((Path(entry.path), stat.st_mtime, stat.st_size))
+            # Use mtime_ns for integer precision and stability in cache keys
+            stat = entry.stat(follow_symlinks=False)
+            entries.append((Path(entry.path), stat.st_mtime_ns, stat.st_size))
           except OSError:
-            pass
+            skipped_count += 1
   except OSError:
     return {"size": 0, "items": []}
+
+  if skipped_count > 0:
+    logger.debug(f"Skipped {skipped_count} inaccessible queue files during scandir")
 
   total_size = len(entries)
 
@@ -184,8 +189,9 @@ def _queue_state(limit: int = 10) -> dict[str, int | list[dict]]:
 
   # Build items in chronological order (oldest to newest)
   items: list[dict] = []
-  for path, mtime, size in recent_entries:
-    payload = _read_queue_item_cached(path, mtime, size)
+  for path, mtime_ns, size in recent_entries:
+    # Pass primitives to cache function to ensure stable keys
+    payload = _read_queue_item_cached(str(path), mtime_ns, size)
     items.append(
       {
         "id": path.stem,
@@ -193,7 +199,7 @@ def _queue_state(limit: int = 10) -> dict[str, int | list[dict]]:
         "type": payload.get("type"),
         "mode": payload.get("mode"),
         "repo": payload.get("repo"),
-        "enqueuedAt": datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat(),
+        "enqueuedAt": datetime.fromtimestamp(mtime_ns / 1e9, tz=timezone.utc).isoformat(),
       }
     )
 
