@@ -430,14 +430,19 @@ def _read_last_lines(path: Path, n: int) -> list[str]:
     return []
 
 
-def _read_chunk(path: Path, offset: int, max_bytes: int = 1024 * 1024) -> tuple[str, int]:
+def _read_chunk(path: Path, offset: int, expected_inode: int | None = None, max_bytes: int = 1024 * 1024) -> tuple[str, int, int]:
   with path.open("rb") as fh:
-    # Check for file truncation/rotation
     try:
-      if offset > os.fstat(fh.fileno()).st_size:
+      st = os.fstat(fh.fileno())
+      current_inode = st.st_ino
+      current_size = st.st_size
+
+      # Check for file rotation (inode change) or truncation
+      if (expected_inode is not None and current_inode != expected_inode) or (offset > current_size):
         offset = 0
     except OSError:
       offset = 0
+      current_inode = 0
 
     fh.seek(offset)
     chunk_bytes = fh.read(max_bytes)
@@ -446,7 +451,7 @@ def _read_chunk(path: Path, offset: int, max_bytes: int = 1024 * 1024) -> tuple[
     # Decode with error capability (replace or ignore)
     chunk_str = chunk_bytes.decode("utf-8", errors="ignore")
 
-    return chunk_str, new_offset
+    return chunk_str, new_offset, current_inode
 
 
 @app.websocket("/events/stream")
@@ -477,8 +482,9 @@ async def events_stream(ws: WebSocket):
     last_file = None
 
   # Tail-Loop (Polling + Rotation)
-  # Wir merken uns pro Datei die gelesene Offset-Länge.
+  # Wir merken uns pro Datei die gelesene Offset-Länge und Inode.
   offsets: dict[str, int] = {}
+  inodes: dict[str, int] = {}
   last_heartbeat = time.time()
 
   while True:
@@ -495,16 +501,22 @@ async def events_stream(ws: WebSocket):
 
       # Lese neue Zeilen aus der aktuellsten Datei; wenn eine neuere auftaucht, wechsle
       current = files[-1]
+      p_key = str(current)
+
       if last_file is None or current != last_file:
         last_file = current
-        offsets[str(current)] = 0  # reset offset for new file
+        # Reset offset if switching files, unless we're tracking this file already
+        if p_key not in offsets:
+           offsets[p_key] = 0
+           inodes[p_key] = 0 # Will be updated after read
 
-      p = current
-      p_key = str(p)
       try:
         # Offload blocking I/O to a separate thread
-        chunk, new_offset = await asyncio.to_thread(_read_chunk, p, offsets.get(p_key, 0))
+        chunk, new_offset, new_inode = await asyncio.to_thread(
+            _read_chunk, current, offsets.get(p_key, 0), inodes.get(p_key)
+        )
         offsets[p_key] = new_offset
+        inodes[p_key] = new_inode
 
         if chunk:
           for line in chunk.splitlines():
@@ -512,7 +524,7 @@ async def events_stream(ws: WebSocket):
               await ws.send_text(line)
       except OSError as e:
         # Datei evtl. rotiert oder noch nicht lesbar - ignoriere einmal
-        logger.debug(f"Transient error reading {p}: {e}")
+        logger.debug(f"Transient error reading {current}: {e}")
         pass
 
       # Heartbeat senden
