@@ -149,23 +149,40 @@ def _read_queue_item_cached(path_str: str, mtime_ns: int, size: int) -> dict:
     return {}
 
 
-@functools.lru_cache(maxsize=4)
-def _scan_files_cached(path_str: str, mtime_ns: int, suffix: str) -> list[tuple[Path, float]]:
+def _cache_bucket(ttl_seconds: float = 2.0) -> int:
+  """Return a time bucket for cache invalidation."""
+  return int(time.monotonic() // ttl_seconds)
+
+
+@functools.lru_cache(maxsize=16)
+def _scan_files_cached(path_str: str, mtime_ns: int, suffix: str, bucket: int) -> list[tuple[Path, int]]:
   path = Path(path_str)
-  entries: list[tuple[Path, float]] = []
+  entries: list[tuple[Path, int]] = []
   try:
     with os.scandir(path) as it:
       for entry in it:
-        if entry.name.endswith(suffix):
+        if not entry.name.endswith(suffix):
+          continue
+
+        try:
+          # Robust check: try with follow_symlinks=False (Py3.12+), fallback to default
           try:
-            # We must use follow_symlinks=False to be robust, similar to queue scanning
-            # But usually event logs are regular files.
-            # entry.stat() is cached.
-            entries.append((Path(entry.path), entry.stat().st_mtime))
-          except OSError:
-            pass
+            if not entry.is_file(follow_symlinks=False):
+              continue
+            stat = entry.stat(follow_symlinks=False)
+          except TypeError:
+            # Fallback for older Python versions
+            if not entry.is_file():
+              continue
+            stat = entry.stat()
+
+          entries.append((Path(entry.path), stat.st_mtime_ns))
+        except OSError:
+          logger.debug(f"Skipped inaccessible event file: {entry.name}")
+          continue
   except OSError:
-    pass
+    logger.debug(f"Failed to scan event directory: {path}")
+    return []
 
   # Sort by mtime descending (newest first)
   entries.sort(key=lambda x: x[1], reverse=True)
@@ -175,7 +192,9 @@ def _scan_files_cached(path_str: str, mtime_ns: int, suffix: str) -> list[tuple[
 def _get_sorted_files(suffix: str) -> list[Path]:
   try:
     stat = EVENTS.stat()
-    entries = _scan_files_cached(str(EVENTS), stat.st_mtime_ns, suffix)
+    # dir mtime changes only on add/remove; TTL bucket ensures periodic refresh for append-only workloads.
+    bucket = _cache_bucket()
+    entries = _scan_files_cached(str(EVENTS), stat.st_mtime_ns, suffix, bucket)
     return [e[0] for e in entries]
   except OSError:
     return []
