@@ -2,11 +2,6 @@
 import pytest
 from unittest.mock import MagicMock, patch
 from pathlib import Path
-import os
-import sys
-
-# Ensure app is in path if needed
-sys.path.insert(0, os.getcwd())
 
 from apps.api.main import _scan_files_cached, _get_sorted_files, _cache_bucket
 
@@ -97,29 +92,25 @@ def test_cache_invalidation_bucket(mock_scandir):
     _scan_files_cached("/tmp", 12345, ".jsonl", bucket=2)
     assert mock_scandir.call_count == 2
 
+@patch("apps.api.main._scan_files_cached")
 @patch("apps.api.main._cache_bucket")
 @patch("apps.api.main.EVENTS")
-def test_get_sorted_files_flow(mock_events, mock_bucket, mock_scandir):
+def test_get_sorted_files_flow(mock_events, mock_bucket, mock_scan):
+    # Setup
     mock_events.stat.return_value.st_mtime_ns = 9999
     mock_events.__str__.return_value = "/events"
     mock_bucket.return_value = 10
 
-    entries = [FakeEntry("a.jsonl", "/events/a.jsonl", mtime_ns=100)]
-    mock_scandir.return_value.__enter__.return_value = entries
+    expected_path = Path("/events/a.jsonl")
+    mock_scan.return_value = [(expected_path, 100)]
 
+    # Execution
     files = _get_sorted_files(".jsonl")
 
+    # Assertions
     assert len(files) == 1
-    assert files[0].name == "a.jsonl"
+    assert files[0] == expected_path
 
-    # Check if correct args passed to _scan_files_cached (implicitly via mock behavior)
-    assert mock_scandir.call_count == 1
-
-    # Ensure bucket was used in the key implicitly (if we called it again with same bucket it would hit cache)
-    files_2 = _get_sorted_files(".jsonl")
-    assert mock_scandir.call_count == 1 # Cache hit
-
-    # Change bucket
-    mock_bucket.return_value = 11
-    files_3 = _get_sorted_files(".jsonl")
-    assert mock_scandir.call_count == 2 # Cache miss
+    mock_events.stat.assert_called_once()
+    mock_bucket.assert_called_once()
+    mock_scan.assert_called_once_with(str(mock_events), 9999, ".jsonl", 10)

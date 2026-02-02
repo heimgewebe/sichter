@@ -177,11 +177,11 @@ def _scan_files_cached(path_str: str, mtime_ns: int, suffix: str, bucket: int) -
             stat = entry.stat()
 
           entries.append((Path(entry.path), stat.st_mtime_ns))
-        except OSError:
-          logger.debug(f"Skipped inaccessible event file: {entry.name}")
+        except OSError as e:
+          logger.debug("Skipped inaccessible event file %s: %s", entry.path, e)
           continue
-  except OSError:
-    logger.debug(f"Failed to scan event directory: {path}")
+  except OSError as e:
+    logger.debug("Failed to scan event directory %s: %s", path, e)
     return []
 
   # Sort by mtime descending (newest first)
