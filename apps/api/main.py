@@ -149,6 +149,57 @@ def _read_queue_item_cached(path_str: str, mtime_ns: int, size: int) -> dict:
     return {}
 
 
+def _cache_bucket(ttl_seconds: float = 2.0) -> int:
+  """Return a time bucket for cache invalidation."""
+  return int(time.monotonic() // ttl_seconds)
+
+
+@functools.lru_cache(maxsize=16)
+def _scan_files_cached(path_str: str, mtime_ns: int, suffix: str, bucket: int) -> list[tuple[Path, int]]:
+  path = Path(path_str)
+  entries: list[tuple[Path, int]] = []
+  try:
+    with os.scandir(path) as it:
+      for entry in it:
+        if not entry.name.endswith(suffix):
+          continue
+
+        try:
+          # Robust check: try with follow_symlinks=False (Py3.12+), fallback to default
+          try:
+            if not entry.is_file(follow_symlinks=False):
+              continue
+            stat = entry.stat(follow_symlinks=False)
+          except TypeError:
+            # Fallback for older Python versions
+            if not entry.is_file():
+              continue
+            stat = entry.stat()
+
+          entries.append((Path(entry.path), stat.st_mtime_ns))
+        except OSError as e:
+          logger.debug("Skipped inaccessible event file %s: %s", entry.path, e)
+          continue
+  except OSError as e:
+    logger.debug("Failed to scan event directory %s: %s", path, e)
+    return []
+
+  # Sort by mtime descending (newest first)
+  entries.sort(key=lambda x: x[1], reverse=True)
+  return entries
+
+
+def _get_sorted_files(suffix: str) -> list[Path]:
+  try:
+    stat = EVENTS.stat()
+    # dir mtime changes only on add/remove; TTL bucket ensures periodic refresh for append-only workloads.
+    bucket = _cache_bucket()
+    entries = _scan_files_cached(str(EVENTS), stat.st_mtime_ns, suffix, bucket)
+    return [e[0] for e in entries]
+  except OSError:
+    return []
+
+
 def _queue_state(limit: int = 10) -> dict[str, int | list[dict]]:
   """Get current queue state with most recent jobs.
 
@@ -271,9 +322,9 @@ def _collect_events(limit: int = 200) -> list[dict[str, str | dict]]:
     List of event dictionaries with metadata
   """
   # Prefer .jsonl (new format), fallback to .log (old)
-  files = sorted(EVENTS.glob("*.jsonl"), key=os.path.getmtime, reverse=True)
+  files = _get_sorted_files(".jsonl")
   if not files:
-    files = sorted(EVENTS.glob("*.log"), key=os.path.getmtime, reverse=True)
+    files = _get_sorted_files(".log")
 
   # Collect lines from newest files first until we have enough
   lines: list[str] = []
@@ -456,7 +507,7 @@ def read_policy() -> dict[str, str]:
 
 def _jsonl_files() -> list[Path]:
   """Return jsonl event files sorted by mtime ascending."""
-  return sorted(EVENTS.glob("*.jsonl"), key=os.path.getmtime)
+  return list(reversed(_get_sorted_files(".jsonl")))
 
 
 def _read_last_lines(path: Path, n: int) -> list[str]:
