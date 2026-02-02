@@ -686,10 +686,15 @@ def get_sorted_jobs(queue_dir: Path) -> list[Path]:
           continue
         # Check is_file with no symlink following for safety/consistency
         try:
-          if entry.is_file(follow_symlinks=False):
-            files.append(entry.path)
+          is_file = entry.is_file(follow_symlinks=False)
+        except TypeError:
+          # Fallback for older Python versions
+          is_file = entry.is_file()
         except OSError:
           continue
+
+        if is_file:
+          files.append(entry.path)
   except OSError:
     return []
 
@@ -738,7 +743,7 @@ def wait_for_changes(queue_dir: Path) -> None:
               break
         if not confirmed and proc.poll() is None:
           # Not critical, but worth noting if env is weird
-          log(f"inotifywait watch confirmation timed out for {queue_dir}")
+          pass
       finally:
         try:
           poll_obj.unregister(proc.stderr)
