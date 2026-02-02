@@ -52,13 +52,44 @@ def test_get_sorted_jobs_logic(queue_dir):
         # Check call args
         mock_scandir.assert_called_once_with(queue_dir)
 
-        # Verify is_file called with follow_symlinks=False
-        entry_a.is_file.assert_called_with(follow_symlinks=False)
+        # Verify is_file called with follow_symlinks=False for the files we cared about
+        # We can inspect call_args_list of entry_a
+        # It should be called at least once with follow_symlinks=False
+        assert entry_a.is_file.call_args.kwargs.get("follow_symlinks") is False
+        assert entry_b.is_file.call_args.kwargs.get("follow_symlinks") is False
 
         # Verify sorting and filtering
         assert len(jobs) == 2
         assert jobs[0].name == "a.json"
         assert jobs[1].name == "b.json"
+
+def test_get_sorted_jobs_typeerror_fallback(queue_dir):
+    """Verify fallback to is_file() when follow_symlinks=False raises TypeError."""
+    with patch("apps.worker.run.os.scandir") as mock_scandir:
+        entry = MagicMock()
+        entry.name = "compat.json"
+        entry.path = str(queue_dir / "compat.json")
+
+        # side_effect: first call raises TypeError, second call returns True
+        entry.is_file.side_effect = [TypeError("unexpected keyword argument"), True]
+
+        mock_scandir.return_value.__enter__.return_value = [entry]
+
+        jobs = get_sorted_jobs(queue_dir)
+
+        assert len(jobs) == 1
+        assert jobs[0].name == "compat.json"
+
+        # Check calls:
+        # 1. is_file(follow_symlinks=False)
+        # 2. is_file()
+        assert entry.is_file.call_count == 2
+
+        first_call = entry.is_file.call_args_list[0]
+        assert first_call.kwargs.get("follow_symlinks") is False
+
+        second_call = entry.is_file.call_args_list[1]
+        assert not second_call.kwargs # Called without args
 
 def test_wait_for_changes_fallback_no_tool(queue_dir):
     """Test fallback to sleep if inotifywait is missing."""
@@ -92,6 +123,9 @@ def test_wait_for_changes_success_cleanup(queue_dir):
         mock_poll.return_value = poll_instance
 
         # Return files directly (simulating files arrived while starting)
+        # get_sorted_jobs is called twice:
+        # 1. In the check "Double-check if files arrived..."
+        # We want it to return files here to trigger the early return path
         mock_get_jobs.return_value = [Path("new.json")]
 
         wait_for_changes(queue_dir)
@@ -105,8 +139,7 @@ def test_wait_for_changes_success_cleanup(queue_dir):
         # Verify unregister called
         poll_instance.unregister.assert_called_with(proc.stderr)
 
-        # Verify process cleanup (since files arrived, we terminate/kill)
-        # In this scenario, we return early because files exist, so we MUST ensure cleanup happens.
+        # Verify process cleanup
         proc.terminate.assert_called()
 
         # Verify streams closed
@@ -127,6 +160,10 @@ def test_wait_for_changes_process_exit(queue_dir):
         # Process is already exited when checked
         proc.poll.return_value = 0
         proc.wait.return_value = 0
+
+        # Explicitly mock stdout to verify close call
+        proc.stdout = MagicMock()
+
         mock_popen.return_value = proc
 
         poll_instance = MagicMock()
@@ -141,6 +178,5 @@ def test_wait_for_changes_process_exit(queue_dir):
         proc.terminate.assert_not_called()
 
         # But streams should be closed
-        if proc.stdout:
-            proc.stdout.close.assert_called()
+        proc.stdout.close.assert_called_once()
         # stderr is None here, so no close on it

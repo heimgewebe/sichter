@@ -742,7 +742,7 @@ def wait_for_changes(queue_dir: Path) -> None:
               confirmed = True
               break
         if not confirmed and proc.poll() is None:
-          # Not critical, but worth noting if env is weird
+          # No confirmation within timeout; proceed anyway.
           pass
       finally:
         try:
