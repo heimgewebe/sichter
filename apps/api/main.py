@@ -149,6 +149,38 @@ def _read_queue_item_cached(path_str: str, mtime_ns: int, size: int) -> dict:
     return {}
 
 
+@functools.lru_cache(maxsize=4)
+def _scan_files_cached(path_str: str, mtime_ns: int, suffix: str) -> list[tuple[Path, float]]:
+  path = Path(path_str)
+  entries: list[tuple[Path, float]] = []
+  try:
+    with os.scandir(path) as it:
+      for entry in it:
+        if entry.name.endswith(suffix):
+          try:
+            # We must use follow_symlinks=False to be robust, similar to queue scanning
+            # But usually event logs are regular files.
+            # entry.stat() is cached.
+            entries.append((Path(entry.path), entry.stat().st_mtime))
+          except OSError:
+            pass
+  except OSError:
+    pass
+
+  # Sort by mtime descending (newest first)
+  entries.sort(key=lambda x: x[1], reverse=True)
+  return entries
+
+
+def _get_sorted_files(suffix: str) -> list[Path]:
+  try:
+    stat = EVENTS.stat()
+    entries = _scan_files_cached(str(EVENTS), stat.st_mtime_ns, suffix)
+    return [e[0] for e in entries]
+  except OSError:
+    return []
+
+
 def _queue_state(limit: int = 10) -> dict[str, int | list[dict]]:
   """Get current queue state with most recent jobs.
 
@@ -271,9 +303,9 @@ def _collect_events(limit: int = 200) -> list[dict[str, str | dict]]:
     List of event dictionaries with metadata
   """
   # Prefer .jsonl (new format), fallback to .log (old)
-  files = sorted(EVENTS.glob("*.jsonl"), key=os.path.getmtime, reverse=True)
+  files = _get_sorted_files(".jsonl")
   if not files:
-    files = sorted(EVENTS.glob("*.log"), key=os.path.getmtime, reverse=True)
+    files = _get_sorted_files(".log")
 
   # Collect lines from newest files first until we have enough
   lines: list[str] = []
@@ -456,7 +488,7 @@ def read_policy() -> dict[str, str]:
 
 def _jsonl_files() -> list[Path]:
   """Return jsonl event files sorted by mtime ascending."""
-  return sorted(EVENTS.glob("*.jsonl"), key=os.path.getmtime)
+  return list(reversed(_get_sorted_files(".jsonl")))
 
 
 def _read_last_lines(path: Path, n: int) -> list[str]:
