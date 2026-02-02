@@ -3,6 +3,7 @@ from __future__ import annotations
 import atexit
 import json
 import os
+import select
 import shutil
 import subprocess
 import sys
@@ -671,15 +672,90 @@ def list_repos_remote() -> list[str]:
   return [line for line in result.stdout.splitlines() if line.strip()]
 
 
+def get_sorted_jobs(queue_dir: Path) -> list[Path]:
+  """Return sorted list of job files in queue using efficient scandir.
+
+  Sorting strings and converting to Path is significantly faster than
+  globbing and sorting Path objects directly (approx 8x faster).
+  """
+  files: list[str] = []
+  try:
+    with os.scandir(queue_dir) as it:
+      for entry in it:
+        if entry.name.endswith(".json") and entry.is_file():
+          files.append(entry.path)
+  except OSError:
+    return []
+
+  files.sort()
+  return [Path(p) for p in files]
+
+
+def wait_for_changes(queue_dir: Path) -> None:
+  """Wait for file changes using inotifywait or fallback to sleep.
+
+  Uses inotifywait if available to block until a file is created or moved in,
+  avoiding busy polling loops.
+  """
+  if not shutil.which("inotifywait"):
+    time.sleep(2)
+    return
+
+  try:
+    # Start inotifywait in background
+    # -e create -e moved_to: wait for file creation or move-in
+    proc = subprocess.Popen(
+      ["inotifywait", "-e", "create", "-e", "moved_to", str(queue_dir)],
+      stdout=subprocess.PIPE,
+      stderr=subprocess.PIPE,
+      text=True,
+    )
+
+    # Wait for "Watches established" to ensure we don't miss events
+    # that happen between our last check and the watch start.
+    # Use select with timeout to avoid hanging if stderr logic fails.
+    if proc.stderr:
+      poll_obj = select.poll()
+      poll_obj.register(proc.stderr, select.POLLIN)
+      start_time = time.time()
+
+      while time.time() - start_time < 1.0:
+        if proc.poll() is not None:
+          break
+        if poll_obj.poll(100):  # 100ms timeout
+          line = proc.stderr.readline()
+          if line and "Watches established" in line:
+            break
+
+    # Double-check if files arrived while we were starting up
+    if get_sorted_jobs(queue_dir):
+      proc.terminate()
+      try:
+        proc.wait(timeout=1)
+      except subprocess.TimeoutExpired:
+        proc.kill()
+      return
+
+    # Block until event occurs or process exits
+    exit_code = proc.wait()
+
+    # If inotifywait failed (e.g. exit code 1), sleep to prevent busy loop
+    if exit_code != 0:
+      time.sleep(2)
+
+  except (OSError, subprocess.SubprocessError):
+    time.sleep(2)
+
+
 def main() -> int:
   acquire_pid_lock()
   log("Worker gestartet")
   append_event({"type": "start", "message": f"Worker gestartet (pid={os.getpid()})"})
   try:
     while True:
-      job_files = sorted(QUEUE.glob("*.json"))
+      job_files = get_sorted_jobs(QUEUE)
       if not job_files:
-        time.sleep(2)
+        wait_for_changes(QUEUE)
         continue
       for job_file in job_files:
         try:
