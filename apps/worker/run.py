@@ -682,8 +682,14 @@ def get_sorted_jobs(queue_dir: Path) -> list[Path]:
   try:
     with os.scandir(queue_dir) as it:
       for entry in it:
-        if entry.name.endswith(".json") and entry.is_file():
-          files.append(entry.path)
+        if not entry.name.endswith(".json"):
+          continue
+        # Check is_file with no symlink following for safety/consistency
+        try:
+          if entry.is_file(follow_symlinks=False):
+            files.append(entry.path)
+        except OSError:
+          continue
   except OSError:
     return []
 
@@ -701,11 +707,13 @@ def wait_for_changes(queue_dir: Path) -> None:
     time.sleep(2)
     return
 
+  proc = None
   try:
     # Start inotifywait in background
+    # -q: quiet (less output)
     # -e create -e moved_to: wait for file creation or move-in
     proc = subprocess.Popen(
-      ["inotifywait", "-e", "create", "-e", "moved_to", str(queue_dir)],
+      ["inotifywait", "-q", "-e", "create", "-e", "moved_to", str(queue_dir)],
       stdout=subprocess.PIPE,
       stderr=subprocess.PIPE,
       text=True,
@@ -714,26 +722,32 @@ def wait_for_changes(queue_dir: Path) -> None:
     # Wait for "Watches established" to ensure we don't miss events
     # that happen between our last check and the watch start.
     # Use select with timeout to avoid hanging if stderr logic fails.
-    if proc.stderr:
+    if proc.stderr and hasattr(select, "poll"):
       poll_obj = select.poll()
       poll_obj.register(proc.stderr, select.POLLIN)
-      start_time = time.time()
-
-      while time.time() - start_time < 1.0:
-        if proc.poll() is not None:
-          break
-        if poll_obj.poll(100):  # 100ms timeout
-          line = proc.stderr.readline()
-          if line and "Watches established" in line:
-            break
-
-    # Double-check if files arrived while we were starting up
-    if get_sorted_jobs(queue_dir):
-      proc.terminate()
       try:
-        proc.wait(timeout=1)
-      except subprocess.TimeoutExpired:
-        proc.kill()
+        start_time = time.time()
+        confirmed = False
+        while time.time() - start_time < 1.0:
+          if proc.poll() is not None:
+            break
+          if poll_obj.poll(100):  # 100ms timeout
+            line = proc.stderr.readline()
+            if line and "Watches established" in line:
+              confirmed = True
+              break
+        if not confirmed and proc.poll() is None:
+          # Not critical, but worth noting if env is weird
+          log(f"inotifywait watch confirmation timed out for {queue_dir}")
+      finally:
+        try:
+          poll_obj.unregister(proc.stderr)
+        except (OSError, ValueError, KeyError):
+          pass
+
+    # Double-check if files arrived while we were starting up.
+    # This check AFTER starting the watch significantly reduces the race window.
+    if get_sorted_jobs(queue_dir):
       return
 
     # Block until event occurs or process exits
@@ -745,6 +759,21 @@ def wait_for_changes(queue_dir: Path) -> None:
 
   except (OSError, subprocess.SubprocessError):
     time.sleep(2)
+  finally:
+    if proc:
+      # Ensure process is terminated
+      if proc.poll() is None:
+        proc.terminate()
+        try:
+          proc.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+          proc.kill()
+
+      # Ensure streams are closed to prevent FD leaks
+      if proc.stdout:
+        proc.stdout.close()
+      if proc.stderr:
+        proc.stderr.close()
 
 
 def main() -> int:
