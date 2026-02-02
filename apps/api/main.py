@@ -164,18 +164,32 @@ def _queue_state(limit: int = 10) -> dict[str, int | list[dict]]:
   try:
     with os.scandir(QUEUE) as it:
       for entry in it:
-        if entry.name.endswith(".json") and entry.is_file(follow_symlinks=False):
-          try:
-            # Use mtime_ns for integer precision and stability in cache keys
-            stat = entry.stat(follow_symlinks=False)
-            entries.append((Path(entry.path), stat.st_mtime_ns, stat.st_size))
-          except OSError:
-            skipped_count += 1
+        if not entry.name.endswith(".json"):
+          continue
+
+        # Robust check: try with follow_symlinks=False (Py3.12+), fallback to default
+        try:
+          if not entry.is_file(follow_symlinks=False):
+            continue
+          stat = entry.stat(follow_symlinks=False)
+        except TypeError:
+          # Fallback for older Python versions
+          if not entry.is_file():
+            continue
+          stat = entry.stat()
+        except OSError:
+          skipped_count += 1
+          continue
+
+        try:
+          entries.append((Path(entry.path), stat.st_mtime_ns, stat.st_size))
+        except OSError:
+          skipped_count += 1
   except OSError:
     return {"size": 0, "items": []}
 
   if skipped_count > 0:
-    logger.debug(f"Skipped {skipped_count} inaccessible queue files during scandir")
+    logger.debug(f"Skipped {skipped_count} inaccessible queue files during scandir in {QUEUE}")
 
   total_size = len(entries)
 
