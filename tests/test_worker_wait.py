@@ -1,15 +1,7 @@
-import shutil
-import subprocess
-import sys
-import time
-import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-# Ensure apps module is importable
-sys.path.append(os.getcwd())
 
 from apps.worker.run import get_sorted_jobs, wait_for_changes
 
@@ -98,7 +90,7 @@ def test_wait_for_changes_fallback_no_tool(queue_dir):
     """Test fallback to sleep if inotifywait is missing."""
     with patch("shutil.which", return_value=None), \
          patch("time.sleep") as mock_sleep, \
-         patch("subprocess.Popen") as mock_popen:
+         patch("apps.worker.run.subprocess.Popen") as mock_popen:
 
         wait_for_changes(queue_dir)
 
@@ -109,7 +101,7 @@ def test_wait_for_changes_success_cleanup(queue_dir):
     """Test standard flow: inotifywait starts, files detected, process cleaned up."""
     with patch("shutil.which", return_value="/usr/bin/inotifywait"), \
          patch("apps.worker.run.get_sorted_jobs") as mock_get_jobs, \
-         patch("subprocess.Popen") as mock_popen, \
+         patch("apps.worker.run.subprocess.Popen") as mock_popen, \
          patch("apps.worker.run.select.poll") as mock_poll, \
          patch("time.sleep"):  # silence sleep just in case
 
@@ -153,7 +145,7 @@ def test_wait_for_changes_process_exit(queue_dir):
     """Test flow where process exits (e.g. event happened)."""
     with patch("shutil.which", return_value=True), \
          patch("apps.worker.run.get_sorted_jobs", return_value=[]), \
-         patch("subprocess.Popen") as mock_popen, \
+         patch("apps.worker.run.subprocess.Popen") as mock_popen, \
          patch("apps.worker.run.select.poll") as mock_poll:
 
         proc = MagicMock()

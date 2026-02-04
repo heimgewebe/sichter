@@ -741,9 +741,6 @@ def wait_for_changes(queue_dir: Path) -> None:
             if line and "Watches established" in line:
               confirmed = True
               break
-        if not confirmed and proc.poll() is None:
-          # No confirmation within timeout; proceed anyway.
-          pass
       finally:
         try:
           poll_obj.unregister(proc.stderr)
