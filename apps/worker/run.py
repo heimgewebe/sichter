@@ -676,7 +676,7 @@ def get_sorted_jobs(queue_dir: Path) -> list[Path]:
   """Return sorted list of job files in queue using efficient scandir.
 
   Sorting strings and converting to Path is significantly faster than
-  globbing and sorting Path objects directly (approx 8x faster).
+  globbing and sorting Path objects directly (observed in local benchmarks).
   """
   files: list[str] = []
   try:
