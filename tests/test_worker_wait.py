@@ -145,8 +145,7 @@ def test_wait_for_changes_process_exit(queue_dir):
     """Test flow where process exits (e.g. event happened)."""
     with patch("shutil.which", return_value=True), \
          patch("apps.worker.run.get_sorted_jobs", return_value=[]), \
-         patch("apps.worker.run.subprocess.Popen") as mock_popen, \
-         patch("apps.worker.run.select.poll") as mock_poll:
+         patch("apps.worker.run.subprocess.Popen") as mock_popen:
 
         proc = MagicMock()
         # Set proc.stderr to None so we skip the confirmation loop entirely
@@ -160,9 +159,6 @@ def test_wait_for_changes_process_exit(queue_dir):
         proc.stdout = MagicMock()
 
         mock_popen.return_value = proc
-
-        poll_instance = MagicMock()
-        mock_poll.return_value = poll_instance
 
         wait_for_changes(queue_dir)
 

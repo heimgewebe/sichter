@@ -732,14 +732,12 @@ def wait_for_changes(queue_dir: Path) -> None:
       poll_obj.register(proc.stderr, select.POLLIN)
       try:
         start_time = time.time()
-        confirmed = False
         while time.time() - start_time < 1.0:
           if proc.poll() is not None:
             break
           if poll_obj.poll(100):  # 100ms timeout
             line = proc.stderr.readline()
             if line and "Watches established" in line:
-              confirmed = True
               break
       finally:
         try:
@@ -764,6 +762,7 @@ def wait_for_changes(queue_dir: Path) -> None:
   finally:
     if proc:
       # Ensure process is terminated
+      # NOTE: this function may return early (jobs arrived); cleanup is handled here.
       if proc.poll() is None:
         proc.terminate()
         try:
