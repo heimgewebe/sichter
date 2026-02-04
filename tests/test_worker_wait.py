@@ -4,7 +4,7 @@ import sys
 import time
 import os
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -53,10 +53,13 @@ def test_get_sorted_jobs_logic(queue_dir):
         mock_scandir.assert_called_once_with(queue_dir)
 
         # Verify is_file called with follow_symlinks=False for the files we cared about
-        # We can inspect call_args_list of entry_a
-        # It should be called at least once with follow_symlinks=False
-        assert entry_a.is_file.call_args.kwargs.get("follow_symlinks") is False
-        assert entry_b.is_file.call_args.kwargs.get("follow_symlinks") is False
+        # Use call_args_list[0] to ensure we check the first call arguments
+        # (in case subsequent logic makes more calls, though here it shouldn't)
+        first_call_a = entry_a.is_file.call_args_list[0]
+        assert first_call_a.kwargs.get("follow_symlinks") is False
+
+        first_call_b = entry_b.is_file.call_args_list[0]
+        assert first_call_b.kwargs.get("follow_symlinks") is False
 
         # Verify sorting and filtering
         assert len(jobs) == 2
