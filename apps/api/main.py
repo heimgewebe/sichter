@@ -70,7 +70,10 @@ api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
 async def verify_api_key(api_key: str | None = Security(api_key_header)) -> str:
-  """Verify the API key against the SICHTER_API_KEY environment variable."""
+  """Verify the API key against the SICHTER_API_KEY environment variable.
+
+  Returns 503 (fail-closed) if SICHTER_API_KEY is not set on the server.
+  """
   try:
     check_api_key(api_key, os.environ.get("SICHTER_API_KEY"))
     assert api_key is not None
