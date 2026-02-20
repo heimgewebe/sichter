@@ -69,7 +69,7 @@ class ErrorResponse(BaseModel):
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
-async def verify_api_key(api_key: str = Security(api_key_header)) -> str | None:
+async def verify_api_key(api_key: str | None = Security(api_key_header)) -> str:
   """Verify the API key against the SICHTER_API_KEY environment variable."""
   try:
     check_api_key(api_key, os.environ.get("SICHTER_API_KEY"))
@@ -571,7 +571,7 @@ def _read_chunk(path: Path, offset: int, expected_inode: int | None = None, max_
 
 
 @app.websocket("/events/stream")
-async def events_stream(ws: WebSocket, api_key: str | None = Depends(verify_api_key)):
+async def events_stream(ws: WebSocket, api_key: str = Depends(verify_api_key)):
   """
   WebSocket-Stream der Event-JSONL-Zeilen.
   Query-Parameter:
