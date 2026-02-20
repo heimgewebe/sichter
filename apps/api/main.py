@@ -73,6 +73,7 @@ async def verify_api_key(api_key: str | None = Security(api_key_header)) -> str:
   """Verify the API key against the SICHTER_API_KEY environment variable."""
   try:
     check_api_key(api_key, os.environ.get("SICHTER_API_KEY"))
+    assert api_key is not None
     return api_key
   except ApiKeyError as e:
     if e.kind == "not_configured":
