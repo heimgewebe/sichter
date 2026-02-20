@@ -21,7 +21,7 @@ from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
 
 from lib.config import CONFIG, EVENTS, QUEUE, ensure_directories, get_policy_path, load_yaml
-from .auth import check_api_key
+from .auth import check_api_key, ApiKeyError
 
 ensure_directories()
 
@@ -74,11 +74,16 @@ async def verify_api_key(api_key: str = Security(api_key_header)) -> str | None:
   try:
     check_api_key(api_key, os.environ.get("SICHTER_API_KEY"))
     return api_key
-  except ValueError as e:
-    raise HTTPException(
-      status_code=status.HTTP_403_FORBIDDEN,
-      detail=str(e),
-    )
+  except ApiKeyError as e:
+    if e.kind == "not_configured":
+      code = status.HTTP_503_SERVICE_UNAVAILABLE
+    elif e.kind == "missing":
+      code = status.HTTP_401_UNAUTHORIZED
+    else:
+      code = status.HTTP_403_FORBIDDEN
+
+    headers = {"WWW-Authenticate": "APIKey"} if e.kind == "missing" else None
+    raise HTTPException(status_code=code, detail=e.message, headers=headers)
 
 
 def _enqueue(job: dict) -> str:
