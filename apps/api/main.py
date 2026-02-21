@@ -33,6 +33,10 @@ logging.basicConfig(
 logger = logging.getLogger("sichter.api")
 
 app = FastAPI(title="Sichter API", version="0.1.1")
+
+if not os.environ.get("SICHTER_API_KEY"):
+  logger.warning("SICHTER_API_KEY is not set. Sensitive endpoints will return 503 (fail-closed).")
+
 # CORS für Dashboard (Vite etc.)
 app.add_middleware(
   CORSMiddleware,
