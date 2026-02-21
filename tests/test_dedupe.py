@@ -1,10 +1,55 @@
 import unittest
 
-from apps.worker.dedupe import should_create_pr
+from apps.worker.dedupe import dedupe_findings, should_create_pr
 from lib.findings import Finding
 
 
 class TestDedupe(unittest.TestCase):
+    def test_dedupe_findings_preserves_order(self):
+        """Test that dedupe_findings groups findings and preserves order."""
+        findings = [
+            Finding(
+                severity="error",
+                category="correctness",
+                file="file1.py",
+                line=1,
+                message="Error 1",
+                tool="tool1",
+                dedupe_key="key1",
+            ),
+            Finding(
+                severity="warning",
+                category="style",
+                file="file2.py",
+                line=2,
+                message="Error 2",
+                tool="tool2",
+                dedupe_key="key2",
+            ),
+            Finding(
+                severity="info",
+                category="style",
+                file="file1.py",
+                line=10,
+                message="Error 3",
+                tool="tool1",
+                dedupe_key="key1",
+            ),
+        ]
+
+        grouped = dedupe_findings(findings)
+
+        # Verify keys are in order of first appearance
+        self.assertEqual(list(grouped.keys()), ["key1", "key2"])
+
+        # Verify findings are grouped correctly
+        self.assertEqual(len(grouped["key1"]), 2)
+        self.assertEqual(grouped["key1"][0].message, "Error 1")
+        self.assertEqual(grouped["key1"][1].message, "Error 3")
+
+        self.assertEqual(len(grouped["key2"]), 1)
+        self.assertEqual(grouped["key2"][0].message, "Error 2")
+
     def test_should_create_pr_with_critical_findings(self):
         """Test that critical findings trigger PR creation."""
         findings = [
