@@ -11,15 +11,17 @@ import uuid
 import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 
 import yaml
-from fastapi import Body, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Body, Depends, FastAPI, HTTPException, Security, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
 
 from lib.config import CONFIG, EVENTS, QUEUE, ensure_directories, get_policy_path, load_yaml
+from .auth import check_api_key, ApiKeyError
 
 ensure_directories()
 
@@ -31,6 +33,10 @@ logging.basicConfig(
 logger = logging.getLogger("sichter.api")
 
 app = FastAPI(title="Sichter API", version="0.1.1")
+
+if not os.environ.get("SICHTER_API_KEY"):
+  logger.warning("SICHTER_API_KEY is not set. Sensitive endpoints will return 503 (fail-closed).")
+
 # CORS für Dashboard (Vite etc.)
 app.add_middleware(
   CORSMiddleware,
@@ -64,6 +70,29 @@ class ErrorResponse(BaseModel):
   detail: ErrorDetail
 
 
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+async def verify_api_key(api_key: str | None = Security(api_key_header)) -> str:
+  """Verify the API key against the SICHTER_API_KEY environment variable.
+
+  Returns 503 (fail-closed) if SICHTER_API_KEY is not set on the server.
+  """
+  try:
+    check_api_key(api_key, os.environ.get("SICHTER_API_KEY"))
+    return cast(str, api_key)
+  except ApiKeyError as e:
+    if e.kind == "not_configured":
+      code = status.HTTP_503_SERVICE_UNAVAILABLE
+    elif e.kind == "missing":
+      code = status.HTTP_401_UNAUTHORIZED
+    else:
+      code = status.HTTP_403_FORBIDDEN
+
+    headers = {"WWW-Authenticate": "APIKey"} if e.kind == "missing" else None
+    raise HTTPException(status_code=code, detail=e.message, headers=headers)
+
+
 def _enqueue(job: dict) -> str:
   jid = f"{int(time.time())}-{uuid.uuid4().hex[:8]}"
   f = QUEUE / f"{jid}.json"
@@ -84,7 +113,12 @@ def healthz() -> str:
   return "ok"
 
 
-@app.post("/jobs/submit", response_model=JobSubmitResponse, responses={500: {"model": ErrorResponse}})
+@app.post(
+  "/jobs/submit",
+  response_model=JobSubmitResponse,
+  responses={500: {"model": ErrorResponse}},
+  dependencies=[Depends(verify_api_key)],
+)
 def submit(job: Job) -> JobSubmitResponse:
   try:
     jid = _enqueue(job.model_dump())
@@ -411,18 +445,18 @@ def _resolve_repos() -> list[str]:
   return sorted(repos)
 
 
-@app.get("/events/tail", response_class=PlainTextResponse)
+@app.get("/events/tail", response_class=PlainTextResponse, dependencies=[Depends(verify_api_key)])
 def tail_events(n: int = 200) -> str:
   events = _collect_events(n)
   return "\n".join(entry.get("line", "") for entry in events if entry.get("line"))
 
 
-@app.get("/events/recent")
+@app.get("/events/recent", dependencies=[Depends(verify_api_key)])
 def recent_events(n: int = 200) -> dict[str, list]:
   return {"events": _collect_events(n)}
 
 
-@app.get("/overview")
+@app.get("/overview", dependencies=[Depends(verify_api_key)])
 def overview() -> dict:
   worker = _systemctl_show("sichter-worker.service")
   return {
@@ -438,7 +472,7 @@ def overview() -> dict:
   }
 
 
-@app.get("/repos/status")
+@app.get("/repos/status", dependencies=[Depends(verify_api_key)])
 def repos_status() -> dict[str, list[dict]]:
   repos = _resolve_repos()
   events = _collect_events(200)
@@ -454,7 +488,7 @@ def repos_status() -> dict[str, list[dict]]:
   return {"repos": results}
 
 
-@app.post("/settings/policy")
+@app.post("/settings/policy", dependencies=[Depends(verify_api_key)])
 def write_policy(content: Annotated[dict, Body()]) -> dict[str, str]:
   # stores to ~/.config/sichter/policy.yml
   CONFIG.mkdir(parents=True, exist_ok=True)
@@ -497,7 +531,7 @@ def write_policy(content: Annotated[dict, Body()]) -> dict[str, str]:
   return {"written": str(target)}
 
 
-@app.get("/settings/policy")
+@app.get("/settings/policy", dependencies=[Depends(verify_api_key)])
 def read_policy() -> dict[str, str]:
   return _read_policy()
 
@@ -544,7 +578,7 @@ def _read_chunk(path: Path, offset: int, expected_inode: int | None = None, max_
 
 
 @app.websocket("/events/stream")
-async def events_stream(ws: WebSocket):
+async def events_stream(ws: WebSocket, api_key: str = Depends(verify_api_key)):
   """
   WebSocket-Stream der Event-JSONL-Zeilen.
   Query-Parameter:

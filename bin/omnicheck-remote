@@ -4,5 +4,6 @@ MODE="changed"
 [[ "${1:-}" == "--all" ]] && MODE="all"
 curl -sS -X POST http://127.0.0.1:5055/jobs/submit \
   -H 'content-type: application/json' \
+  -H "X-API-Key: ${SICHTER_API_KEY:-}" \
   -d "{\"type\":\"Scan${MODE^}\",\"mode\":\"$MODE\",\"auto_pr\":true}" |
   jq -r '.enqueued'
