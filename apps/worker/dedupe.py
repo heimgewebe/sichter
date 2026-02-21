@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import OrderedDict
 from collections.abc import Iterable
 
 from lib.findings import Finding
@@ -8,13 +7,13 @@ from lib.findings import Finding
 
 def dedupe_findings(findings: Iterable[Finding]) -> dict[str, list[Finding]]:
   """Group findings by dedupe_key while preserving order."""
-  grouped: OrderedDict[str, list[Finding]] = OrderedDict()
+  grouped: dict[str, list[Finding]] = {}
   for finding in findings:
     key = finding.dedupe_key or ""
     if key not in grouped:
       grouped[key] = []
     grouped[key].append(finding)
-  return dict(grouped)
+  return grouped
 
 
 def should_create_pr(findings: Iterable[Finding]) -> bool:
