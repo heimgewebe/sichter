@@ -116,7 +116,7 @@ def parse_review_response(
     return ReviewResult(
         summary=str(data.get("summary", "")).strip(),
         risk_overall=risk_overall,  # type: ignore[arg-type]
-        uncertainty=data.get("uncertainty") or {},
+        uncertainty=data.get("uncertainty") if isinstance(data.get("uncertainty"), dict) else {},
         suggestions=suggestions,
         raw_response=raw,
         model=model,

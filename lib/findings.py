@@ -29,7 +29,7 @@ class Finding:
       location = f"{self.file}:{line}"
 
       if rule:
-        self.dedupe_key = f"{tool}:{rule}:{location}"
+        self.dedupe_key = f"{tool}:{rule}:{self.file}"
         return
 
       normalized_message = " ".join(self.message.strip().lower().split())[:80]

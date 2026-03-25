@@ -36,7 +36,7 @@ _PATTERNS: list[re.Pattern[str]] = [
 def redact(text: str) -> str:
     """Return *text* with secrets replaced by ``[REDACTED]``.
 
-    Operates line by line to keep diffs readable.
+    Applies a series of regex-based redaction patterns to the full text.
     """
     for pat in _PATTERNS:
         try:

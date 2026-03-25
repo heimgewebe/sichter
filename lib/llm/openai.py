@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
 import urllib.request
 from urllib.error import HTTPError, URLError
 

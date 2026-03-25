@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import json
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from lib.findings import Finding
-from lib.llm.review import ReviewResult, Suggestion, _fallback_result, parse_review_response
+from lib.llm.review import ReviewResult, Suggestion, parse_review_response
 from lib.llm.sanitize import redact
 
 
