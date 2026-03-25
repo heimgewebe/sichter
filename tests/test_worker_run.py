@@ -34,6 +34,8 @@ class TestWorkerRun(unittest.TestCase):
             mock_ensure_repo.return_value,
             mock_fresh_branch.return_value,
             False,
+            [],
+            mock_llm_review.return_value,
         )
 
         # Test case 2: job with auto_pr=True
@@ -44,6 +46,8 @@ class TestWorkerRun(unittest.TestCase):
             mock_ensure_repo.return_value,
             mock_fresh_branch.return_value,
             True,
+            [],
+            mock_llm_review.return_value,
         )
 
         # Test case 3: job without auto_pr (fallback to policy)
@@ -55,6 +59,8 @@ class TestWorkerRun(unittest.TestCase):
                 mock_ensure_repo.return_value,
                 mock_fresh_branch.return_value,
                 True,
+                [],
+                mock_llm_review.return_value,
             )
 
         with patch("apps.worker.run.POLICY.auto_pr", False):
@@ -64,6 +70,8 @@ class TestWorkerRun(unittest.TestCase):
                 mock_ensure_repo.return_value,
                 mock_fresh_branch.return_value,
                 False,
+                [],
+                mock_llm_review.return_value,
             )
 
         # Test case 4: job with auto_pr=None (should fallback to policy)
@@ -75,6 +83,8 @@ class TestWorkerRun(unittest.TestCase):
                 mock_ensure_repo.return_value,
                 mock_fresh_branch.return_value,
                 True,
+                [],
+                mock_llm_review.return_value,
             )
 
         with patch("apps.worker.run.POLICY.auto_pr", False):
@@ -84,6 +94,8 @@ class TestWorkerRun(unittest.TestCase):
                 mock_ensure_repo.return_value,
                 mock_fresh_branch.return_value,
                 False,
+                [],
+                mock_llm_review.return_value,
             )
 
         # Test case 5: job with non-bool auto_pr defaults to policy
@@ -95,6 +107,8 @@ class TestWorkerRun(unittest.TestCase):
                 mock_ensure_repo.return_value,
                 mock_fresh_branch.return_value,
                 True,
+                [],
+                mock_llm_review.return_value,
             )
 
         with patch("apps.worker.run.POLICY.auto_pr", False):
@@ -104,6 +118,8 @@ class TestWorkerRun(unittest.TestCase):
                 mock_ensure_repo.return_value,
                 mock_fresh_branch.return_value,
                 False,
+                [],
+                mock_llm_review.return_value,
             )
 
     @patch("apps.worker.run.get_changed_files")
@@ -318,6 +334,178 @@ class TestWorkerRun(unittest.TestCase):
         self.assertIn(str(Path("/fake/repo/valid.yaml")), checked_files)
         self.assertNotIn(str(Path("/fake/repo/vendor/dep.yaml")), checked_files)
         self.assertNotIn(str(Path("/fake/repo/test.generated.yml")), checked_files)
+
+    def test_is_check_enabled_supports_nested_dict(self):
+        with patch("apps.worker.run.POLICY.checks", {"ruff": {"enabled": True}}):
+            self.assertTrue(worker_run.is_check_enabled("ruff"))
+
+        with patch("apps.worker.run.POLICY.checks", {"ruff": {"autofix": True}}):
+            self.assertTrue(worker_run.is_check_enabled("ruff"))
+
+        with patch("apps.worker.run.POLICY.checks", {"ruff": {"enabled": False}}):
+            self.assertFalse(worker_run.is_check_enabled("ruff"))
+
+    def test_build_pr_body_includes_findings_summary(self):
+        findings = [
+            Finding(
+                severity="error",
+                category="correctness",
+                file="apps/main.py",
+                line=10,
+                message="Undefined name 'x'",
+                tool="ruff",
+                rule_id="F821",
+            ),
+            Finding(
+                severity="warning",
+                category="correctness",
+                file="apps/main.py",
+                line=12,
+                message="Line too long",
+                tool="ruff",
+                rule_id="E501",
+            ),
+        ]
+
+        body = worker_run.build_pr_body("demo-repo", findings)
+
+        self.assertIn("Repository: demo-repo", body)
+        self.assertIn("- error: 1", body)
+        self.assertIn("- warning: 1", body)
+        self.assertIn("Undefined name 'x'", body)
+        self.assertIn("(F821)", body)
+
+    def test_build_pr_body_no_findings_with_review_includes_review_section(self):
+        """When findings is empty but a review is present, the review section must appear."""
+        from lib.llm.review import ReviewResult
+
+        review = ReviewResult(
+            summary="Diff sieht sauber aus.",
+            risk_overall="low",
+            uncertainty={"level": 0.1, "sources": [], "productive": False},
+            suggestions=[],
+            raw_response="{}",
+            model="test-model",
+            provider="ollama",
+        )
+
+        body = worker_run.build_pr_body("demo-repo", findings=[], review=review)
+
+        self.assertIn("Repository: demo-repo", body)
+        self.assertIn("Keine strukturierten Findings", body)
+        # The LLM review section must still appear
+        self.assertIn("Diff sieht sauber aus.", body)
+        self.assertIn("🟢", body)  # low-risk badge from to_pr_section()
+
+    def test_build_pr_body_no_findings_no_review_is_minimal(self):
+        """When neither findings nor review are present, body stays minimal."""
+        body = worker_run.build_pr_body("demo-repo", findings=[], review=None)
+
+        self.assertIn("Keine strukturierten Findings", body)
+        keine_idx = body.index("Keine")
+        self.assertNotIn("##", body[keine_idx:])
+
+    # ------------------------------------------------------------------
+    # LLM gating semantics
+    # ------------------------------------------------------------------
+
+    @patch("apps.worker.run.run_cmd")
+    def test_llm_review_skipped_when_not_enabled(self, mock_run_cmd):
+        """LLM must not run when llm.enabled is false, even in deep run_mode."""
+        with patch("apps.worker.run.POLICY") as mock_policy:
+            mock_policy.run_mode = "deep"
+            mock_policy.llm = {"enabled": False}
+            result = worker_run.llm_review("repo", Path("/fake/repo"))
+        self.assertIsNone(result)
+        mock_run_cmd.assert_not_called()
+
+    @patch("apps.worker.run.run_cmd")
+    def test_llm_review_skipped_when_llm_config_absent(self, mock_run_cmd):
+        """LLM must not run when llm config is absent (defaults to not enabled)."""
+        with patch("apps.worker.run.POLICY") as mock_policy:
+            mock_policy.run_mode = "deep"
+            mock_policy.llm = None
+            result = worker_run.llm_review("repo", Path("/fake/repo"))
+        self.assertIsNone(result)
+        mock_run_cmd.assert_not_called()
+
+    @patch("apps.worker.run.run_cmd")
+    def test_llm_review_skipped_when_no_findings_and_empty_diff(
+        self, mock_run_cmd
+    ):
+        """LLM must not run when there are no findings and the diff is empty."""
+        mock_run_cmd.return_value.stdout = ""
+        mock_run_cmd.return_value.returncode = 0
+
+        with patch("apps.worker.run.POLICY") as mock_policy, \
+             patch("lib.llm.factory.get_provider") as mock_get_provider:
+            mock_policy.run_mode = "normal"
+            mock_policy.llm = {"enabled": True}
+            result = worker_run.llm_review("repo", Path("/fake/repo"), findings=[])
+        self.assertIsNone(result)
+        mock_get_provider.return_value.complete.assert_not_called()
+
+    @patch("apps.worker.run.run_cmd")
+    def test_llm_review_runs_when_enabled_and_has_diff(
+        self, mock_run_cmd
+    ):
+        """LLM must run when enabled and a non-empty diff is present."""
+        mock_run_cmd.return_value.stdout = "diff --git a/x.py b/x.py\n+line"
+        mock_run_cmd.return_value.returncode = 0
+
+        with patch("apps.worker.run.POLICY") as mock_policy, \
+             patch("lib.llm.factory.get_provider") as mock_get_provider, \
+             patch("apps.worker.run.append_event"):
+            mock_provider = mock_get_provider.return_value
+            mock_provider.complete.return_value = (
+                '{"summary":"ok","risk_overall":"low",'
+                '"uncertainty":{"level":0.1,"sources":[],"productive":false},'
+                '"suggestions":[]}',
+                10,
+            )
+            mock_provider.model = "test-model"
+            mock_provider.provider_name = "ollama"
+            mock_policy.run_mode = "normal"
+            mock_policy.llm = {"enabled": True}
+            result = worker_run.llm_review("repo", Path("/fake/repo"), findings=[])
+        self.assertIsNotNone(result)
+        mock_provider.complete.assert_called_once()
+
+    @patch("apps.worker.run.run_cmd")
+    def test_llm_review_runs_when_enabled_and_has_findings(
+        self, mock_run_cmd
+    ):
+        """LLM must run when enabled and there are static findings, even with empty diff."""
+        mock_run_cmd.return_value.stdout = ""
+        mock_run_cmd.return_value.returncode = 0
+
+        finding = Finding(
+            severity="error",
+            category="correctness",
+            file="main.py",
+            line=1,
+            message="Some issue",
+            tool="ruff",
+            rule_id="F401",
+        )
+
+        with patch("apps.worker.run.POLICY") as mock_policy, \
+             patch("lib.llm.factory.get_provider") as mock_get_provider, \
+             patch("apps.worker.run.append_event"):
+            mock_provider = mock_get_provider.return_value
+            mock_provider.complete.return_value = (
+                '{"summary":"ok","risk_overall":"low",'
+                '"uncertainty":{"level":0.1,"sources":[],"productive":false},'
+                '"suggestions":[]}',
+                10,
+            )
+            mock_provider.model = "test-model"
+            mock_provider.provider_name = "ollama"
+            mock_policy.run_mode = "normal"
+            mock_policy.llm = {"enabled": True}
+            result = worker_run.llm_review("repo", Path("/fake/repo"), findings=[finding])
+        self.assertIsNotNone(result)
+        mock_provider.complete.assert_called_once()
 
 
 if __name__ == "__main__":
