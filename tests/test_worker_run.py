@@ -375,6 +375,36 @@ class TestWorkerRun(unittest.TestCase):
         self.assertIn("Undefined name 'x'", body)
         self.assertIn("(F821)", body)
 
+    def test_build_pr_body_no_findings_with_review_includes_review_section(self):
+        """When findings is empty but a review is present, the review section must appear."""
+        from lib.llm.review import ReviewResult
+
+        review = ReviewResult(
+            summary="Diff sieht sauber aus.",
+            risk_overall="low",
+            uncertainty={"level": 0.1, "sources": [], "productive": False},
+            suggestions=[],
+            raw_response="{}",
+            model="test-model",
+            provider="ollama",
+        )
+
+        body = worker_run.build_pr_body("demo-repo", findings=[], review=review)
+
+        self.assertIn("Repository: demo-repo", body)
+        self.assertIn("Keine strukturierten Findings", body)
+        # The LLM review section must still appear
+        self.assertIn("Diff sieht sauber aus.", body)
+        self.assertIn("🟢", body)  # low-risk badge from to_pr_section()
+
+    def test_build_pr_body_no_findings_no_review_is_minimal(self):
+        """When neither findings nor review are present, body stays minimal."""
+        body = worker_run.build_pr_body("demo-repo", findings=[], review=None)
+
+        self.assertIn("Keine strukturierten Findings", body)
+        keine_idx = body.index("Keine")
+        self.assertNotIn("##", body[keine_idx:])
+
     # ------------------------------------------------------------------
     # LLM gating semantics
     # ------------------------------------------------------------------

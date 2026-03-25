@@ -698,11 +698,16 @@ def build_pr_body(
   """Build a concise PR body with finding summary and optional LLM review."""
   findings_list = list(findings or [])
   if not findings_list:
-    return (
-      "## Sichter Auto-Review\n\n"
-      f"Repository: {repo}\n\n"
-      "Keine strukturierten Findings gemeldet. Diese PR enthält nur automatische Änderungen."
-    )
+    lines: list[str] = [
+      "## Sichter Auto-Review",
+      "",
+      f"Repository: {repo}",
+      "",
+      "Keine strukturierten Findings gemeldet. Diese PR enthält nur automatische Änderungen.",
+    ]
+    if review is not None:
+      lines.extend(["", review.to_pr_section()])
+    return "\n".join(lines)
 
   severity_order = ["critical", "error", "warning", "info", "question"]
   severity_counts = {sev: 0 for sev in severity_order}
