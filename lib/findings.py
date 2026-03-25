@@ -23,5 +23,14 @@ class Finding:
 
   def __post_init__(self) -> None:
     if not self.dedupe_key:
-      rule = self.rule_id or ""
-      self.dedupe_key = f"{self.category}:{self.file}:{rule}:{self.message[:50]}"
+      tool = (self.tool or "unknown").strip().lower()
+      rule = (self.rule_id or "").strip().lower()
+      line = self.line if self.line is not None else 0
+      location = f"{self.file}:{line}"
+
+      if rule:
+        self.dedupe_key = f"{tool}:{rule}:{location}"
+        return
+
+      normalized_message = " ".join(self.message.strip().lower().split())[:80]
+      self.dedupe_key = f"{tool}:{self.category}:{location}:{normalized_message}"

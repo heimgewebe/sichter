@@ -9,6 +9,8 @@ llm:
 checks:
  shellcheck: true
  yamllint: true
+ ruff: false
+ shfmt_fix: false
  semver: true
  deadcode: false
  rust: false

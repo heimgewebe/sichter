@@ -34,6 +34,8 @@ class TestWorkerRun(unittest.TestCase):
             mock_ensure_repo.return_value,
             mock_fresh_branch.return_value,
             False,
+            [],
+            mock_llm_review.return_value,
         )
 
         # Test case 2: job with auto_pr=True
@@ -44,6 +46,8 @@ class TestWorkerRun(unittest.TestCase):
             mock_ensure_repo.return_value,
             mock_fresh_branch.return_value,
             True,
+            [],
+            mock_llm_review.return_value,
         )
 
         # Test case 3: job without auto_pr (fallback to policy)
@@ -55,6 +59,8 @@ class TestWorkerRun(unittest.TestCase):
                 mock_ensure_repo.return_value,
                 mock_fresh_branch.return_value,
                 True,
+                [],
+                mock_llm_review.return_value,
             )
 
         with patch("apps.worker.run.POLICY.auto_pr", False):
@@ -64,6 +70,8 @@ class TestWorkerRun(unittest.TestCase):
                 mock_ensure_repo.return_value,
                 mock_fresh_branch.return_value,
                 False,
+                [],
+                mock_llm_review.return_value,
             )
 
         # Test case 4: job with auto_pr=None (should fallback to policy)
@@ -75,6 +83,8 @@ class TestWorkerRun(unittest.TestCase):
                 mock_ensure_repo.return_value,
                 mock_fresh_branch.return_value,
                 True,
+                [],
+                mock_llm_review.return_value,
             )
 
         with patch("apps.worker.run.POLICY.auto_pr", False):
@@ -84,6 +94,8 @@ class TestWorkerRun(unittest.TestCase):
                 mock_ensure_repo.return_value,
                 mock_fresh_branch.return_value,
                 False,
+                [],
+                mock_llm_review.return_value,
             )
 
         # Test case 5: job with non-bool auto_pr defaults to policy
@@ -95,6 +107,8 @@ class TestWorkerRun(unittest.TestCase):
                 mock_ensure_repo.return_value,
                 mock_fresh_branch.return_value,
                 True,
+                [],
+                mock_llm_review.return_value,
             )
 
         with patch("apps.worker.run.POLICY.auto_pr", False):
@@ -104,6 +118,8 @@ class TestWorkerRun(unittest.TestCase):
                 mock_ensure_repo.return_value,
                 mock_fresh_branch.return_value,
                 False,
+                [],
+                mock_llm_review.return_value,
             )
 
     @patch("apps.worker.run.get_changed_files")
@@ -318,6 +334,46 @@ class TestWorkerRun(unittest.TestCase):
         self.assertIn(str(Path("/fake/repo/valid.yaml")), checked_files)
         self.assertNotIn(str(Path("/fake/repo/vendor/dep.yaml")), checked_files)
         self.assertNotIn(str(Path("/fake/repo/test.generated.yml")), checked_files)
+
+    def test_is_check_enabled_supports_nested_dict(self):
+        with patch("apps.worker.run.POLICY.checks", {"ruff": {"enabled": True}}):
+            self.assertTrue(worker_run.is_check_enabled("ruff"))
+
+        with patch("apps.worker.run.POLICY.checks", {"ruff": {"autofix": True}}):
+            self.assertTrue(worker_run.is_check_enabled("ruff"))
+
+        with patch("apps.worker.run.POLICY.checks", {"ruff": {"enabled": False}}):
+            self.assertFalse(worker_run.is_check_enabled("ruff"))
+
+    def test_build_pr_body_includes_findings_summary(self):
+        findings = [
+            Finding(
+                severity="error",
+                category="correctness",
+                file="apps/main.py",
+                line=10,
+                message="Undefined name 'x'",
+                tool="ruff",
+                rule_id="F821",
+            ),
+            Finding(
+                severity="warning",
+                category="correctness",
+                file="apps/main.py",
+                line=12,
+                message="Line too long",
+                tool="ruff",
+                rule_id="E501",
+            ),
+        ]
+
+        body = worker_run.build_pr_body("demo-repo", findings)
+
+        self.assertIn("Repository: demo-repo", body)
+        self.assertIn("- error: 1", body)
+        self.assertIn("- warning: 1", body)
+        self.assertIn("Undefined name 'x'", body)
+        self.assertIn("(F821)", body)
 
 
 if __name__ == "__main__":
