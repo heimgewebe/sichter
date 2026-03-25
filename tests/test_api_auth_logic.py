@@ -5,25 +5,29 @@ def test_check_api_key_valid():
   # should not raise
   check_api_key("secret", "secret")
 
-def test_check_api_key_mismatch():
-  with pytest.raises(ApiKeyError) as excinfo:
-    check_api_key("wrong", "secret")
-  assert excinfo.value.kind == "invalid"
-  assert "Invalid API Key" in str(excinfo.value)
+@pytest.mark.parametrize(
+  "provided, expected, expected_kind, expected_message",
+  [
+    # Case: Server not configured (expected is None or empty)
+    (None, None, "not_configured", "API Key is not configured on server"),
+    ("", None, "not_configured", "API Key is not configured on server"),
+    ("any", None, "not_configured", "API Key is not configured on server"),
+    (None, "", "not_configured", "API Key is not configured on server"),
+    ("", "", "not_configured", "API Key is not configured on server"),
+    ("any", "", "not_configured", "API Key is not configured on server"),
 
-def test_check_api_key_provided_missing():
-  with pytest.raises(ApiKeyError) as excinfo:
-    check_api_key(None, "secret")
-  assert excinfo.value.kind == "missing"
-  assert "API Key is missing" in str(excinfo.value)
+    # Case: Provided key is missing (provided is None or empty)
+    (None, "secret", "missing", "API Key is missing"),
+    ("", "secret", "missing", "API Key is missing"),
 
-def test_check_api_key_expected_missing():
+    # Case: Invalid key (provided doesn't match expected)
+    ("wrong", "secret", "invalid", "Invalid API Key"),
+    ("secret ", "secret", "invalid", "Invalid API Key"),
+    (" secret", "secret", "invalid", "Invalid API Key"),
+  ],
+)
+def test_check_api_key_errors(provided, expected, expected_kind, expected_message):
   with pytest.raises(ApiKeyError) as excinfo:
-    check_api_key("any", None)
-  assert excinfo.value.kind == "not_configured"
-  assert "API Key is not configured on server" in str(excinfo.value)
-
-def test_check_api_key_both_missing():
-  with pytest.raises(ApiKeyError) as excinfo:
-    check_api_key(None, None)
-  assert excinfo.value.kind == "not_configured"
+    check_api_key(provided, expected)
+  assert excinfo.value.kind == expected_kind
+  assert expected_message in str(excinfo.value)
