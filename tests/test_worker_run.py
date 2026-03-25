@@ -375,6 +375,108 @@ class TestWorkerRun(unittest.TestCase):
         self.assertIn("Undefined name 'x'", body)
         self.assertIn("(F821)", body)
 
+    # ------------------------------------------------------------------
+    # LLM gating semantics
+    # ------------------------------------------------------------------
+
+    @patch("apps.worker.run.run_cmd")
+    def test_llm_review_skipped_when_not_enabled(self, mock_run_cmd):
+        """LLM must not run when llm.enabled is false, even in deep run_mode."""
+        with patch("apps.worker.run.POLICY") as mock_policy:
+            mock_policy.run_mode = "deep"
+            mock_policy.llm = {"enabled": False}
+            result = worker_run.llm_review("repo", Path("/fake/repo"))
+        self.assertIsNone(result)
+        mock_run_cmd.assert_not_called()
+
+    @patch("apps.worker.run.run_cmd")
+    def test_llm_review_skipped_when_llm_config_absent(self, mock_run_cmd):
+        """LLM must not run when llm config is absent (defaults to not enabled)."""
+        with patch("apps.worker.run.POLICY") as mock_policy:
+            mock_policy.run_mode = "deep"
+            mock_policy.llm = None
+            result = worker_run.llm_review("repo", Path("/fake/repo"))
+        self.assertIsNone(result)
+        mock_run_cmd.assert_not_called()
+
+    @patch("apps.worker.run.run_cmd")
+    def test_llm_review_skipped_when_no_findings_and_empty_diff(
+        self, mock_run_cmd
+    ):
+        """LLM must not run when there are no findings and the diff is empty."""
+        mock_run_cmd.return_value.stdout = ""
+        mock_run_cmd.return_value.returncode = 0
+
+        with patch("apps.worker.run.POLICY") as mock_policy, \
+             patch("lib.llm.factory.get_provider") as mock_get_provider:
+            mock_policy.run_mode = "normal"
+            mock_policy.llm = {"enabled": True}
+            result = worker_run.llm_review("repo", Path("/fake/repo"), findings=[])
+        self.assertIsNone(result)
+        mock_get_provider.return_value.complete.assert_not_called()
+
+    @patch("apps.worker.run.run_cmd")
+    def test_llm_review_runs_when_enabled_and_has_diff(
+        self, mock_run_cmd
+    ):
+        """LLM must run when enabled and a non-empty diff is present."""
+        mock_run_cmd.return_value.stdout = "diff --git a/x.py b/x.py\n+line"
+        mock_run_cmd.return_value.returncode = 0
+
+        with patch("apps.worker.run.POLICY") as mock_policy, \
+             patch("lib.llm.factory.get_provider") as mock_get_provider, \
+             patch("apps.worker.run.append_event"):
+            mock_provider = mock_get_provider.return_value
+            mock_provider.complete.return_value = (
+                '{"summary":"ok","risk_overall":"low",'
+                '"uncertainty":{"level":0.1,"sources":[],"productive":false},'
+                '"suggestions":[]}',
+                10,
+            )
+            mock_provider.model = "test-model"
+            mock_provider.provider_name = "ollama"
+            mock_policy.run_mode = "normal"
+            mock_policy.llm = {"enabled": True}
+            result = worker_run.llm_review("repo", Path("/fake/repo"), findings=[])
+        self.assertIsNotNone(result)
+        mock_provider.complete.assert_called_once()
+
+    @patch("apps.worker.run.run_cmd")
+    def test_llm_review_runs_when_enabled_and_has_findings(
+        self, mock_run_cmd
+    ):
+        """LLM must run when enabled and there are static findings, even with empty diff."""
+        mock_run_cmd.return_value.stdout = ""
+        mock_run_cmd.return_value.returncode = 0
+
+        finding = Finding(
+            severity="error",
+            category="correctness",
+            file="main.py",
+            line=1,
+            message="Some issue",
+            tool="ruff",
+            rule_id="F401",
+        )
+
+        with patch("apps.worker.run.POLICY") as mock_policy, \
+             patch("lib.llm.factory.get_provider") as mock_get_provider, \
+             patch("apps.worker.run.append_event"):
+            mock_provider = mock_get_provider.return_value
+            mock_provider.complete.return_value = (
+                '{"summary":"ok","risk_overall":"low",'
+                '"uncertainty":{"level":0.1,"sources":[],"productive":false},'
+                '"suggestions":[]}',
+                10,
+            )
+            mock_provider.model = "test-model"
+            mock_provider.provider_name = "ollama"
+            mock_policy.run_mode = "normal"
+            mock_policy.llm = {"enabled": True}
+            result = worker_run.llm_review("repo", Path("/fake/repo"), findings=[finding])
+        self.assertIsNotNone(result)
+        mock_provider.complete.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

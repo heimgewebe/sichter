@@ -642,8 +642,8 @@ def llm_review(
   """
   llm_cfg = POLICY.llm or {}
   enabled = bool(llm_cfg.get("enabled", False))
-  if POLICY.run_mode != "deep" and not enabled:
-    log(f"LLM-Review übersprungen (run_mode={POLICY.run_mode!r}, llm.enabled={enabled!r})")
+  if not enabled:
+    log(f"LLM-Review übersprungen (llm.enabled={enabled!r})")
     return None
 
   from lib.llm.factory import get_provider
@@ -658,6 +658,11 @@ def llm_review(
       check=False,
     )
     diff = diff_result.stdout or ""
+
+    if not findings and not diff.strip():
+      log(f"LLM-Review übersprungen – kein Diff und keine Findings für {repo}")
+      return None
+
     prompt = build_review_prompt(repo, diff, findings or [])
     max_tokens = int(llm_cfg.get("max_tokens_per_review", 4000))
     raw, tokens = provider.complete(prompt, max_tokens=max_tokens)
