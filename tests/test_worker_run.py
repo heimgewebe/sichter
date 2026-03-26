@@ -627,6 +627,76 @@ class TestWorkerRun(unittest.TestCase):
         self.assertEqual(event.get("reason"), "rate_limit")
 
     @patch("apps.worker.run.run_cmd")
+    def test_llm_review_invalid_max_reviews_falls_back_to_default(self, mock_run_cmd):
+        """Non-numeric max_reviews_per_hour must not crash or disable reviews."""
+        mock_run_cmd.return_value.stdout = "diff --git a/x.py b/x.py\n+line"
+        mock_run_cmd.return_value.returncode = 0
+
+        provider = unittest.mock.Mock()
+        provider.complete.return_value = (
+            '{"summary":"ok","risk_overall":"low",'
+            '"uncertainty":{"level":0.1,"sources":[],"productive":false},'
+            '"suggestions":[]}',
+            10,
+        )
+        provider.model = "llama3"
+        provider.provider_name = "ollama"
+
+        with patch("apps.worker.run.POLICY") as mock_policy, \
+             patch("lib.llm.factory.get_provider", return_value=provider), \
+             patch("apps.worker.run.append_event"), \
+             patch("apps.worker.run.persist_review_result"), \
+             patch("lib.llm.budget.ReviewBudget") as mock_budget_cls:
+            mock_budget = mock_budget_cls.return_value
+            mock_budget.allow_review.return_value = True
+            mock_policy.llm = {
+                "enabled": True,
+                "max_reviews_per_hour": "not-a-number",
+            }
+
+            result = worker_run.llm_review("repo", Path("/fake/repo"), findings=[])
+
+        # Should succeed using default of 20; allow_review called with 20
+        mock_budget.allow_review.assert_called_once_with(max_reviews_per_hour=20)
+        self.assertIsNotNone(result)
+
+    @patch("apps.worker.run.run_cmd")
+    def test_llm_review_invalid_max_tokens_falls_back_to_default(self, mock_run_cmd):
+        """Non-numeric max_tokens_per_review must not crash; falls back to 4000."""
+        mock_run_cmd.return_value.stdout = "diff --git a/x.py b/x.py\n+line"
+        mock_run_cmd.return_value.returncode = 0
+
+        provider = unittest.mock.Mock()
+        provider.complete.return_value = (
+            '{"summary":"ok","risk_overall":"low",'
+            '"uncertainty":{"level":0.1,"sources":[],"productive":false},'
+            '"suggestions":[]}',
+            10,
+        )
+        provider.model = "llama3"
+        provider.provider_name = "ollama"
+
+        with patch("apps.worker.run.POLICY") as mock_policy, \
+             patch("lib.llm.factory.get_provider", return_value=provider), \
+             patch("apps.worker.run.append_event"), \
+             patch("apps.worker.run.persist_review_result"), \
+             patch("lib.llm.budget.ReviewBudget") as mock_budget_cls:
+            mock_budget = mock_budget_cls.return_value
+            mock_budget.allow_review.return_value = True
+            mock_policy.llm = {
+                "enabled": True,
+                "max_tokens_per_review": "bad",
+            }
+
+            result = worker_run.llm_review("repo", Path("/fake/repo"), findings=[])
+
+        # Should succeed using default of 4000 tokens
+        provider.complete.assert_called_once()
+        _, call_kwargs = provider.complete.call_args
+        self.assertEqual(call_kwargs.get("max_tokens"), 4000)
+        self.assertIsNotNone(result)
+
+    @patch("apps.worker.run.run_cmd")
     def test_llm_review_uses_fallback_provider_on_error(self, mock_run_cmd):
         mock_run_cmd.return_value.stdout = "diff --git a/x.py b/x.py\n+line"
         mock_run_cmd.return_value.returncode = 0

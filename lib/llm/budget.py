@@ -21,7 +21,7 @@ class ReviewBudget:
         entries = self._load_entries()
         current = now if now is not None else time.time()
         window_start = current - 3600
-        recent = [e for e in entries if float(e.get("ts", 0.0)) >= window_start]
+        recent = [e for e in entries if self._ts(e) >= window_start]
         return len(recent) < max_reviews_per_hour
 
     def reviews_in_last_hour(self, now: float | None = None) -> int:
@@ -29,7 +29,15 @@ class ReviewBudget:
         entries = self._load_entries()
         current = now if now is not None else time.time()
         window_start = current - 3600
-        return sum(1 for e in entries if float(e.get("ts", 0.0)) >= window_start)
+        return sum(1 for e in entries if self._ts(e) >= window_start)
+
+    @staticmethod
+    def _ts(entry: dict) -> float:
+        """Return the timestamp from an entry, or 0.0 if missing/invalid."""
+        try:
+            return float(entry.get("ts", 0.0))  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return 0.0
 
     def record_review(self, repo: str, tokens_used: int, now: float | None = None) -> None:
         """Append one review execution to the budget state file."""

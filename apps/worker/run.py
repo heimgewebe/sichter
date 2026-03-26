@@ -402,7 +402,12 @@ def llm_review(
 
   try:
     budget = ReviewBudget(REVIEW_BUDGET_FILE)
-    max_reviews_per_hour = int(llm_cfg.get("max_reviews_per_hour", 20))
+    try:
+      max_reviews_per_hour = int(llm_cfg.get("max_reviews_per_hour", 20))
+      if max_reviews_per_hour <= 0:
+        raise ValueError("max_reviews_per_hour must be positive")
+    except (TypeError, ValueError):
+      max_reviews_per_hour = 20
     if not budget.allow_review(max_reviews_per_hour=max_reviews_per_hour):
       used = budget.reviews_in_last_hour()
       log(
@@ -445,7 +450,12 @@ def llm_review(
       findings or [],
       denylist_patterns=denylist_patterns,
     )
-    max_tokens = int(llm_cfg.get("max_tokens_per_review", 4000))
+    try:
+      max_tokens = int(llm_cfg.get("max_tokens_per_review", 4000))
+      if max_tokens <= 0:
+        raise ValueError("max_tokens_per_review must be positive")
+    except (TypeError, ValueError):
+      max_tokens = 4000
     active_provider = provider
     provider_switched = False
     try:

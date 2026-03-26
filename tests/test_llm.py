@@ -56,7 +56,7 @@ class TestRedact(unittest.TestCase):
 
     def test_extra_policy_pattern_is_redacted(self):
         text = "SENSITIVE_MARKER_42"
-        result = redact(text, extra_patterns=[r"SENSITIVE_MARKER_\\d+"])
+        result = redact(text, extra_patterns=[r"SENSITIVE_MARKER_\d+"])
         self.assertEqual(result, "[REDACTED]")
 
 
@@ -83,6 +83,17 @@ class TestReviewBudget(unittest.TestCase):
 
             self.assertFalse(budget.allow_review(1, now=now + 3599))
             self.assertTrue(budget.allow_review(1, now=now + 3601))
+
+    def test_invalid_ts_entry_does_not_crash_and_is_not_counted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            budget = self._budget(tmp)
+            # Write a JSONL entry with a bad timestamp directly
+            state_file = Path(tmp) / "budget.jsonl"
+            state_file.write_text('{"ts": "not-a-number", "repo": "r", "tokens_used": 5}\n')
+            now = 1_000_000.0
+            # Should not raise; broken entry treated as expired (ts=0.0 < window_start)
+            self.assertEqual(budget.reviews_in_last_hour(now=now), 0)
+            self.assertTrue(budget.allow_review(1, now=now))
 
 
 class TestParseReviewResponse(unittest.TestCase):
