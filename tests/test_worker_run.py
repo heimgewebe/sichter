@@ -359,7 +359,7 @@ class TestWorkerRun(unittest.TestCase):
             "sichter/autofix-branch",
             True,
             [],
-            None,
+            review=None,
         )
 
     @patch("apps.worker.run.create_or_update_pr")
@@ -420,11 +420,102 @@ class TestWorkerRun(unittest.TestCase):
         self.assertTrue(any("style auto PR" in title for title in called_titles))
         self.assertTrue(any("security auto PR" in title for title in called_titles))
 
+        # In a genuine multi-PR split, the global review must NOT be passed to themed PRs.
+        for call in mock_create_or_update_pr.call_args_list:
+            review_arg = call.kwargs.get("review")
+            self.assertIsNone(review_arg,
+                              "review must be None for themed PRs in multi-PR split")
+
         with patch("apps.worker.run.POLICY.checks", {"ruff": {"autofix": True}}):
             self.assertTrue(worker_run.is_check_enabled("ruff"))
 
         with patch("apps.worker.run.POLICY.checks", {"ruff": {"enabled": False}}):
             self.assertFalse(worker_run.is_check_enabled("ruff"))
+
+    @patch("apps.worker.run.create_or_update_pr")
+    def test_create_themed_prs_falls_back_on_overlapping_files(self, mock_create_or_update_pr):
+        """When the same file has findings in multiple categories, themed split must not happen."""
+        findings = [
+            Finding(
+                severity="warning",
+                category="style",
+                file="shared.py",
+                line=1,
+                message="style issue",
+                tool="ruff",
+                rule_id="E501",
+            ),
+            Finding(
+                severity="error",
+                category="security",
+                file="shared.py",  # same file, different category
+                line=5,
+                message="security issue",
+                tool="bandit",
+                rule_id="B101",
+            ),
+        ]
+
+        worker_run.create_themed_prs(
+            repo="test_repo",
+            repo_dir=Path("/fake/repo"),
+            source_branch="sichter/autofix-branch",
+            auto_pr=True,
+            findings=findings,
+            review=None,
+        )
+
+        # Must fall back to a single PR, not two themed PRs
+        mock_create_or_update_pr.assert_called_once()
+        args = mock_create_or_update_pr.call_args
+        # Called without a custom pr_title (single-PR fallback)
+        self.assertNotIn("pr_title", args.kwargs or {})
+
+    @patch("apps.worker.run.create_or_update_pr")
+    @patch("apps.worker.run.run_cmd")
+    @patch("apps.worker.run.commit_if_changes")
+    def test_create_themed_prs_review_passed_for_single_category(
+        self,
+        mock_commit_if_changes,
+        mock_run_cmd,
+        mock_create_or_update_pr,
+    ):
+        """When there is only one actionable category, the review is forwarded."""
+        from lib.llm.review import ReviewResult
+
+        fake_review = ReviewResult(
+            summary="ok",
+            risk_overall="low",
+            uncertainty={"level": 0.1, "sources": [], "productive": False},
+            suggestions=[],
+            raw_response="{}",
+            model="llama3",
+            provider="ollama",
+        )
+        findings = [
+            Finding(
+                severity="warning",
+                category="style",
+                file="only.py",
+                line=1,
+                message="style issue",
+                tool="ruff",
+                rule_id="E501",
+            ),
+        ]
+
+        worker_run.create_themed_prs(
+            repo="test_repo",
+            repo_dir=Path("/fake/repo"),
+            source_branch="sichter/autofix-branch",
+            auto_pr=True,
+            findings=findings,
+            review=fake_review,
+        )
+
+        mock_create_or_update_pr.assert_called_once()
+        call = mock_create_or_update_pr.call_args
+        self.assertIs(call.kwargs.get("review"), fake_review)
 
     def test_build_pr_body_includes_findings_summary(self):
         findings = [

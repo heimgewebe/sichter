@@ -279,33 +279,6 @@ def normalize_severity(severity: str) -> Severity:
   return "warning"
 
 
-def build_uncertainty(
-  tool: str,
-  line: int | None,
-  rule_id: str | None,
-) -> dict:
-  """Build a lightweight uncertainty payload for static findings."""
-  level = 0.15
-  sources: list[str] = []
-
-  if line is None:
-    level += 0.15
-    sources.append("missing_line")
-  if not rule_id:
-    level += 0.10
-    sources.append("missing_rule_id")
-
-  if level > 1.0:
-    level = 1.0
-
-  return {
-    "level": level,
-    "sources": sources,
-    "productive": True,
-    "tool": tool,
-  }
-
-
 def persist_review_result(repo: str, result: ReviewResult) -> None:
   """Persist parsed LLM review results as JSONL records."""
   now = datetime.now(timezone.utc)
@@ -715,13 +688,8 @@ def create_themed_prs(
   findings_list = list(findings or [])
   categories = sorted({finding.category for finding in findings_list})
   if len(categories) <= 1:
-    create_or_update_pr(repo, repo_dir, source_branch, auto_pr, findings_list, review)
+    create_or_update_pr(repo, repo_dir, source_branch, auto_pr, findings_list, review=review)
     return
-
-  rev = run_cmd(["git", "rev-parse", "--short", source_branch], repo_dir, check=False)
-  shortsha = (rev.stdout or "").strip() if rev.returncode == 0 else "manual"
-  if not shortsha:
-    shortsha = "manual"
 
   # Keep only categories that can be mapped to concrete files.
   category_files: dict[str, list[str]] = {}
@@ -732,7 +700,7 @@ def create_themed_prs(
 
   actionable_categories = [cat for cat in categories if category_files.get(cat)]
   if not actionable_categories:
-    create_or_update_pr(repo, repo_dir, source_branch, auto_pr, findings_list, review)
+    create_or_update_pr(repo, repo_dir, source_branch, auto_pr, findings_list, review=review)
     return
 
   if len(actionable_categories) == 1:
@@ -745,10 +713,29 @@ def create_themed_prs(
       source_branch,
       auto_pr,
       themed_findings,
-      review,
+      review=review,
       pr_title=themed_title,
     )
     return
+
+  # Guard: if any file appears in more than one category, a multi-PR split would
+  # produce overlapping branches with conflicting changes.  Fall back to a single PR.
+  file_categories: dict[str, set[str]] = {}
+  for finding in findings_list:
+    if finding.file:
+      file_categories.setdefault(finding.file, set()).add(finding.category)
+  if any(len(cats) > 1 for cats in file_categories.values()):
+    log(
+      f"{repo}: Überlappende Dateien in mehreren Kategorien – "
+      "Fallback auf einzelne PR"
+    )
+    create_or_update_pr(repo, repo_dir, source_branch, auto_pr, findings_list, review=review)
+    return
+
+  rev = run_cmd(["git", "rev-parse", "--short", source_branch], repo_dir, check=False)
+  shortsha = (rev.stdout or "").strip() if rev.returncode == 0 else "manual"
+  if not shortsha:
+    shortsha = "manual"
 
   base_ref = f"origin/{DEFAULT_BRANCH}"
   for category in actionable_categories:
@@ -790,7 +777,7 @@ def create_themed_prs(
       themed_branch,
       auto_pr,
       category_findings,
-      review,
+      review=None,  # global review covers the full diff; don't attach it to a partial themed PR
       pr_title=themed_title,
     )
 
