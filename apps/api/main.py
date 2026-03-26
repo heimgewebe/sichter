@@ -488,6 +488,15 @@ def repos_status() -> dict[str, list[dict]]:
   return {"repos": results}
 
 
+@app.get("/repos/findings", dependencies=[Depends(verify_api_key)])
+def repos_findings(n: int = 200) -> dict[str, list[dict]]:
+  """Return the latest findings snapshot per repo from recorded review metrics."""
+  from lib.metrics import latest_repo_findings, load_metrics
+
+  records = load_metrics(n=max(1, min(n, 10_000)))
+  return {"repos": latest_repo_findings(records)}
+
+
 @app.post("/settings/policy", dependencies=[Depends(verify_api_key)])
 def write_policy(content: Annotated[dict, Body()]) -> dict[str, str]:
   # stores to ~/.config/sichter/policy.yml

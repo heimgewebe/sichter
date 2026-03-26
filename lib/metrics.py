@@ -132,3 +132,49 @@ def aggregate_metrics(records: list[dict]) -> dict:
         "findings_by_severity": by_sev,
         "repos": repos,
     }
+
+
+def _top_severity(findings_by_severity: dict[str, int], findings_count: int) -> str:
+    """Return the highest-priority severity label for a repo snapshot."""
+    for severity in ("critical", "error", "warning", "question", "info"):
+        if int(findings_by_severity.get(severity, 0)) > 0:
+            return severity
+    return "ok" if findings_count <= 0 else "unknown"
+
+
+def latest_repo_findings(records: list[dict]) -> list[dict]:
+    """Return the latest findings snapshot per repo.
+
+    The input is expected to follow the ordering of ``load_metrics()``, i.e. the
+    records are processed from oldest to newest so the last record for a repo wins.
+    """
+    latest: dict[str, dict] = {}
+
+    for record in records:
+        repo = str(record.get("repo") or "").strip()
+        if not repo:
+            continue
+
+        raw_findings = record.get("findings_by_severity") or {}
+        findings_by_severity: dict[str, int] = {}
+        if isinstance(raw_findings, dict):
+            for severity, count in raw_findings.items():
+                try:
+                    findings_by_severity[str(severity)] = int(count)
+                except (TypeError, ValueError):
+                    continue
+
+        try:
+            findings_count = int(record.get("findings_count", 0))
+        except (TypeError, ValueError):
+            findings_count = 0
+
+        latest[repo] = {
+            "name": repo,
+            "findingsCount": max(0, findings_count),
+            "findingsBySeverity": findings_by_severity,
+            "topSeverity": _top_severity(findings_by_severity, findings_count),
+            "lastReviewedAt": record.get("timestamp"),
+        }
+
+    return [latest[repo] for repo in sorted(latest)]
