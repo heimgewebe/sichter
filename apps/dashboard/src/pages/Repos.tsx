@@ -35,15 +35,22 @@ const Repos = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([fetchRepos(), fetchRepoFindings()])
-      .then(([statusRes, findingsRes]) => {
+    fetchRepos()
+      .then((statusRes) => {
         setRepos(statusRes.repos);
-        const map: Record<string, RepoFindingsEntry> = {};
-        for (const entry of findingsRes.repos) {
-          map[entry.name] = entry;
-        }
-        setFindings(map);
         setError(null);
+        // Findings are optional: a failure here must not collapse the status table.
+        fetchRepoFindings()
+          .then((findingsRes) => {
+            const map: Record<string, RepoFindingsEntry> = {};
+            for (const entry of findingsRes.repos) {
+              map[entry.name] = entry;
+            }
+            setFindings(map);
+          })
+          .catch(() => {
+            // Findings unavailable — rows show '–' for findings columns.
+          });
       })
       .catch((err) => setError((err as Error).message));
   }, []);
@@ -58,8 +65,8 @@ const Repos = () => {
             <th>Repository</th>
             <th>Findings</th>
             <th>Severity</th>
+            <th>Letzte Review</th>
             <th>Letztes Event</th>
-            <th>Timestamp</th>
           </tr>
         </thead>
         <tbody>
@@ -79,7 +86,7 @@ const Repos = () => {
                     '–'
                   )}
                 </td>
-                <td>{repo.lastEvent?.kind ?? repo.lastEvent?.line ?? '–'}</td>
+                <td>{f?.lastReviewedAt ?? '–'}</td>
                 <td>{repo.lastEvent?.ts ?? '–'}</td>
               </tr>
             );
