@@ -8,28 +8,28 @@ from lib.findings import Finding
 
 class TestWorkerRun(unittest.TestCase):
     @patch("apps.worker.run.get_changed_files", return_value=[])
-    @patch("apps.worker.run.create_or_update_pr")
+    @patch("apps.worker.run.create_themed_prs")
     @patch("apps.worker.run.commit_if_changes", return_value=True)
     @patch("apps.worker.run.llm_review")
-    @patch("apps.worker.run.run_yamllint", return_value=[])
-    @patch("apps.worker.run.run_shellcheck", return_value=[])
+    @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
+    @patch("apps.worker.run.registry_run_checks", return_value=[])
     @patch("apps.worker.run.fresh_branch")
     @patch("apps.worker.run.ensure_repo")
     def test_handle_job_respects_auto_pr_flag(
         self,
         mock_ensure_repo,
         mock_fresh_branch,
-        mock_run_shellcheck,
-        mock_run_yamllint,
+        mock_registry_run_checks,
+        mock_registry_run_autofixes,
         mock_llm_review,
         mock_commit_if_changes,
-        mock_create_or_update_pr,
+        mock_create_themed_prs,
         mock_get_changed_files,
     ):
         # Test case 1: job with auto_pr=False
         job_false = {"repo": "test_repo", "auto_pr": False}
         worker_run.handle_job(job_false)
-        mock_create_or_update_pr.assert_called_with(
+        mock_create_themed_prs.assert_called_with(
             "test_repo",
             mock_ensure_repo.return_value,
             mock_fresh_branch.return_value,
@@ -41,7 +41,7 @@ class TestWorkerRun(unittest.TestCase):
         # Test case 2: job with auto_pr=True
         job_true = {"repo": "test_repo", "auto_pr": True}
         worker_run.handle_job(job_true)
-        mock_create_or_update_pr.assert_called_with(
+        mock_create_themed_prs.assert_called_with(
             "test_repo",
             mock_ensure_repo.return_value,
             mock_fresh_branch.return_value,
@@ -54,7 +54,7 @@ class TestWorkerRun(unittest.TestCase):
         job_none = {"repo": "test_repo"}
         with patch("apps.worker.run.POLICY.auto_pr", True):
             worker_run.handle_job(job_none)
-            mock_create_or_update_pr.assert_called_with(
+            mock_create_themed_prs.assert_called_with(
                 "test_repo",
                 mock_ensure_repo.return_value,
                 mock_fresh_branch.return_value,
@@ -65,7 +65,7 @@ class TestWorkerRun(unittest.TestCase):
 
         with patch("apps.worker.run.POLICY.auto_pr", False):
             worker_run.handle_job(job_none)
-            mock_create_or_update_pr.assert_called_with(
+            mock_create_themed_prs.assert_called_with(
                 "test_repo",
                 mock_ensure_repo.return_value,
                 mock_fresh_branch.return_value,
@@ -78,7 +78,7 @@ class TestWorkerRun(unittest.TestCase):
         job_none_value = {"repo": "test_repo", "auto_pr": None}
         with patch("apps.worker.run.POLICY.auto_pr", True):
             worker_run.handle_job(job_none_value)
-            mock_create_or_update_pr.assert_called_with(
+            mock_create_themed_prs.assert_called_with(
                 "test_repo",
                 mock_ensure_repo.return_value,
                 mock_fresh_branch.return_value,
@@ -89,7 +89,7 @@ class TestWorkerRun(unittest.TestCase):
 
         with patch("apps.worker.run.POLICY.auto_pr", False):
             worker_run.handle_job(job_none_value)
-            mock_create_or_update_pr.assert_called_with(
+            mock_create_themed_prs.assert_called_with(
                 "test_repo",
                 mock_ensure_repo.return_value,
                 mock_fresh_branch.return_value,
@@ -102,7 +102,7 @@ class TestWorkerRun(unittest.TestCase):
         job_invalid_type = {"repo": "test_repo", "auto_pr": "false"}
         with patch("apps.worker.run.POLICY.auto_pr", True):
             worker_run.handle_job(job_invalid_type)
-            mock_create_or_update_pr.assert_called_with(
+            mock_create_themed_prs.assert_called_with(
                 "test_repo",
                 mock_ensure_repo.return_value,
                 mock_fresh_branch.return_value,
@@ -113,7 +113,7 @@ class TestWorkerRun(unittest.TestCase):
 
         with patch("apps.worker.run.POLICY.auto_pr", False):
             worker_run.handle_job(job_invalid_type)
-            mock_create_or_update_pr.assert_called_with(
+            mock_create_themed_prs.assert_called_with(
                 "test_repo",
                 mock_ensure_repo.return_value,
                 mock_fresh_branch.return_value,
@@ -123,22 +123,22 @@ class TestWorkerRun(unittest.TestCase):
             )
 
     @patch("apps.worker.run.get_changed_files")
-    @patch("apps.worker.run.create_or_update_pr")
+    @patch("apps.worker.run.create_themed_prs")
     @patch("apps.worker.run.commit_if_changes", return_value=True)
     @patch("apps.worker.run.llm_review")
-    @patch("apps.worker.run.run_yamllint", return_value=[])
-    @patch("apps.worker.run.run_shellcheck", return_value=[])
+    @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
+    @patch("apps.worker.run.registry_run_checks", return_value=[])
     @patch("apps.worker.run.fresh_branch", return_value="test-branch")
     @patch("apps.worker.run.ensure_repo")
     def test_handle_job_mode_changed_calls_get_changed_files(
         self,
         mock_ensure_repo,
         mock_fresh_branch,
-        mock_run_shellcheck,
-        mock_run_yamllint,
+        mock_registry_run_checks,
+        mock_registry_run_autofixes,
         mock_llm_review,
         mock_commit_if_changes,
-        mock_create_or_update_pr,
+        mock_create_themed_prs,
         mock_get_changed_files,
     ):
         """Test that mode='changed' invokes get_changed_files and passes result to linters."""
@@ -151,26 +151,28 @@ class TestWorkerRun(unittest.TestCase):
         worker_run.handle_job(job)
 
         mock_get_changed_files.assert_called_once()
-        mock_run_shellcheck.assert_called_once_with(mock_repo_dir, mock_changed)
-        mock_run_yamllint.assert_called_once_with(mock_repo_dir, mock_changed)
+        mock_registry_run_checks.assert_called_once()
+        args = mock_registry_run_checks.call_args[0]
+        self.assertEqual(args[0], mock_repo_dir)
+        self.assertEqual(args[1], mock_changed)
 
     @patch("apps.worker.run.get_changed_files")
-    @patch("apps.worker.run.create_or_update_pr")
+    @patch("apps.worker.run.create_themed_prs")
     @patch("apps.worker.run.commit_if_changes", return_value=True)
     @patch("apps.worker.run.llm_review")
-    @patch("apps.worker.run.run_yamllint", return_value=[])
-    @patch("apps.worker.run.run_shellcheck", return_value=[])
+    @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
+    @patch("apps.worker.run.registry_run_checks", return_value=[])
     @patch("apps.worker.run.fresh_branch", return_value="test-branch")
     @patch("apps.worker.run.ensure_repo")
     def test_handle_job_mode_all_skips_get_changed_files(
         self,
         mock_ensure_repo,
         mock_fresh_branch,
-        mock_run_shellcheck,
-        mock_run_yamllint,
+        mock_registry_run_checks,
+        mock_registry_run_autofixes,
         mock_llm_review,
         mock_commit_if_changes,
-        mock_create_or_update_pr,
+        mock_create_themed_prs,
         mock_get_changed_files,
     ):
         """Test that mode='all' does not invoke get_changed_files and passes None to linters."""
@@ -181,28 +183,30 @@ class TestWorkerRun(unittest.TestCase):
         worker_run.handle_job(job)
 
         mock_get_changed_files.assert_not_called()
-        mock_run_shellcheck.assert_called_once_with(mock_repo_dir, None)
-        mock_run_yamllint.assert_called_once_with(mock_repo_dir, None)
+        mock_registry_run_checks.assert_called_once()
+        args = mock_registry_run_checks.call_args[0]
+        self.assertEqual(args[0], mock_repo_dir)
+        self.assertIsNone(args[1])
 
     @patch("apps.worker.run.get_changed_files", return_value=[])
     @patch("apps.worker.run.append_event")
     @patch("apps.worker.run.dedupe_findings")
-    @patch("apps.worker.run.create_or_update_pr")
+    @patch("apps.worker.run.create_themed_prs")
     @patch("apps.worker.run.commit_if_changes", return_value=True)
     @patch("apps.worker.run.llm_review")
-    @patch("apps.worker.run.run_yamllint")
-    @patch("apps.worker.run.run_shellcheck")
+    @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
+    @patch("apps.worker.run.registry_run_checks")
     @patch("apps.worker.run.fresh_branch", return_value="test-branch")
     @patch("apps.worker.run.ensure_repo")
     def test_handle_job_dedupes_findings(
         self,
         mock_ensure_repo,
         mock_fresh_branch,
-        mock_run_shellcheck,
-        mock_run_yamllint,
+        mock_registry_run_checks,
+        mock_registry_run_autofixes,
         mock_llm_review,
         mock_commit_if_changes,
-        mock_create_or_update_pr,
+        mock_create_themed_prs,
         mock_dedupe_findings,
         mock_append_event,
         mock_get_changed_files,
@@ -239,8 +243,7 @@ class TestWorkerRun(unittest.TestCase):
             rule_id="SC2006",
         )
 
-        mock_run_shellcheck.return_value = [finding1, finding3]
-        mock_run_yamllint.return_value = [finding2]
+        mock_registry_run_checks.return_value = [finding1, finding3, finding2]
         mock_dedupe_findings.return_value = {
             "key1": [finding1, finding3],
             "key2": [finding2],
@@ -338,6 +341,84 @@ class TestWorkerRun(unittest.TestCase):
     def test_is_check_enabled_supports_nested_dict(self):
         with patch("apps.worker.run.POLICY.checks", {"ruff": {"enabled": True}}):
             self.assertTrue(worker_run.is_check_enabled("ruff"))
+
+    @patch("apps.worker.run.create_or_update_pr")
+    def test_create_themed_prs_falls_back_to_single_pr_without_findings(self, mock_create_or_update_pr):
+        worker_run.create_themed_prs(
+            repo="test_repo",
+            repo_dir=Path("/fake/repo"),
+            source_branch="sichter/autofix-branch",
+            auto_pr=True,
+            findings=[],
+            review=None,
+        )
+
+        mock_create_or_update_pr.assert_called_once_with(
+            "test_repo",
+            Path("/fake/repo"),
+            "sichter/autofix-branch",
+            True,
+            [],
+            None,
+        )
+
+    @patch("apps.worker.run.create_or_update_pr")
+    @patch("apps.worker.run.run_cmd")
+    @patch("apps.worker.run.commit_if_changes")
+    def test_create_themed_prs_creates_pr_per_category(
+        self,
+        mock_commit_if_changes,
+        mock_run_cmd,
+        mock_create_or_update_pr,
+    ):
+        findings = [
+            Finding(
+                severity="warning",
+                category="style",
+                file="a.sh",
+                line=1,
+                message="style issue",
+                tool="shellcheck",
+                rule_id="SC1000",
+            ),
+            Finding(
+                severity="error",
+                category="security",
+                file="sec.py",
+                line=3,
+                message="security issue",
+                tool="ruff",
+                rule_id="S101",
+            ),
+        ]
+
+        def _run_cmd_side_effect(cmd, cwd, check=True):
+            class _Result:
+                def __init__(self, returncode=0, stdout="", stderr=""):
+                    self.returncode = returncode
+                    self.stdout = stdout
+                    self.stderr = stderr
+
+            if cmd[:3] == ["git", "rev-parse", "--short"]:
+                return _Result(returncode=0, stdout="abc123\n")
+            return _Result(returncode=0, stdout="")
+
+        mock_run_cmd.side_effect = _run_cmd_side_effect
+        mock_commit_if_changes.return_value = True
+
+        worker_run.create_themed_prs(
+            repo="test_repo",
+            repo_dir=Path("/fake/repo"),
+            source_branch="sichter/autofix-branch",
+            auto_pr=True,
+            findings=findings,
+            review=None,
+        )
+
+        self.assertEqual(mock_create_or_update_pr.call_count, 2)
+        called_titles = [kwargs.get("pr_title", "") for _, kwargs in mock_create_or_update_pr.call_args_list]
+        self.assertTrue(any("style auto PR" in title for title in called_titles))
+        self.assertTrue(any("security auto PR" in title for title in called_titles))
 
         with patch("apps.worker.run.POLICY.checks", {"ruff": {"autofix": True}}):
             self.assertTrue(worker_run.is_check_enabled("ruff"))

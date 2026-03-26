@@ -4,6 +4,7 @@ import atexit
 import json
 import os
 import select
+import re
 import shutil
 import subprocess
 import sys
@@ -19,6 +20,9 @@ if TYPE_CHECKING:
     from lib.llm.review import ReviewResult
 
 from apps.worker.dedupe import dedupe_findings
+from lib.checks import run_autofixes as registry_run_autofixes
+from lib.checks import run_checks as registry_run_checks
+from lib.checks.base import policy_check_enabled
 from lib.config import (
   DEFAULT_BRANCH,
   DEFAULT_ORG,
@@ -339,355 +343,35 @@ def is_check_enabled(name: str) -> bool:
 
   Supports boolean flags and nested dictionaries with `enabled` / `autofix`.
   """
-  if not POLICY.checks:
-    return False
-
-  value = POLICY.checks.get(name, False)
-  if isinstance(value, bool):
-    return value
-  if isinstance(value, dict):
-    return bool(value.get("enabled", False) or value.get("autofix", False))
-  return False
+  return policy_check_enabled(name, POLICY.checks)
 
 
 def run_shellcheck(repo_dir: Path, files: Iterable[Path] | None = None) -> list[Finding]:
-  """Run shellcheck on all shell scripts if enabled in policy.
+  """Compatibility wrapper around the extracted shellcheck module."""
+  from lib.checks.shellcheck import run_shellcheck as _run_shellcheck
 
-  Args:
-    repo_dir: Repository directory
-    files: Optional list of files to check; if None, checks all .sh files
-
-  Returns:
-    List of Finding objects, one per shellcheck diagnostic
-  """
-  if not is_check_enabled("shellcheck"):
-    return []
-  if not shutil.which("shellcheck"):
-    log("shellcheck nicht gefunden - überspringe")
-    return []
-
-  findings: list[Finding] = []
-  
-  if files is None:
-    candidates = iter_paths(repo_dir, "*.sh", POLICY.excludes)
-  else:
-    # Apply suffix and excludes filter when files are provided
-    candidates = []
-    for script in files:
-      if script.suffix != ".sh":
-        continue
-      try:
-        rel = script.relative_to(repo_dir)
-      except ValueError:
-        # Skip files not under repo_dir (path prefix check); symlink-escape protection is handled in get_changed_files.
-        continue
-      if any(fnmatch(str(rel), ex) for ex in POLICY.excludes):
-        continue
-      candidates.append(script)
-
-  for script in candidates:
-    # gcc format: path:line:col: severity: message [SCxxxx]
-    result = run_cmd(["shellcheck", "-f", "gcc", "-x", str(script)], repo_dir, check=False)
-    if result.returncode == 0:
-      continue
-
-    output = result.stdout or result.stderr
-    for raw in (output or "").splitlines():
-      line = raw.strip()
-      if not line:
-        continue
-
-      parts = line.split(":", 3)
-      if len(parts) < 4:
-        log(f"shellcheck: {script}: unparseable line: {line}")
-        continue
-
-      file_path = parts[0]
-      line_num = parts[1]
-      rest = parts[3].strip()
-
-      if ": " in rest:
-        sev_part, msg_part = rest.split(": ", 1)
-        sev = sev_part.lower()
-        message = msg_part
-      else:
-        sev = "warning"
-        message = rest
-
-      rule_id = None
-      if "[SC" in message and "]" in message:
-        rule_start = message.rfind("[SC")
-        rule_end = message.find("]", rule_start)
-        if rule_end > rule_start:
-          rule_id = message[rule_start + 1 : rule_end]
-          message = message[:rule_start].rstrip()
-
-      try:
-        line_int = int(line_num)
-      except ValueError:
-        line_int = None
-
-      try:
-        fp = Path(file_path)
-        if fp.is_absolute():
-          file_rel = str(fp.relative_to(repo_dir))
-        else:
-          file_rel = file_path
-      except (ValueError, OSError):
-        file_rel = file_path
-
-      findings.append(
-        Finding(
-          severity=normalize_severity(sev),
-          category="correctness",
-          file=file_rel,
-          line=line_int,
-          message=message,
-          uncertainty=build_uncertainty("shellcheck", line_int, rule_id),
-          tool="shellcheck",
-          rule_id=rule_id,
-        )
-      )
-
-  return findings
+  return _run_shellcheck(repo_dir, files, POLICY.excludes, POLICY.checks, run_cmd, log)
 
 
 def run_yamllint(repo_dir: Path, files: Iterable[Path] | None = None) -> list[Finding]:
-  """Run yamllint on all YAML files if enabled in policy.
+  """Compatibility wrapper around the extracted yamllint module."""
+  from lib.checks.yamllint import run_yamllint as _run_yamllint
 
-  Args:
-    repo_dir: Repository directory
-    files: Optional list of files to check; if None, checks all .yml/.yaml files
-
-  Returns:
-    List of Finding objects, one per yamllint diagnostic
-  """
-  if not is_check_enabled("yamllint"):
-    return []
-  if not shutil.which("yamllint"):
-    log("yamllint nicht gefunden - überspringe")
-    return []
-
-  findings: list[Finding] = []
-
-  if files is None:
-    candidates = list(iter_paths(repo_dir, "*.yml", POLICY.excludes))
-    candidates.extend(iter_paths(repo_dir, "*.yaml", POLICY.excludes))
-  else:
-    # Apply suffix and excludes filter when files are provided
-    candidates = []
-    for p in files:
-      if p.suffix not in {".yml", ".yaml"}:
-        continue
-      try:
-        rel = p.relative_to(repo_dir)
-      except ValueError:
-        # Skip files not under repo_dir (path prefix check); symlink-escape protection is handled in get_changed_files.
-        continue
-      if any(fnmatch(str(rel), ex) for ex in POLICY.excludes):
-        continue
-      candidates.append(p)
-
-  for doc in candidates:
-    # parsable format: path:line:col: [severity] message (rule-name)
-    result = run_cmd(["yamllint", "-f", "parsable", str(doc)], repo_dir, check=False)
-    if result.returncode == 0:
-      continue
-
-    output = result.stdout or result.stderr
-    for raw in (output or "").splitlines():
-      line = raw.strip()
-      if not line:
-        continue
-
-      parts = line.split(":", 3)
-      if len(parts) < 4:
-        log(f"yamllint: {doc}: unparseable line: {line}")
-        continue
-
-      file_path = parts[0]
-      line_num = parts[1]
-      rest = parts[3].strip()
-
-      sev = "warning"
-      message = rest
-      rule_id = None
-
-      if rest.startswith("["):
-        bracket_end = rest.find("]")
-        if bracket_end > 0:
-          sev = rest[1:bracket_end].lower()
-          message = rest[bracket_end + 1 :].strip()
-
-      if "(" in message and ")" in message:
-        paren_start = message.rfind("(")
-        paren_end = message.find(")", paren_start)
-        if paren_end > paren_start:
-          rule_id = message[paren_start + 1 : paren_end]
-          message = message[:paren_start].strip()
-
-      try:
-        line_int = int(line_num)
-      except ValueError:
-        line_int = None
-
-      try:
-        fp = Path(file_path)
-        if fp.is_absolute():
-          file_rel = str(fp.relative_to(repo_dir))
-        else:
-          file_rel = file_path
-      except (ValueError, OSError):
-        file_rel = file_path
-
-      findings.append(
-        Finding(
-          severity=normalize_severity(sev),
-          category="correctness",
-          file=file_rel,
-          line=line_int,
-          message=message,
-          uncertainty=build_uncertainty("yamllint", line_int, rule_id),
-          tool="yamllint",
-          rule_id=rule_id,
-        )
-      )
-
-  return findings
+  return _run_yamllint(repo_dir, files, POLICY.excludes, POLICY.checks, run_cmd, log)
 
 
 def run_ruff(repo_dir: Path, files: Iterable[Path] | None = None) -> list[Finding]:
-  """Run ruff on Python files if enabled in policy."""
-  if not is_check_enabled("ruff"):
-    return []
-  if not shutil.which("ruff"):
-    log("ruff nicht gefunden - überspringe")
-    return []
+  """Compatibility wrapper around the extracted ruff module."""
+  from lib.checks.ruff import run_ruff as _run_ruff
 
-  if files is None:
-    candidates = list(iter_paths(repo_dir, "*.py", POLICY.excludes))
-  else:
-    candidates = []
-    for source in files:
-      if source.suffix != ".py":
-        continue
-      try:
-        rel = source.relative_to(repo_dir)
-      except ValueError:
-        continue
-      if any(fnmatch(str(rel), ex) for ex in POLICY.excludes):
-        continue
-      candidates.append(source)
-
-  if not candidates:
-    return []
-
-  cmd = ["ruff", "check", "--output-format", "json", *[str(path) for path in candidates]]
-  result = run_cmd(cmd, repo_dir, check=False)
-
-  output = (result.stdout or result.stderr or "").strip()
-  if not output:
-    return []
-
-  try:
-    entries = json.loads(output)
-  except json.JSONDecodeError:
-    log("ruff: unparseable output")
-    return []
-
-  findings: list[Finding] = []
-  for entry in entries:
-    code = str(entry.get("code") or "")
-    message = str(entry.get("message") or "").strip() or "Ruff finding"
-    filename = str(entry.get("filename") or "")
-    location = entry.get("location") or {}
-    line_raw = location.get("row")
-
-    try:
-      line_num = int(line_raw) if line_raw is not None else None
-    except (ValueError, TypeError):
-      line_num = None
-
-    severity: Severity = "warning"
-    if code.startswith("F") or code.startswith("E"):
-      severity = "error"
-
-    category = "security" if code.startswith("S") else "correctness"
-    fix_available = bool(entry.get("fix"))
-
-    if filename:
-      try:
-        fp = Path(filename)
-        if fp.is_absolute():
-          file_rel = str(fp.relative_to(repo_dir))
-        else:
-          file_rel = filename
-      except (ValueError, OSError):
-        file_rel = filename
-    else:
-      file_rel = "unknown.py"
-
-    findings.append(
-      Finding(
-        severity=severity,
-        category=category,
-        file=file_rel,
-        line=line_num,
-        message=message,
-        uncertainty=build_uncertainty("ruff", line_num, code or None),
-        tool="ruff",
-        rule_id=code or None,
-        fix_available=fix_available,
-      )
-    )
-
-  return findings
+  return _run_ruff(repo_dir, files, POLICY.excludes, POLICY.checks, run_cmd, log)
 
 
 def run_shfmt(repo_dir: Path, files: Iterable[Path] | None = None) -> int:
-  """Run shfmt as optional auto-fix pass and return changed file count."""
-  if not is_check_enabled("shfmt_fix"):
-    return 0
-  if not shutil.which("shfmt"):
-    log("shfmt nicht gefunden - überspringe")
-    return 0
+  """Compatibility wrapper around the extracted shfmt module."""
+  from lib.checks.shfmt import run_shfmt as _run_shfmt
 
-  if files is None:
-    candidates = list(iter_paths(repo_dir, "*.sh", POLICY.excludes))
-  else:
-    candidates = []
-    for script in files:
-      if script.suffix != ".sh":
-        continue
-      try:
-        rel = script.relative_to(repo_dir)
-      except ValueError:
-        continue
-      if any(fnmatch(str(rel), ex) for ex in POLICY.excludes):
-        continue
-      candidates.append(script)
-
-  changed = 0
-  for script in candidates:
-    try:
-      before = script.read_bytes()
-    except OSError:
-      continue
-
-    result = run_cmd(["shfmt", "-w", str(script)], repo_dir, check=False)
-    if result.returncode != 0:
-      log(f"shfmt failed for {script}: {result.stderr.strip()}")
-      continue
-
-    try:
-      after = script.read_bytes()
-    except OSError:
-      continue
-
-    if before != after:
-      changed += 1
-
-  return changed
+  return _run_shfmt(repo_dir, files, POLICY.excludes, POLICY.checks, run_cmd, log)
 
 
 def llm_review(
@@ -922,6 +606,7 @@ def create_or_update_pr(
   auto_pr: bool,
   findings: Iterable[Finding] | None = None,
   review: ReviewResult | None = None,
+  pr_title: str | None = None,
 ) -> None:
   """Create or update a pull request for the changes.
 
@@ -932,6 +617,7 @@ def create_or_update_pr(
     auto_pr: Whether to automatically create PR.
     findings: Linter findings to include in PR body.
     review: Optional LLM review to append to PR body.
+    pr_title: Optional custom PR title.
   """
   if not auto_pr:
     log(f"Auto-PR deaktiviert, Änderungen verbleiben lokal ({repo})")
@@ -939,7 +625,7 @@ def create_or_update_pr(
     return
 
   pr_body = build_pr_body(repo, findings, review)
-  pr_title = f"Sichter: auto PR ({repo})"
+  effective_title = pr_title or f"Sichter: auto PR ({repo})"
 
   try:
     run_cmd(["git", "push", "--set-upstream", "origin", branch, "--force-with-lease"], repo_dir)
@@ -959,7 +645,7 @@ def create_or_update_pr(
           "--base",
           DEFAULT_BRANCH,
           "--title",
-          pr_title,
+          effective_title,
           "--body",
           pr_body,
           "--label",
@@ -975,7 +661,7 @@ def create_or_update_pr(
       return
 
   edit_result = run_cmd(
-    ["gh", "pr", "edit", branch, "--title", pr_title, "--body", pr_body],
+    ["gh", "pr", "edit", branch, "--title", effective_title, "--body", pr_body],
     repo_dir,
     check=False,
   )
@@ -986,6 +672,117 @@ def create_or_update_pr(
   url = view.stdout.strip() if view.stdout else ""
   append_event({"type": "pr", "repo": repo, "branch": branch, "url": url})
   log(f"PR {repo}: {url or 'unbekannt'}")
+
+
+def _sanitize_branch_segment(value: str) -> str:
+  """Return a conservative git-branch-safe slug segment."""
+  lowered = value.strip().lower()
+  cleaned = re.sub(r"[^a-z0-9._-]+", "-", lowered)
+  cleaned = re.sub(r"-{2,}", "-", cleaned).strip(".-")
+  return cleaned or "misc"
+
+
+def _build_themed_branch_name(category: str, shortsha: str) -> str:
+  """Build themed branch names like ``sichter/<category>/<date>-<shortsha>``."""
+  stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+  segment = _sanitize_branch_segment(category)
+  return f"sichter/{segment}/{stamp}-{shortsha}"
+
+
+def create_themed_prs(
+  repo: str,
+  repo_dir: Path,
+  source_branch: str,
+  auto_pr: bool,
+  findings: Iterable[Finding] | None = None,
+  review: ReviewResult | None = None,
+) -> None:
+  """Create one PR per finding category by projecting changes from source branch.
+
+  If findings are missing or all findings map to a single category, this falls back
+  to a single PR on the source branch.
+  """
+  findings_list = list(findings or [])
+  categories = sorted({finding.category for finding in findings_list})
+  if len(categories) <= 1:
+    create_or_update_pr(repo, repo_dir, source_branch, auto_pr, findings_list, review)
+    return
+
+  rev = run_cmd(["git", "rev-parse", "--short", source_branch], repo_dir, check=False)
+  shortsha = (rev.stdout or "").strip() if rev.returncode == 0 else "manual"
+  if not shortsha:
+    shortsha = "manual"
+
+  # Keep only categories that can be mapped to concrete files.
+  category_files: dict[str, list[str]] = {}
+  for finding in findings_list:
+    if not finding.file:
+      continue
+    category_files.setdefault(finding.category, []).append(finding.file)
+
+  actionable_categories = [cat for cat in categories if category_files.get(cat)]
+  if not actionable_categories:
+    create_or_update_pr(repo, repo_dir, source_branch, auto_pr, findings_list, review)
+    return
+
+  if len(actionable_categories) == 1:
+    single = actionable_categories[0]
+    themed_title = f"Sichter: {single} auto PR ({repo})"
+    themed_findings = [f for f in findings_list if f.category == single]
+    create_or_update_pr(
+      repo,
+      repo_dir,
+      source_branch,
+      auto_pr,
+      themed_findings,
+      review,
+      pr_title=themed_title,
+    )
+    return
+
+  base_ref = f"origin/{DEFAULT_BRANCH}"
+  for category in actionable_categories:
+    files = sorted(set(category_files.get(category, [])))
+    if not files:
+      continue
+
+    themed_branch = _build_themed_branch_name(category, shortsha)
+    result = run_cmd(["git", "switch", "--detach", base_ref], repo_dir, check=False)
+    if result.returncode != 0:
+      run_cmd(["git", "checkout", "--detach", base_ref], repo_dir)
+
+    result = run_cmd(["git", "switch", "-C", themed_branch], repo_dir, check=False)
+    if result.returncode != 0:
+      run_cmd(["git", "checkout", "-B", themed_branch], repo_dir)
+
+    checkout = run_cmd(["git", "checkout", source_branch, "--", *files], repo_dir, check=False)
+    if checkout.returncode != 0:
+      log(f"{repo}: Kategorie {category} konnte nicht projiziert werden")
+      continue
+
+    if not commit_if_changes(repo_dir):
+      log(f"{repo}: Keine Änderungen für Kategorie {category}")
+      append_event(
+        {
+          "type": "noop",
+          "repo": repo,
+          "branch": themed_branch,
+          "category": category,
+        }
+      )
+      continue
+
+    category_findings = [finding for finding in findings_list if finding.category == category]
+    themed_title = f"Sichter: {category} auto PR ({repo})"
+    create_or_update_pr(
+      repo,
+      repo_dir,
+      themed_branch,
+      auto_pr,
+      category_findings,
+      review,
+      pr_title=themed_title,
+    )
 
 
 def handle_job(job: dict) -> None:
@@ -1029,15 +826,36 @@ def handle_job(job: dict) -> None:
     else:
       changed_files = None
 
-    findings: list[Finding] = []
-    findings.extend(run_shellcheck(repo_dir, changed_files))
-    findings.extend(run_yamllint(repo_dir, changed_files))
-    findings.extend(run_ruff(repo_dir, changed_files))
+    findings = registry_run_checks(
+      repo_dir,
+      changed_files,
+      POLICY.checks,
+      POLICY.excludes,
+      run_cmd,
+      log,
+    )
 
-    shfmt_changed = run_shfmt(repo_dir, changed_files)
-    if shfmt_changed:
-      log(f"{repo}: shfmt hat {shfmt_changed} Datei(en) angepasst")
-      append_event({"type": "autofix", "repo": repo, "tool": "shfmt", "changed": shfmt_changed})
+    autofix = registry_run_autofixes(
+      repo_dir,
+      changed_files,
+      POLICY.checks,
+      POLICY.excludes,
+      run_cmd,
+      log,
+    )
+    for tool_name, changed in autofix.items():
+      changed_int = int(changed)
+      if changed_int <= 0:
+        continue
+      log(f"{repo}: {tool_name} hat {changed_int} Datei(en) angepasst")
+      append_event(
+        {
+          "type": "autofix",
+          "repo": repo,
+          "tool": tool_name,
+          "changed": changed_int,
+        }
+      )
 
     grouped = dedupe_findings(findings)
     if findings:
@@ -1054,7 +872,7 @@ def handle_job(job: dict) -> None:
     review = llm_review(repo, repo_dir, findings)
 
     if commit_if_changes(repo_dir):
-      create_or_update_pr(repo, repo_dir, branch, auto_pr, findings, review)
+      create_themed_prs(repo, repo_dir, branch, auto_pr, findings, review)
     else:
       log(f"Keine Änderungen für {repo}")
       append_event({"type": "noop", "repo": repo, "branch": branch})

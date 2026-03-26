@@ -56,7 +56,7 @@
   - Datei: `lib/findings.py` — `__post_init__` erweitern
   - Datei: `apps/worker/run.py` — `tool` und `rule_id` konsequent setzen
 - [x] **0.2** Uncertainty-Felder tatsächlich befüllen (aktuell immer `None`)
-- [ ] **0.3** Themen-Bündelung: ein PR pro Category statt ein PR für alles
+- [x] **0.3** Themen-Bündelung: ein PR pro Category statt ein PR für alles
   - Datei: Neue Funktion `create_themed_prs()` in `apps/worker/run.py`
   - Branch-Naming: `sichter/<category>/<date>`
 
@@ -105,37 +105,37 @@
 > Aktuell: Nur Shell + YAML. Ziel: Python, JS/TS, Security — mit Auto-Fix.
 
 - [ ] **2.1** Check-Modul-Architektur einführen
-  - [ ] `lib/checks/__init__.py`
-  - [ ] `lib/checks/base.py` — Protocol `Check` mit `detect()`, `run()`, `autofix()`
-  - [ ] `lib/checks/registry.py` — Alle Checks registrieren, policy-gesteuert aktivieren
+  - [x] `lib/checks/__init__.py`
+  - [x] `lib/checks/base.py` — Protocol `Check` mit `detect()`, `run()`, `autofix()`
+  - [x] `lib/checks/registry.py` — Alle Checks registrieren, policy-gesteuert aktivieren
 - [ ] **2.2** Bestehende Linter refactoren
-  - [ ] `lib/checks/shellcheck.py` — aus `run.py` extrahieren
-  - [ ] `lib/checks/yamllint.py` — aus `run.py` extrahieren
-  - [ ] Worker ruft Registry statt einzelne Funktionen auf
+  - [x] `lib/checks/shellcheck.py` — aus `run.py` extrahieren
+  - [x] `lib/checks/yamllint.py` — aus `run.py` extrahieren
+  - [x] Worker ruft Registry statt einzelne Funktionen auf
 - [ ] **2.3** Python-Linting (ruff)
-  - [ ] `lib/checks/ruff.py` — `ruff check` + Output-Parsing
-  - [ ] Auto-Fix: `ruff check --fix` + `ruff format` (policy-gated)
-  - [ ] `fix_available = True` setzen bei fixbaren Findings
+  - [x] `lib/checks/ruff.py` — `ruff check` + Output-Parsing
+  - [x] Auto-Fix: `ruff check --fix` + `ruff format` (policy-gated)
+  - [x] `fix_available = True` setzen bei fixbaren Findings
 - [ ] **2.4** Python-Security (bandit)
-  - [ ] `lib/checks/bandit.py` — JSON-Output parsen
-  - [ ] Security-Findings als `category: "security"` taggen
+  - [x] `lib/checks/bandit.py` — JSON-Output parsen
+  - [x] Security-Findings als `category: "security"` taggen
   - [ ] Security-PRs optional nur intern (nicht öffentlich)
 - [ ] **2.5** Shell-Auto-Fix (shfmt)
-  - [ ] `lib/checks/shfmt.py` — Formatierung + Diff
-  - [ ] Optional in Policy: `checks.shell.shfmt_fix: true`
+  - [x] `lib/checks/shfmt.py` — Formatierung + Diff
+  - [x] Optional in Policy: `checks.shell.shfmt_fix: true`
 - [ ] **2.6** JavaScript/TypeScript (eslint)
-  - [ ] `lib/checks/eslint.py` — nur wenn `.eslintrc`/`eslint.config.*` existiert
-  - [ ] Auto-Fix: `eslint --fix` (policy-gated)
+  - [x] `lib/checks/eslint.py` — nur wenn `.eslintrc`/`eslint.config.*` existiert
+  - [x] Auto-Fix: `eslint --fix` (policy-gated)
 - [ ] **2.7** Supply-Chain-Security (trivy)
-  - [ ] `lib/checks/trivy.py` — FS-Scan, JSON-Output
-  - [ ] Streng policy-gated, default deaktiviert
+  - [x] `lib/checks/trivy.py` — FS-Scan, JSON-Output
+  - [x] Streng policy-gated, default deaktiviert
 - [ ] **2.8** Auto-Fix-Pipeline verdrahten
   - [ ] Worker: Nach Linter-Run → `autofix()` aufrufen → geänderte Dateien committen
   - [ ] `fix_available`-Findings tatsächlich applizieren
   - [ ] Themen-PRs: Style-Fixes ≠ Security-Fixes ≠ Correctness-Fixes
 - [ ] **2.9** Tests
-  - [ ] Pro Linter-Modul: Parser-Test mit Sample-Output
-  - [ ] Integration: Check-Registry mit Policy-Steuerung
+  - [x] Pro Linter-Modul: Parser-Test mit Sample-Output
+  - [x] Integration: Check-Registry mit Policy-Steuerung
   - [ ] Auto-Fix: Patch anwendbar, kein Dirty-State nach Revert
 
 ---
