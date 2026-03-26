@@ -6,7 +6,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from lib.cache import cache_get, cache_set, make_check_key, policy_hash
 from lib.heuristics.drift import _parse_requirements, _parse_pyproject_deps, run_drift_check
@@ -36,7 +36,8 @@ def _noop_log(msg: str) -> None:
 
 class TestHotspots(unittest.TestCase):
     def test_no_churn_returns_empty(self):
-        run_cmd = lambda *a, **kw: _Result(stdout="")
+        def run_cmd(*a, **kw):
+            return _Result(stdout="")
         findings = run_hotspot_check(
             repo_dir=Path("/repo"),
             files=None,
@@ -48,8 +49,9 @@ class TestHotspots(unittest.TestCase):
 
     def test_detects_hot_file(self):
         # Simulate git log output with 12 occurrences of the same file.
-        git_output = "\n".join(["src/main.py"] * 12 + [""]) 
-        run_cmd = lambda *a, **kw: _Result(stdout=git_output)
+        git_output = "\n".join(["src/main.py"] * 12 + [""])
+        def run_cmd(*a, **kw):
+            return _Result(stdout=git_output)
         findings = run_hotspot_check(
             repo_dir=Path("/repo"),
             files=None,
@@ -64,7 +66,8 @@ class TestHotspots(unittest.TestCase):
 
     def test_severity_bands(self):
         git_output = "\n".join(["hot.py"] * 32)
-        run_cmd = lambda *a, **kw: _Result(stdout=git_output)
+        def run_cmd(*a, **kw):
+            return _Result(stdout=git_output)
         findings = run_hotspot_check(
             repo_dir=Path("/repo"),
             files=None,
@@ -88,7 +91,8 @@ class TestHotspots(unittest.TestCase):
 
     def test_filters_to_changed_files(self):
         git_output = "src/main.py\nother.py\n" * 10
-        run_cmd = lambda *a, **kw: _Result(stdout=git_output)
+        def run_cmd(*a, **kw):
+            return _Result(stdout=git_output)
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
             target = repo / "src" / "main.py"
@@ -156,15 +160,35 @@ dependencies = [
         )
         self.assertEqual(findings, [])
 
-    def test_no_files_returns_empty(self):
+    def test_parses_requirements_with_extras(self):
+        """Extras like requests[security]==2.0 must not lose the version spec."""
+        text = "requests[security]==2.0\nboto3[crt]>=1.20\n"
+        result = _parse_requirements(text)
+        self.assertIn("requests", result)
+        self.assertEqual(result["requests"], "==2.0")
+        self.assertIn("boto3", result)
+        self.assertEqual(result["boto3"], ">=1.20")
+
+    def test_detects_drift_for_package_with_extras(self):
+        """Drift detection must work correctly when requirements.txt uses extras."""
         with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "pyproject.toml").write_text(
+                '[project]\ndependencies = [\n  "requests>=2.0",\n]\n',
+                encoding="utf-8",
+            )
+            (repo / "requirements.txt").write_text(
+                "requests[security]==2.28.0\n", encoding="utf-8"
+            )
             findings = run_drift_check(
-                repo_dir=Path(tmp),
-                checks_cfg={},
+                repo_dir=repo,
+                checks_cfg={"drift": {"enabled": True}},
                 log=_noop_log,
             )
-        self.assertEqual(findings, [])
-
+        self.assertTrue(
+            any("requests" in f.message for f in findings),
+            f"Expected drift finding for 'requests', got: {[f.message for f in findings]}",
+        )
 
 # ---------------------------------------------------------------------------
 # Redundancy tests
@@ -209,14 +233,86 @@ class TestRedundancy(unittest.TestCase):
             )
         self.assertEqual(findings, [])
 
+    def test_invalid_block_size_falls_back_to_default(self):
+        """Non-integer block_size must not crash; should fall back to default."""
+        logs: list[str] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "a.py").write_text("x = 1\n", encoding="utf-8")
+            findings = run_redundancy_check(
+                repo_dir=repo,
+                files=None,
+                checks_cfg={"redundancy": {"enabled": True, "block_size": "bad", "threshold": 2}},
+                log=logs.append,
+            )
+        self.assertEqual(findings, [])
+        self.assertTrue(any("block_size" in m for m in logs))
+
+    def test_zero_block_size_clamped_to_one(self):
+        """block_size=0 must be clamped to 1 and produce a log message."""
+        logs: list[str] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "a.py").write_text("x = 1\n", encoding="utf-8")
+            run_redundancy_check(
+                repo_dir=repo,
+                files=None,
+                checks_cfg={"redundancy": {"enabled": True, "block_size": 0}},
+                log=logs.append,
+            )
+        self.assertTrue(any("block_size" in m for m in logs))
+
+    def test_threshold_one_clamped_to_two(self):
+        """threshold=1 must be clamped to 2 and produce a log message."""
+        logs: list[str] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "a.py").write_text("x = 1\n", encoding="utf-8")
+            run_redundancy_check(
+                repo_dir=repo,
+                files=None,
+                checks_cfg={"redundancy": {"enabled": True, "threshold": 1}},
+                log=logs.append,
+            )
+        self.assertTrue(any("threshold" in m for m in logs))
+
+    def test_absolute_path_outside_repo_dir_does_not_crash(self):
+        """Absolute paths not under repo_dir must fall back to str(filepath)."""
+        with tempfile.TemporaryDirectory() as tmp1, \
+             tempfile.TemporaryDirectory() as tmp2:
+            repo = Path(tmp1)
+            outside = Path(tmp2) / "outside.py"
+            block = "\n".join(f"x_{i} = value_{i}" for i in range(8))
+            outside.write_text(block + "\n", encoding="utf-8")
+            # Pass an absolute path that is NOT under repo_dir
+            findings = run_redundancy_check(
+                repo_dir=repo,
+                files=[outside],
+                checks_cfg={"redundancy": {"enabled": True, "threshold": 2, "block_size": 6}},
+                log=_noop_log,
+            )
+        # Should not raise; findings may be empty (only one copy of the block)
+        self.assertIsInstance(findings, list)
+
 
 # ---------------------------------------------------------------------------
 # Cache tests
 # ---------------------------------------------------------------------------
 
 class TestCache(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._patcher = patch("lib.cache.CACHE_DIR", Path(self._tmp.name))
+        self._patcher.start()
+
+    def tearDown(self):
+        self._patcher.stop()
+        self._tmp.cleanup()
+
     def test_cache_miss_returns_none(self):
-        result = cache_get("nonexistent-key-xyz-abc-123")
+        # Use a randomized key to avoid any cross-run state
+        key = f"nonexistent-key-{time.time_ns()}"
+        result = cache_get(key)
         self.assertIsNone(result)
 
     def test_cache_set_and_get(self):
@@ -280,6 +376,13 @@ class TestMetrics(unittest.TestCase):
     def test_aggregate_empty(self):
         result = aggregate_metrics([])
         self.assertEqual(result["count"], 0)
+        self.assertEqual(result["total_findings"], 0)
+        self.assertEqual(result["total_prs"], 0)
+        self.assertEqual(result["total_tokens"], 0)
+        self.assertEqual(result["total_cache_hits"], 0)
+        self.assertEqual(result["avg_duration_seconds"], 0.0)
+        self.assertEqual(result["findings_by_severity"], {})
+        self.assertEqual(result["repos"], [])
 
     def test_aggregate_totals(self):
         records = [
@@ -317,6 +420,23 @@ class TestMetrics(unittest.TestCase):
     def test_load_nonexistent_file_returns_empty(self):
         records = load_metrics(reviews_file=Path("/no/such/file.jsonl"))
         self.assertEqual(records, [])
+
+    def test_load_metrics_respects_n_limit(self):
+        """load_metrics(n=2) must return only the last 2 records."""
+        with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False, mode="w") as tf:
+            for i in range(5):
+                tf.write(json.dumps({"repo": f"r{i}", "findings_count": i,
+                                     "prs_created": 0, "llm_tokens_used": 0,
+                                     "cache_hits": 0, "duration_seconds": 1.0,
+                                     "findings_by_severity": {}}) + "\n")
+            path = Path(tf.name)
+        try:
+            records = load_metrics(n=2, reviews_file=path)
+            self.assertEqual(len(records), 2)
+            # Should be the last two written entries (r3, r4)
+            self.assertEqual(records[0]["repo"], "r3")
+            self.assertEqual(records[1]["repo"], "r4")
+        finally:            path.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

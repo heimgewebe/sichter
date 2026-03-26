@@ -54,8 +54,40 @@ def run_redundancy_check(
     elif not cfg.get("enabled", False):  # default is disabled
         return []
 
-    block_size = int(cfg.get("block_size", _DEFAULT_BLOCK_SIZE))
-    threshold = int(cfg.get("threshold", _DEFAULT_THRESHOLD))
+    raw_block_size = cfg.get("block_size", _DEFAULT_BLOCK_SIZE)
+    raw_threshold = cfg.get("threshold", _DEFAULT_THRESHOLD)
+
+    try:
+        block_size = int(raw_block_size)
+    except (TypeError, ValueError):
+        log(
+            f"Redundanz-Analyse: ungültiger Wert für checks.redundancy.block_size="
+            f"{raw_block_size!r}, verwende Standardwert {_DEFAULT_BLOCK_SIZE}"
+        )
+        block_size = _DEFAULT_BLOCK_SIZE
+
+    if block_size <= 0:
+        log(
+            f"Redundanz-Analyse: block_size={block_size} ist ungültig, "
+            "verwende Mindestwert 1"
+        )
+        block_size = 1
+
+    try:
+        threshold = int(raw_threshold)
+    except (TypeError, ValueError):
+        log(
+            f"Redundanz-Analyse: ungültiger Wert für checks.redundancy.threshold="
+            f"{raw_threshold!r}, verwende Standardwert {_DEFAULT_THRESHOLD}"
+        )
+        threshold = _DEFAULT_THRESHOLD
+
+    if threshold <= 1:
+        log(
+            f"Redundanz-Analyse: threshold={threshold} ist ungültig, "
+            "verwende Mindestwert 2"
+        )
+        threshold = 2
 
     if files is not None:
         candidates = [f for f in files if f.suffix in _SUPPORTED_SUFFIXES]
@@ -74,7 +106,13 @@ def run_redundancy_check(
         except OSError:
             continue
 
-        rel = str(filepath.relative_to(repo_dir)) if filepath.is_absolute() else str(filepath)
+        if filepath.is_absolute():
+            try:
+                rel = str(filepath.relative_to(repo_dir))
+            except ValueError:
+                rel = str(filepath)
+        else:
+            rel = str(filepath)
 
         for i in range(max(0, len(lines) - block_size + 1)):
             block = lines[i : i + block_size]

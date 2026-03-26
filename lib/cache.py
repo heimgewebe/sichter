@@ -1,7 +1,8 @@
 """File-based result cache for sichter checks.
 
 Cache key: ``repo + commit_hash + check_name + policy_hash``
-Storage:   ``~/.cache/sichter/<sha256(key)>.json``
+Storage:   ``$XDG_CACHE_HOME/sichter/<sha256(key)>.json``
+           (defaults to ``~/.cache/sichter/`` when XDG_CACHE_HOME is unset)
 TTL:       7 days (configurable)
 
 Cache write failures are silently ignored – correctness must not depend on
@@ -11,10 +12,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from pathlib import Path
 
-CACHE_DIR = Path.home() / ".cache" / "sichter"
+CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "sichter"
 DEFAULT_TTL_SECONDS = 7 * 24 * 3600  # 7 days
 
 

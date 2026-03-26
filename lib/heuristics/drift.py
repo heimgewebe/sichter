@@ -25,6 +25,8 @@ def _parse_requirements(text: str) -> dict[str, str]:
             continue
         # Strip extras, env markers
         line = re.split(r"[;# ]", line)[0].strip()
+        # Strip extras (e.g. requests[security]) before matching version spec
+        line = re.sub(r"\[.*?\]", "", line)
         match = re.match(r"^([A-Za-z0-9_.-]+)\s*([><=!~^,\s\d.*]+)?", line)
         if match:
             pkg = _normalize_pkg(match.group(1))

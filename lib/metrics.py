@@ -1,17 +1,20 @@
 """Structured metrics collection for sichter reviews.
 
 Each completed repo run emits a ``ReviewMetrics`` record that is appended to
-``insights/reviews.jsonl``.  The ``/metrics`` API endpoint aggregates these
-records on demand.
+``$XDG_STATE_HOME/sichter/insights/reviews.jsonl``.  The ``/metrics`` API
+endpoint aggregates these records on demand.
 """
 from __future__ import annotations
 
+import collections
 import json
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-INSIGHTS_DIR = Path.home() / ".local" / "state" / "sichter" / "insights"
+from lib.config import STATE
+
+INSIGHTS_DIR = STATE / "insights"
 
 
 @dataclass
@@ -69,8 +72,11 @@ def load_metrics(
         return []
     records: list[dict] = []
     try:
-        lines = reviews_file.read_text(encoding="utf-8").splitlines()
-        for line in lines[-n:]:
+        with reviews_file.open("r", encoding="utf-8") as fh:
+            tail: collections.deque[str] = collections.deque(maxlen=n)
+            for line in fh:
+                tail.append(line)
+        for line in tail:
             line = line.strip()
             if line:
                 try:
@@ -92,7 +98,16 @@ def aggregate_metrics(records: list[dict]) -> dict:
         Aggregated summary dict.
     """
     if not records:
-        return {"count": 0}
+        return {
+            "count": 0,
+            "total_findings": 0,
+            "total_prs": 0,
+            "total_tokens": 0,
+            "total_cache_hits": 0,
+            "avg_duration_seconds": 0.0,
+            "findings_by_severity": {},
+            "repos": [],
+        }
 
     total_findings = sum(r.get("findings_count", 0) for r in records)
     total_prs = sum(r.get("prs_created", 0) for r in records)
