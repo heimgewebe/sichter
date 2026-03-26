@@ -29,13 +29,13 @@
 | PR-Kommentare/Suggests | ✅ | `hauski-pr-suggest`, `hauski-pr-bot` |
 | Policy-System | ✅ | YAML, Fallback-Kette, API-editierbar |
 | Systemd-Integration | ✅ | API + Worker als User-Services |
-| Dashboard (Web-UI) | 🟡 | Grundgerüst: Overview, Settings, WebSocket |
-| LLM-Review | ❌ | 6-Zeilen-Stub, kein LLM-Call |
-| Patch-Synthese / Auto-Fix | ❌ | Kein Formatter, kein Fix-Pipeline |
-| Python/JS/Security-Linter | ❌ | Nur Shell + YAML |
-| Heuristiken (Hotspot/Drift) | ❌ | Nicht implementiert |
-| Ergebnis-Cache | ❌ | Nicht implementiert |
-| Metriken/Observability | ❌ | Nicht implementiert |
+| Dashboard (Web-UI) | 🟡 | Grundgerüst: Overview, Settings, Repos, WebSocket |
+| LLM-Review | ✅ | `lib/llm/*`, `apps/worker/run.py` |
+| Patch-Synthese / Auto-Fix | 🟡 | `lib/checks/*`, Worker-Autofix + Commit-Pfad |
+| Python/JS/Security-Linter | 🟡 | `lib/checks/ruff.py`, `bandit.py`, `eslint.py`, `trivy.py` |
+| Heuristiken (Hotspot/Drift/Redundanz) | 🟡 | `lib/heuristics/*.py`, Worker-Integration + Tests |
+| Ergebnis-Cache | ✅ | `lib/cache.py`, `apps/worker/run.py` |
+| Metriken/Observability | 🟡 | `lib/metrics.py`, `/metrics`, `/metrics/raw` |
 
 ---
 
@@ -102,35 +102,35 @@
 
 ### Meilenstein 2 — Erweiterte Linter & Auto-Fix
 
-> Aktuell: Nur Shell + YAML. Ziel: Python, JS/TS, Security — mit Auto-Fix.
+> Aktuell: 🟡 Erweiterte Checks und erste Autofixes sind implementiert; E2E-Autofix-Feinschliff bleibt offen.
 
-- [ ] **2.1** Check-Modul-Architektur einführen
+- [x] **2.1** Check-Modul-Architektur einführen
   - [x] `lib/checks/__init__.py`
   - [x] `lib/checks/base.py` — Protocol `Check` mit `detect()`, `run()`, `autofix()`
   - [x] `lib/checks/registry.py` — Alle Checks registrieren, policy-gesteuert aktivieren
-- [ ] **2.2** Bestehende Linter refactoren
+- [x] **2.2** Bestehende Linter refactoren
   - [x] `lib/checks/shellcheck.py` — aus `run.py` extrahieren
   - [x] `lib/checks/yamllint.py` — aus `run.py` extrahieren
   - [x] Worker ruft Registry statt einzelne Funktionen auf
-- [ ] **2.3** Python-Linting (ruff)
+- [x] **2.3** Python-Linting (ruff)
   - [x] `lib/checks/ruff.py` — `ruff check` + Output-Parsing
   - [x] Auto-Fix: `ruff check --fix` + `ruff format` (policy-gated)
   - [x] `fix_available = True` setzen bei fixbaren Findings
-- [ ] **2.4** Python-Security (bandit)
+- [x] **2.4** Python-Security (bandit)
   - [x] `lib/checks/bandit.py` — JSON-Output parsen
   - [x] Security-Findings als `category: "security"` taggen
   - [ ] Security-PRs optional nur intern (nicht öffentlich)
-- [ ] **2.5** Shell-Auto-Fix (shfmt)
+- [x] **2.5** Shell-Auto-Fix (shfmt)
   - [x] `lib/checks/shfmt.py` — Formatierung + Diff
   - [x] Optional in Policy: `checks.shell.shfmt_fix: true`
-- [ ] **2.6** JavaScript/TypeScript (eslint)
+- [x] **2.6** JavaScript/TypeScript (eslint)
   - [x] `lib/checks/eslint.py` — nur wenn `.eslintrc`/`eslint.config.*` existiert
   - [x] Auto-Fix: `eslint --fix` (policy-gated)
-- [ ] **2.7** Supply-Chain-Security (trivy)
+- [x] **2.7** Supply-Chain-Security (trivy)
   - [x] `lib/checks/trivy.py` — FS-Scan, JSON-Output
   - [x] Streng policy-gated, default deaktiviert
 - [ ] **2.8** Auto-Fix-Pipeline verdrahten
-  - [ ] Worker: Nach Linter-Run → `autofix()` aufrufen → geänderte Dateien committen
+  - [x] Worker: Nach Linter-Run → `autofix()` aufrufen → geänderte Dateien committen
   - [ ] `fix_available`-Findings tatsächlich applizieren
   - [ ] Themen-PRs: Style-Fixes ≠ Security-Fixes ≠ Correctness-Fixes
 - [ ] **2.9** Tests
@@ -142,47 +142,48 @@
 
 ### Meilenstein 3 — Heuristiken & Semantische Analyse
 
-> Aktuell: Keine Heuristiken. Ziel: Hotspots, Drift, Redundanz als Signalquellen.
+> Aktuell: 🟡 Kern-Heuristiken sind implementiert; Feinschliff und Ausbau bleiben offen.
 
-- [ ] **3.1** Hotspot-Erkennung
-  - [ ] `lib/heuristics/__init__.py`
-  - [ ] `lib/heuristics/hotspots.py` — Git-Churn der letzten 90 Tage
-  - [ ] Dateien mit hoher Änderungsfrequenz → erhöhtes Risiko in Review
-  - [ ] Output als `Finding(category="maintainability", severity="info")`
-- [ ] **3.2** Drift-Detektion
-  - [ ] `lib/heuristics/drift.py` — Versionsnummern, Config-Keys vergleichen
-  - [ ] Quellen: `pyproject.toml` vs `toolchain.versions.yml`, `Dockerfile` vs `requirements.txt`
-  - [ ] Drift ≠ Fehler → Beobachtung, kein Auto-Fix
+- [x] **3.1** Hotspot-Erkennung
+  - [x] `lib/heuristics/__init__.py`
+  - [x] `lib/heuristics/hotspots.py` — Git-Churn der letzten 90 Tage
+  - [x] Dateien mit hoher Änderungsfrequenz → erhöhtes Risiko in Review
+  - [x] Output als `Finding(category="maintainability", severity="info")`
+- [x] **3.2** Drift-Detektion
+  - [x] `lib/heuristics/drift.py` — Versionsnummern zwischen `pyproject.toml` und `requirements.txt`
+  - [ ] Weitere Quellen: `toolchain.versions.yml`, `Dockerfile` vs `requirements.txt`
+  - [x] Drift ≠ Fehler → Beobachtung, kein Auto-Fix
   - [ ] Policy-Flag: `heuristics.drift.create_pr: false` (default)
-- [ ] **3.3** Redundanz-Scanner
-  - [ ] `lib/heuristics/redundancy.py` — Hash-basierte Code-Block-Duplikation
-  - [ ] Schwelle konfigurierbar (default: 0.8)
-  - [ ] Output als Konsolidierungsvorschlag oder Rückfrage (`severity: "question"`)
-- [ ] **3.4** Integration in Worker
-  - [ ] Heuristiken nach Linter-Phase ausführen
-  - [ ] Ergebnisse in `risk_overall` der LLM-Review einspeisen
-  - [ ] Heuristik-Findings separat in Events loggen
-- [ ] **3.5** Tests
-  - [ ] Hotspot: Mock-Git-Log mit bekanntem Churn
-  - [ ] Drift: Fixture-Repos mit absichtlicher Versionsinkonsistenz
+- [x] **3.3** Redundanz-Scanner
+  - [x] `lib/heuristics/redundancy.py` — Hash-basierte Code-Block-Duplikation
+  - [x] Schwelle konfigurierbar
+  - [x] Output als Konsolidierungsvorschlag oder Rückfrage (`severity: "question"`)
+- [x] **3.4** Integration in Worker
+  - [x] Heuristiken nach Linter-Phase ausführen
+  - [x] Ergebnisse fließen als zusätzliche Findings in die LLM-Review ein
+  - [x] Heuristik-Findings separat in Events loggen
+- [x] **3.5** Tests
+  - [x] Hotspot: Mock-Git-Log mit bekanntem Churn
+  - [x] Drift: Fixture-Repos mit absichtlicher Versionsinkonsistenz
+  - [x] Redundanz: Duplikat- und Grenzfall-Tests
 
 ---
 
 ### Meilenstein 4 — Caching & Performance
 
-> Aktuell: Jeder Run prüft alles neu. Ziel: Ergebnis-Cache + parallele Verarbeitung.
+> Aktuell: 🟡 Ergebnis-Cache, Parallelisierung und GitHub-Backoff sind da; Priorisierung bleibt offen.
 
-- [ ] **4.1** Ergebnis-Cache
-  - [ ] `lib/cache.py` — Cache-Key: `repo + commit_hash + check_name + policy_hash`
-  - [ ] Speicherort: `~/.cache/sichter/`
-  - [ ] TTL: 7 Tage (konfigurierbar)
-  - [ ] Cache-Hit überspringt den Check komplett
-- [ ] **4.2** Parallele Repo-Verarbeitung
-  - [ ] `apps/worker/run.py` — `ThreadPoolExecutor` mit bounded concurrency (default: 4)
-  - [ ] Jedes Repo in eigenem Thread, Thread-sichere Event-Emission
-- [ ] **4.3** GitHub-Rate-Limit-Handling
-  - [ ] Exponential Backoff bei 403/429 von `gh` CLI
-  - [ ] Rate-Limit-Status loggen
+- [x] **4.1** Ergebnis-Cache
+  - [x] `lib/cache.py` — Cache-Key: `repo + commit_hash + check_name + policy_hash`
+  - [x] Speicherort: `~/.cache/sichter/`
+  - [x] TTL: 7 Tage (aktuell Default im Code)
+  - [x] Cache-Hit überspringt den Check komplett
+- [x] **4.2** Parallele Repo-Verarbeitung
+  - [x] `apps/worker/run.py` — `ThreadPoolExecutor` mit bounded concurrency
+  - [x] Jedes Repo in eigenem Thread, Fehler werden pro Repo als Event geloggt
+- [x] **4.3** GitHub-Rate-Limit-Handling
+  - [x] Exponential Backoff bei erkannten Rate-Limit-Fehlern von `gh` CLI
+  - [x] Rate-Limit-Status loggen
 - [ ] **4.4** Queue-Priorisierung
   - [ ] Jobs mit `priority: high` vorziehen (z.B. Security-Findings)
   - [ ] FIFO als Default beibehalten
@@ -191,7 +192,7 @@
 
 ### Meilenstein 5 — PR-Workflow verbessern
 
-> Aktuell: Ein PR pro Run. Ziel: Themen-PRs, Inline-Kommentare, bessere Beschreibungen.
+> Aktuell: 🟡 Themen-PRs, Inline-Kommentare und Review-Summary sind angelegt; Feinschliff bleibt offen.
 
 - [ ] **5.1** Themen-Bündelung realisieren
   - [ ] Ein Branch + PR pro Finding-Category (style, correctness, security, ...)
@@ -216,10 +217,10 @@
 
 ### Meilenstein 6 — Dashboard-Ausbau
 
-> Aktuell: Overview + Settings. Ziel: Vollwertiges Sichtungscockpit.
+> Aktuell: Overview + Settings + Repos-Grundseite. Ziel: Vollwertiges Sichtungscockpit.
 
 - [ ] **6.1** Repo-Übersicht mit Findings-Heatmap
-  - [ ] API: Neuer Endpoint `/repos/findings` — aggregierte Findings pro Repo
+  - [x] API: Neuer Endpoint `/repos/findings` — letzter Findings-Snapshot pro Repo aus Metrics
   - [ ] UI: Farbcodierte Kacheln (Grün/Gelb/Rot nach Severity)
 - [ ] **6.2** Drill-Down: Repo → Dateien → Findings
   - [ ] Klick auf Repo zeigt Datei-Liste mit Finding-Counts
@@ -243,14 +244,14 @@
 
 ### Meilenstein 7 — Observability & Metriken
 
-> Aktuell: JSONL-Events, kein Metrics-Export. Ziel: Messbare Qualität.
+> Aktuell: 🟡 Metrik-Erfassung und API sind vorhanden; Alerts und Qualitätsauswertung fehlen.
 
-- [ ] **7.1** Strukturierte Metriken sammeln
-  - [ ] `lib/metrics.py` — `ReviewMetrics`-Dataclass
-  - [ ] Felder: repo, duration_seconds, findings_count, findings_by_severity, llm_tokens_used, cache_hits, prs_created
-  - [ ] Speicherung in `insights/reviews.jsonl` (erweitern)
-- [ ] **7.2** Metriken-API-Endpoint
-  - [ ] `GET /metrics` — Aggregierte Metriken (JSON)
+- [x] **7.1** Strukturierte Metriken sammeln
+  - [x] `lib/metrics.py` — `ReviewMetrics`-Dataclass
+  - [x] Felder: repo, duration_seconds, findings_count, findings_by_severity, llm_tokens_used, cache_hits, prs_created
+  - [x] Speicherung in `insights/reviews.jsonl`
+- [x] **7.2** Metriken-API-Endpoint
+  - [x] `GET /metrics` — Aggregierte Metriken (JSON)
   - [ ] Optional: Prometheus-kompatibles Format
 - [ ] **7.3** Alerts bei Anomalien
   - [ ] Plötzlicher Finding-Anstieg → Event + optionale Benachrichtigung

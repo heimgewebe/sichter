@@ -12,7 +12,7 @@ from lib.cache import cache_get, cache_set, make_check_key, policy_hash
 from lib.heuristics.drift import _parse_requirements, _parse_pyproject_deps, run_drift_check
 from lib.heuristics.hotspots import run_hotspot_check
 from lib.heuristics.redundancy import run_redundancy_check
-from lib.metrics import ReviewMetrics, aggregate_metrics, load_metrics, record_metrics
+from lib.metrics import ReviewMetrics, aggregate_metrics, latest_repo_findings, load_metrics, record_metrics
 
 
 # ---------------------------------------------------------------------------
@@ -437,6 +437,39 @@ class TestMetrics(unittest.TestCase):
             self.assertEqual(records[0]["repo"], "r3")
             self.assertEqual(records[1]["repo"], "r4")
         finally:            path.unlink(missing_ok=True)
+
+    def test_latest_repo_findings_uses_latest_snapshot_per_repo(self):
+        records = [
+            {
+                "repo": "r1",
+                "findings_count": 3,
+                "findings_by_severity": {"warning": 3},
+                "timestamp": "2026-03-25T10:00:00+00:00",
+            },
+            {
+                "repo": "r2",
+                "findings_count": 0,
+                "findings_by_severity": {},
+                "timestamp": "2026-03-25T11:00:00+00:00",
+            },
+            {
+                "repo": "r1",
+                "findings_count": 1,
+                "findings_by_severity": {"error": 1},
+                "timestamp": "2026-03-26T09:00:00+00:00",
+            },
+        ]
+
+        summary = latest_repo_findings(records)
+
+        self.assertEqual(len(summary), 2)
+        self.assertEqual(summary[0]["name"], "r1")
+        self.assertEqual(summary[0]["findingsCount"], 1)
+        self.assertEqual(summary[0]["findingsBySeverity"], {"error": 1})
+        self.assertEqual(summary[0]["topSeverity"], "error")
+        self.assertEqual(summary[0]["lastReviewedAt"], "2026-03-26T09:00:00+00:00")
+        self.assertEqual(summary[1]["name"], "r2")
+        self.assertEqual(summary[1]["topSeverity"], "ok")
 
 
 if __name__ == "__main__":
