@@ -136,7 +136,7 @@ def aggregate_metrics(records: list[dict]) -> dict:
 
 def _top_severity(findings_by_severity: dict[str, int], findings_count: int) -> str:
     """Return the highest-priority severity label for a repo snapshot."""
-    for severity in ("error", "warning", "question", "info"):
+    for severity in ("critical", "error", "warning", "question", "info"):
         if int(findings_by_severity.get(severity, 0)) > 0:
             return severity
     return "ok" if findings_count <= 0 else "unknown"

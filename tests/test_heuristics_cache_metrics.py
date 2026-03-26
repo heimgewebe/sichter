@@ -471,6 +471,42 @@ class TestMetrics(unittest.TestCase):
         self.assertEqual(summary[1]["name"], "r2")
         self.assertEqual(summary[1]["topSeverity"], "ok")
 
+    def test_latest_repo_findings_marks_critical_as_top_severity(self):
+        records = [
+            {
+                "repo": "r-critical",
+                "findings_count": 1,
+                "findings_by_severity": {"critical": 1},
+                "timestamp": "2026-03-26T10:00:00+00:00",
+            },
+        ]
+
+        summary = latest_repo_findings(records)
+
+        self.assertEqual(len(summary), 1)
+        self.assertEqual(summary[0]["name"], "r-critical")
+        self.assertEqual(summary[0]["topSeverity"], "critical")
+
+    def test_latest_repo_findings_severity_priority_prefers_critical(self):
+        records = [
+            {
+                "repo": "r-mixed",
+                "findings_count": 4,
+                "findings_by_severity": {
+                    "warning": 2,
+                    "error": 1,
+                    "critical": 1,
+                },
+                "timestamp": "2026-03-26T10:05:00+00:00",
+            },
+        ]
+
+        summary = latest_repo_findings(records)
+
+        self.assertEqual(len(summary), 1)
+        self.assertEqual(summary[0]["name"], "r-mixed")
+        self.assertEqual(summary[0]["topSeverity"], "critical")
+
 
 if __name__ == "__main__":
     unittest.main()
