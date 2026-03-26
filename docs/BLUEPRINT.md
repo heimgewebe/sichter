@@ -184,9 +184,9 @@
 - [x] **4.3** GitHub-Rate-Limit-Handling
   - [x] Exponential Backoff bei erkannten Rate-Limit-Fehlern von `gh` CLI
   - [x] Rate-Limit-Status loggen
-- [ ] **4.4** Queue-Priorisierung
-  - [ ] Jobs mit `priority: high` vorziehen (z.B. Security-Findings)
-  - [ ] FIFO als Default beibehalten
+- [x] **4.4** Queue-Priorisierung
+  - [x] Jobs mit `priority: high` vorziehen (z.B. Security-Findings)
+  - [x] FIFO als Default beibehalten
 
 ---
 
