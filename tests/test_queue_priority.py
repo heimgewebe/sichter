@@ -52,6 +52,26 @@ class TestQueuePriority(unittest.TestCase):
       self.assertEqual(data["priority"], "high", "priority value must match submitted job")
       self.assertEqual(written[0].name, f"{jid}.json")
 
+  def test_same_priority_preserves_fifo_order(self):
+    """Within the same priority tier, older jobs (lower timestamp) must come first."""
+    with tempfile.TemporaryDirectory() as tmp:
+      queue_dir = Path(tmp)
+      jobs = [
+        ("1700000001-aaa.json", {"type": "ScanChanged", "priority": "normal"}),
+        ("1700000002-bbb.json", {"type": "ScanChanged", "priority": "normal"}),
+        ("1700000003-ccc.json", {"type": "ScanChanged", "priority": "normal"}),
+      ]
+      # Write in reverse order to prove sort is not insertion-order dependent
+      for name, payload in reversed(jobs):
+        (queue_dir / name).write_text(json.dumps(payload), encoding="utf-8")
+
+      sorted_jobs = get_sorted_jobs(queue_dir)
+      self.assertEqual([p.name for p in sorted_jobs], [
+        "1700000001-aaa.json",
+        "1700000002-bbb.json",
+        "1700000003-ccc.json",
+      ])
+
 
 if __name__ == "__main__":
   unittest.main()

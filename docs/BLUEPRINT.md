@@ -184,9 +184,12 @@
 - [x] **4.3** GitHub-Rate-Limit-Handling
   - [x] Exponential Backoff bei erkannten Rate-Limit-Fehlern von `gh` CLI
   - [x] Rate-Limit-Status loggen
-- [ ] **4.4** Queue-Priorisierung
-  - [ ] Jobs mit `priority: high` vorziehen (z.B. Security-Findings)
-  - [ ] FIFO als Default beibehalten
+- [x] **4.4** Queue-Priorisierung
+  - [x] Jobs mit `priority: high` vorziehen — Sortierung `high > normal > low` in `get_sorted_jobs()` implementiert und getestet
+  - [x] FIFO als Default beibehalten — stabile Sortierung innerhalb gleicher Priorität getestet
+  - [x] `Job`-Modell: `priority`-Feld mit Default `"normal"` (Literal-validiert)
+  - [x] `_enqueue()` schreibt `priority` in Queue-Datei — End-to-End-Test vorhanden
+  - [ ] Sweep kann nur `"normal"` erzeugen — bewusste `high`/`low`-Vergabe (z.B. bei Security-Findings) noch nicht implementiert
 
 ---
 
