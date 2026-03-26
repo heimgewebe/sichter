@@ -438,7 +438,9 @@ class TestWorkerRun(unittest.TestCase):
         mock_run_cmd.return_value.returncode = 0
 
         with patch("apps.worker.run.POLICY") as mock_policy, \
-             patch("lib.llm.factory.get_provider") as mock_get_provider:
+             patch("lib.llm.factory.get_provider") as mock_get_provider, \
+             patch("lib.llm.budget.ReviewBudget") as mock_budget_cls:
+            mock_budget_cls.return_value.allow_review.return_value = True
             mock_policy.run_mode = "normal"
             mock_policy.llm = {"enabled": True}
             result = worker_run.llm_review("repo", Path("/fake/repo"), findings=[])
@@ -455,7 +457,11 @@ class TestWorkerRun(unittest.TestCase):
 
         with patch("apps.worker.run.POLICY") as mock_policy, \
              patch("lib.llm.factory.get_provider") as mock_get_provider, \
-             patch("apps.worker.run.append_event"):
+             patch("apps.worker.run.append_event"), \
+             patch("apps.worker.run.persist_review_result"), \
+             patch("lib.llm.budget.ReviewBudget") as mock_budget_cls:
+            mock_budget = mock_budget_cls.return_value
+            mock_budget.allow_review.return_value = True
             mock_provider = mock_get_provider.return_value
             mock_provider.complete.return_value = (
                 '{"summary":"ok","risk_overall":"low",'
@@ -470,6 +476,7 @@ class TestWorkerRun(unittest.TestCase):
             result = worker_run.llm_review("repo", Path("/fake/repo"), findings=[])
         self.assertIsNotNone(result)
         mock_provider.complete.assert_called_once()
+        mock_budget.record_review.assert_called_once()
 
     @patch("apps.worker.run.run_cmd")
     def test_llm_review_runs_when_enabled_and_has_findings(
@@ -491,7 +498,10 @@ class TestWorkerRun(unittest.TestCase):
 
         with patch("apps.worker.run.POLICY") as mock_policy, \
              patch("lib.llm.factory.get_provider") as mock_get_provider, \
-             patch("apps.worker.run.append_event"):
+             patch("apps.worker.run.append_event"), \
+             patch("apps.worker.run.persist_review_result"), \
+             patch("lib.llm.budget.ReviewBudget") as mock_budget_cls:
+            mock_budget_cls.return_value.allow_review.return_value = True
             mock_provider = mock_get_provider.return_value
             mock_provider.complete.return_value = (
                 '{"summary":"ok","risk_overall":"low",'
@@ -506,6 +516,80 @@ class TestWorkerRun(unittest.TestCase):
             result = worker_run.llm_review("repo", Path("/fake/repo"), findings=[finding])
         self.assertIsNotNone(result)
         mock_provider.complete.assert_called_once()
+
+    @patch("apps.worker.run.append_event")
+    def test_llm_review_skips_when_rate_limit_reached(self, mock_append_event):
+        with patch("apps.worker.run.POLICY") as mock_policy, \
+             patch("lib.llm.budget.ReviewBudget") as mock_budget_cls, \
+             patch("lib.llm.factory.get_provider") as mock_get_provider:
+            mock_policy.llm = {"enabled": True, "max_reviews_per_hour": 1}
+            mock_budget = mock_budget_cls.return_value
+            mock_budget.allow_review.return_value = False
+            mock_budget.reviews_in_last_hour.return_value = 1
+
+            result = worker_run.llm_review("repo", Path("/fake/repo"), findings=[
+                Finding(
+                    severity="warning",
+                    category="correctness",
+                    file="f.py",
+                    line=1,
+                    message="m",
+                    tool="ruff",
+                    rule_id="E1",
+                )
+            ])
+
+        self.assertIsNone(result)
+        mock_get_provider.assert_not_called()
+        event = mock_append_event.call_args_list[0][0][0]
+        self.assertEqual(event.get("type"), "llm_review_skipped")
+        self.assertEqual(event.get("reason"), "rate_limit")
+
+    @patch("apps.worker.run.run_cmd")
+    def test_llm_review_uses_fallback_provider_on_error(self, mock_run_cmd):
+        mock_run_cmd.return_value.stdout = "diff --git a/x.py b/x.py\n+line"
+        mock_run_cmd.return_value.returncode = 0
+
+        primary_provider = unittest.mock.Mock()
+        primary_provider.complete.side_effect = RuntimeError("primary down")
+        primary_provider.model = "qwen"
+        primary_provider.provider_name = "ollama"
+
+        fallback_provider = unittest.mock.Mock()
+        fallback_provider.complete.return_value = (
+            '{"summary":"ok","risk_overall":"low",'
+            '"uncertainty":{"level":0.1,"sources":[],"productive":false},'
+            '"suggestions":[]}',
+            42,
+        )
+        fallback_provider.model = "gpt-4o-mini"
+        fallback_provider.provider_name = "openai"
+
+        with patch("apps.worker.run.POLICY") as mock_policy, \
+             patch("lib.llm.factory.get_provider", side_effect=[primary_provider, fallback_provider]), \
+             patch("apps.worker.run.append_event") as mock_append_event, \
+             patch("apps.worker.run.persist_review_result"), \
+             patch("lib.llm.budget.ReviewBudget") as mock_budget_cls:
+            mock_budget = mock_budget_cls.return_value
+            mock_budget.allow_review.return_value = True
+            mock_policy.llm = {
+                "enabled": True,
+                "provider": "ollama",
+                "fallback": {"provider": "openai", "model": "gpt-4o-mini"},
+            }
+
+            result = worker_run.llm_review("repo", Path("/fake/repo"), findings=[])
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertTrue(result.provider_switched)
+        self.assertEqual(result.provider, "openai")
+        fallback_events = [
+            c[0][0]
+            for c in mock_append_event.call_args_list
+            if c[0] and isinstance(c[0][0], dict) and c[0][0].get("type") == "llm_provider_fallback"
+        ]
+        self.assertEqual(len(fallback_events), 1)
 
 
 if __name__ == "__main__":

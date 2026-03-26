@@ -33,7 +33,7 @@ _PATTERNS: list[re.Pattern[str]] = [
 ]
 
 
-def redact(text: str) -> str:
+def redact(text: str, extra_patterns: list[str] | None = None) -> str:
     """Return *text* with secrets replaced by ``[REDACTED]``.
 
     Applies a series of regex-based redaction patterns to the full text.
@@ -43,6 +43,16 @@ def redact(text: str) -> str:
             text = pat.sub(_replacer, text)
         except Exception:  # noqa: BLE001
             pass
+
+    # Optional policy-provided regex denylist patterns.
+    for pattern in extra_patterns or []:
+        try:
+            compiled = re.compile(pattern, re.MULTILINE)
+            text = compiled.sub("[REDACTED]", text)
+        except re.error:
+            continue
+        except Exception:  # noqa: BLE001
+            continue
     return text
 
 

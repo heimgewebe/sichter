@@ -55,7 +55,7 @@
 - [x] **0.1** Dedupe-Key stabilisieren: Tool-ID + Rule-ID statt Message-Hash
   - Datei: `lib/findings.py` — `__post_init__` erweitern
   - Datei: `apps/worker/run.py` — `tool` und `rule_id` konsequent setzen
-- [ ] **0.2** Uncertainty-Felder tatsächlich befüllen (aktuell immer `None`)
+- [x] **0.2** Uncertainty-Felder tatsächlich befüllen (aktuell immer `None`)
 - [ ] **0.3** Themen-Bündelung: ein PR pro Category statt ein PR für alles
   - Datei: Neue Funktion `create_themed_prs()` in `apps/worker/run.py`
   - Branch-Naming: `sichter/<category>/<date>`
@@ -80,18 +80,18 @@
   - [x] Kontext: Repo-Meta + Diff-Hunks + aggregierte Static-Findings
 - [x] **1.3** Secrets-Schutz vor Prompt-Erstellung
   - [x] `lib/llm/sanitize.py` — `.env`, Tokens, Keys aus Diff entfernen
-  - [ ] Denylist-Patterns aus Policy respektieren (offen)
+  - [x] Denylist-Patterns aus Policy respektieren
 - [x] **1.4** Review-Output parsen
   - [x] `lib/llm/review.py` — JSON-Parsing mit robustem Fallback
   - [x] `ReviewResult`-Dataclass: summary, risk_overall, suggestions[], uncertainty
   - [x] Provider-Provenienz im Output (Modell + Provider + ob gewechselt)
-- [ ] **1.5** Token-Budget & Rate-Limiting
-  - [ ] `lib/llm/budget.py` — `max_tokens_per_review`, `max_reviews_per_hour`
-  - [ ] Policy-Erweiterung für Budget-Konfiguration
-  - [ ] Fallback-Provider bei lokalen Fehlern
+- [x] **1.5** Token-Budget & Rate-Limiting
+  - [x] `lib/llm/budget.py` — `max_tokens_per_review`, `max_reviews_per_hour`
+  - [x] Policy-Erweiterung für Budget-Konfiguration
+  - [x] Fallback-Provider bei lokalen Fehlern
 - [x] **1.6** Integration in Worker-Pipeline
   - [x] `apps/worker/run.py` — `llm_review()` mit echten LLM-Calls ersetzen
-  - [ ] Review-Ergebnisse als JSONL speichern (`~/.local/state/sichter/reviews/`)
+  - [x] Review-Ergebnisse als JSONL speichern (`~/.local/state/sichter/reviews/`)
   - [x] Review-Summary in PR-Beschreibung / PR-Kommentar einbetten
 - [x] **1.7** Tests
   - [x] Unit-Test für Prompt-Generator (Truncation + Redaction)

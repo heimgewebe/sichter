@@ -34,9 +34,12 @@ from lib.findings import Finding, Severity
 
 PID_FILE = STATE / "worker.pid"
 LOG_DIR = HOME / "sichter/logs"
+REVIEW_DIR = STATE / "reviews"
+REVIEW_BUDGET_FILE = STATE / "llm_review_budget.jsonl"
 
 ensure_directories()
 LOG_DIR.mkdir(parents=True, exist_ok=True)
+REVIEW_DIR.mkdir(parents=True, exist_ok=True)
 
 _NOW = datetime.now(timezone.utc)
 LOG_FILE = LOG_DIR / f"worker-{_NOW.strftime('%Y%m%d-%H%M%S')}.log"
@@ -272,6 +275,65 @@ def normalize_severity(severity: str) -> Severity:
   return "warning"
 
 
+def build_uncertainty(
+  tool: str,
+  line: int | None,
+  rule_id: str | None,
+) -> dict:
+  """Build a lightweight uncertainty payload for static findings."""
+  level = 0.15
+  sources: list[str] = []
+
+  if line is None:
+    level += 0.15
+    sources.append("missing_line")
+  if not rule_id:
+    level += 0.10
+    sources.append("missing_rule_id")
+
+  if level > 1.0:
+    level = 1.0
+
+  return {
+    "level": level,
+    "sources": sources,
+    "productive": True,
+    "tool": tool,
+  }
+
+
+def persist_review_result(repo: str, result: ReviewResult) -> None:
+  """Persist parsed LLM review results as JSONL records."""
+  now = datetime.now(timezone.utc)
+  target = REVIEW_DIR / f"reviews-{now.strftime('%Y%m%d')}.jsonl"
+  record = {
+    "ts": now.isoformat(),
+    "repo": repo,
+    "summary": result.summary,
+    "risk_overall": result.risk_overall,
+    "uncertainty": result.uncertainty,
+    "suggestions": [
+      {
+        "theme": suggestion.theme,
+        "recommendation": suggestion.recommendation,
+        "risk": suggestion.risk,
+        "why": suggestion.why,
+        "files": suggestion.files,
+      }
+      for suggestion in result.suggestions
+    ],
+    "model": result.model,
+    "provider": result.provider,
+    "provider_switched": result.provider_switched,
+    "tokens_used": result.tokens_used,
+  }
+  try:
+    with target.open("a", encoding="utf-8") as handle:
+      handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+  except OSError as exc:
+    log(f"Konnte LLM-Review nicht persistieren ({repo}): {exc}")
+
+
 def is_check_enabled(name: str) -> bool:
   """Return whether a check is enabled in policy.
 
@@ -381,6 +443,7 @@ def run_shellcheck(repo_dir: Path, files: Iterable[Path] | None = None) -> list[
           file=file_rel,
           line=line_int,
           message=message,
+          uncertainty=build_uncertainty("shellcheck", line_int, rule_id),
           tool="shellcheck",
           rule_id=rule_id,
         )
@@ -484,6 +547,7 @@ def run_yamllint(repo_dir: Path, files: Iterable[Path] | None = None) -> list[Fi
           file=file_rel,
           line=line_int,
           message=message,
+          uncertainty=build_uncertainty("yamllint", line_int, rule_id),
           tool="yamllint",
           rule_id=rule_id,
         )
@@ -570,6 +634,7 @@ def run_ruff(repo_dir: Path, files: Iterable[Path] | None = None) -> list[Findin
         file=file_rel,
         line=line_num,
         message=message,
+        uncertainty=build_uncertainty("ruff", line_num, code or None),
         tool="ruff",
         rule_id=code or None,
         fix_available=fix_available,
@@ -649,8 +714,28 @@ def llm_review(
   from lib.llm.factory import get_provider
   from lib.llm.prompts import build_review_prompt
   from lib.llm.review import parse_review_response
+  from lib.llm.budget import ReviewBudget
 
   try:
+    budget = ReviewBudget(REVIEW_BUDGET_FILE)
+    max_reviews_per_hour = int(llm_cfg.get("max_reviews_per_hour", 20))
+    if not budget.allow_review(max_reviews_per_hour=max_reviews_per_hour):
+      used = budget.reviews_in_last_hour()
+      log(
+        f"LLM-Review übersprungen – Rate-Limit erreicht "
+        f"({used}/{max_reviews_per_hour} pro Stunde)"
+      )
+      append_event(
+        {
+          "type": "llm_review_skipped",
+          "repo": repo,
+          "reason": "rate_limit",
+          "used": used,
+          "limit": max_reviews_per_hour,
+        }
+      )
+      return None
+
     provider = get_provider(llm_cfg)
     diff_result = run_cmd(
       ["git", "diff", f"origin/{DEFAULT_BRANCH}"],
@@ -663,15 +748,55 @@ def llm_review(
       log(f"LLM-Review übersprungen – kein Diff und keine Findings für {repo}")
       return None
 
-    prompt = build_review_prompt(repo, diff, findings or [])
+    denylist_patterns_cfg = llm_cfg.get("denylist_patterns", [])
+    denylist_patterns = (
+      [str(p) for p in denylist_patterns_cfg]
+      if isinstance(denylist_patterns_cfg, list)
+      else []
+    )
+
+    prompt = build_review_prompt(
+      repo,
+      diff,
+      findings or [],
+      denylist_patterns=denylist_patterns,
+    )
     max_tokens = int(llm_cfg.get("max_tokens_per_review", 4000))
-    raw, tokens = provider.complete(prompt, max_tokens=max_tokens)
+    active_provider = provider
+    provider_switched = False
+    try:
+      raw, tokens = provider.complete(prompt, max_tokens=max_tokens)
+    except Exception as provider_exc:  # noqa: BLE001
+      fallback_cfg = llm_cfg.get("fallback")
+      if not isinstance(fallback_cfg, dict):
+        raise provider_exc
+
+      merged_cfg = {**llm_cfg, **fallback_cfg}
+      active_provider = get_provider(merged_cfg)
+      raw, tokens = active_provider.complete(prompt, max_tokens=max_tokens)
+      provider_switched = True
+      append_event(
+        {
+          "type": "llm_provider_fallback",
+          "repo": repo,
+          "from_provider": provider.provider_name,
+          "from_model": provider.model,
+          "to_provider": active_provider.provider_name,
+          "to_model": active_provider.model,
+          "reason": str(provider_exc),
+        }
+      )
+
     result = parse_review_response(
       raw,
-      model=provider.model,
-      provider=provider.provider_name,
+      model=active_provider.model,
+      provider=active_provider.provider_name,
       tokens_used=tokens,
     )
+    result.provider_switched = provider_switched
+    budget.record_review(repo=repo, tokens_used=tokens)
+    persist_review_result(repo, result)
+
     log(f"LLM-Review {repo}: risk={result.risk_overall}, tokens={tokens}")
     append_event(
       {
@@ -679,8 +804,9 @@ def llm_review(
         "repo": repo,
         "risk": result.risk_overall,
         "tokens": tokens,
-        "provider": provider.provider_name,
-        "model": provider.model,
+        "provider": active_provider.provider_name,
+        "model": active_provider.model,
+        "provider_switched": provider_switched,
       }
     )
     return result
