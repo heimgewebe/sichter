@@ -293,9 +293,9 @@ def run_gh_with_backoff(cmd: list[str], cwd: Path) -> subprocess.CompletedProces
     if result.returncode == 0:
       return result
     stderr = (result.stderr or "").lower()
-    if not any(token in stderr for token in ("rate limit", "429", "403")):
+    if not any(token in stderr for token in ("rate limit", "secondary rate limit", "429")):
       return result
-    log(f"GitHub-Rate-Limit erkannt fur {' '.join(cmd[:3])}, warte {wait_seconds}s")
+    log(f"GitHub-Rate-Limit erkannt für {' '.join(cmd[:3])}, warte {wait_seconds}s")
     append_event({"type": "github_rate_limit", "wait_seconds": wait_seconds, "command": cmd[:3]})
     time.sleep(wait_seconds)
     wait_seconds *= 2
@@ -364,6 +364,11 @@ def run_heuristics(repo_dir: Path, changed_files: list[Path] | None) -> list[Fin
   return findings
 
 
+def _escape_md_cell(s: str) -> str:
+  """Escape pipe characters and newlines so they don't break a Markdown table cell."""
+  return str(s).replace("|", "\\|").replace("\n", " ")
+
+
 def add_inline_pr_comments(repo: str, repo_dir: Path, branch: str, findings: Iterable[Finding]) -> None:
   """Post a compact review comment with line-addressable findings."""
   inline_candidates = [finding for finding in findings if finding.file and finding.line is not None][:10]
@@ -378,14 +383,15 @@ def add_inline_pr_comments(repo: str, repo_dir: Path, branch: str, findings: Ite
   for finding in inline_candidates:
     rule = finding.rule_id or finding.tool or ""
     lines.append(
-      f"| {finding.file} | {finding.line} | {finding.severity} | {rule} | {finding.message} |"
+      f"| {_escape_md_cell(finding.file)} | {finding.line} | {finding.severity}"
+      f" | {_escape_md_cell(rule)} | {_escape_md_cell(finding.message)} |"
     )
   result = run_gh_with_backoff(
     ["gh", "pr", "review", branch, "--comment", "--body", "\n".join(lines)],
     repo_dir,
   )
   if result.returncode != 0:
-    log(f"Inline-Review-Kommentar fehlgeschlagen fur {repo}/{branch}")
+    log(f"Inline-Review-Kommentar fehlgeschlagen für {repo}/{branch}")
 
 
 def normalize_severity(severity: str) -> Severity:
@@ -962,7 +968,14 @@ def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
     list(POLICY.excludes),
   )
   findings_key = make_check_key(repo, current_commit(repo_dir), "registry", policy_hash)
-  cache_allowed = isinstance(repo_dir, Path) and repo_dir.exists() and (repo_dir / ".git").exists()
+  # Cache is only valid for full-repo scans; changed-file mode produces a different
+  # subset of findings so we must not serve a full-scan cache entry for it.
+  cache_allowed = (
+    changed_files is None
+    and isinstance(repo_dir, Path)
+    and repo_dir.exists()
+    and (repo_dir / ".git").exists()
+  )
   cached = cache_get(findings_key) if cache_allowed else None
   if cached and isinstance(cached.get("findings"), list):
     findings = deserialize_findings(cached["findings"])
@@ -1078,6 +1091,11 @@ def handle_job(job: dict) -> None:
     repos = list(job.get("repos") or list_repos_remote())
   else:
     repos = list_repos_local()
+
+  # Deduplicate while preserving order to prevent concurrent git operations on the
+  # same worktree when the caller accidentally supplies duplicate repo entries.
+  seen: set[str] = set()
+  repos = [r for r in repos if not (r in seen or seen.add(r))]  # type: ignore[func-returns-value]
 
   if len(repos) <= 1:
     for repo in repos:

@@ -982,6 +982,135 @@ class TestWorkerRun(unittest.TestCase):
         ]
         self.assertEqual(len(fallback_events), 1)
 
+    # ------------------------------------------------------------------
+    # Cache-key correctness: mode="changed" must bypass cache
+    # ------------------------------------------------------------------
+
+    @patch("apps.worker.run.cache_set")
+    @patch("apps.worker.run.cache_get")
+    @patch("apps.worker.run.run_heuristics", return_value=[])
+    @patch("apps.worker.run.commit_if_changes", return_value=False)
+    @patch("apps.worker.run.llm_review", return_value=None)
+    @patch("apps.worker.run.registry_run_autofixes", return_value={})
+    @patch("apps.worker.run.registry_run_checks", return_value=[])
+    @patch("apps.worker.run.fresh_branch", return_value="b")
+    @patch("apps.worker.run.ensure_repo")
+    def test_process_repo_changed_mode_skips_cache(
+        self,
+        mock_ensure_repo,
+        _fresh_branch,
+        _checks,
+        _autofixes,
+        _llm,
+        _commit,
+        _heuristics,
+        mock_cache_get,
+        mock_cache_set,
+    ):
+        """mode='changed' must never read from or write to the findings cache."""
+        from pathlib import Path as _Path
+        import tempfile, os
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_dir = _Path(tmpdir)
+            git_dir = repo_dir / ".git"
+            git_dir.mkdir()
+            mock_ensure_repo.return_value = repo_dir
+
+            with patch("apps.worker.run.get_changed_files", return_value=[repo_dir / "a.py"]):
+                worker_run.process_repo("test_repo", "changed", False)
+
+        mock_cache_get.assert_not_called()
+        mock_cache_set.assert_not_called()
+
+    @patch("apps.worker.run.cache_set")
+    @patch("apps.worker.run.cache_get", return_value=None)
+    @patch("apps.worker.run.run_heuristics", return_value=[])
+    @patch("apps.worker.run.commit_if_changes", return_value=False)
+    @patch("apps.worker.run.llm_review", return_value=None)
+    @patch("apps.worker.run.registry_run_autofixes", return_value={})
+    @patch("apps.worker.run.registry_run_checks", return_value=[])
+    @patch("apps.worker.run.fresh_branch", return_value="b")
+    @patch("apps.worker.run.ensure_repo")
+    def test_process_repo_all_mode_uses_cache(
+        self,
+        mock_ensure_repo,
+        _fresh_branch,
+        _checks,
+        _autofixes,
+        _llm,
+        _commit,
+        _heuristics,
+        mock_cache_get,
+        mock_cache_set,
+    ):
+        """mode='all' (changed_files=None) on a real git repo SHOULD attempt cache read/write."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_dir = Path(tmpdir)
+            (repo_dir / ".git").mkdir()
+            mock_ensure_repo.return_value = repo_dir
+
+            worker_run.process_repo("test_repo", "all", False)
+
+        mock_cache_get.assert_called_once()
+        # cache_set called because cache_get returned None (miss) and git repo exists
+        mock_cache_set.assert_called_once()
+
+    # ------------------------------------------------------------------
+    # Repo deduplication before parallel dispatch
+    # ------------------------------------------------------------------
+
+    @patch("apps.worker.run.process_repo")
+    def test_handle_job_deduplicates_repos_before_parallel(self, mock_process_repo):
+        """Duplicate repo entries in a job must not produce duplicate process_repo calls."""
+        job = {"repos": ["org/a", "org/b", "org/a"], "mode": "all"}
+        worker_run.handle_job(job)
+
+        called_repos = [c[0][0] for c in mock_process_repo.call_args_list]
+        self.assertEqual(called_repos.count("org/a"), 1)
+        self.assertEqual(called_repos.count("org/b"), 1)
+
+    # ------------------------------------------------------------------
+    # Rate-limit detection: "403" alone must NOT trigger backoff
+    # ------------------------------------------------------------------
+
+    @patch("apps.worker.run.time")
+    @patch("apps.worker.run.append_event")
+    @patch("apps.worker.run.run_cmd")
+    def test_run_gh_with_backoff_ignores_plain_403(self, mock_run_cmd, mock_append_event, mock_time):
+        """A plain 403 (permission/auth denial) must not trigger exponential backoff sleep."""
+        class _Res:
+            returncode = 1
+            stdout = ""
+            stderr = "error: 403 Forbidden – repository access denied"
+
+        mock_run_cmd.return_value = _Res()
+        worker_run.run_gh_with_backoff(["gh", "pr", "view", "branch"], Path("/fake"))
+
+        mock_time.sleep.assert_not_called()
+        mock_append_event.assert_not_called()
+
+    @patch("apps.worker.run.time")
+    @patch("apps.worker.run.append_event")
+    @patch("apps.worker.run.run_cmd")
+    def test_run_gh_with_backoff_triggers_on_rate_limit(self, mock_run_cmd, mock_append_event, mock_time):
+        """'rate limit' in stderr must trigger at least one backoff sleep."""
+        call_count = {"n": 0}
+
+        class _Res:
+            returncode = 1
+            stdout = ""
+            stderr = "error: secondary rate limit exceeded"
+
+        mock_run_cmd.return_value = _Res()
+        worker_run.run_gh_with_backoff(["gh", "pr", "view", "branch"], Path("/fake"))
+
+        # sleep must have been invoked at least once
+        mock_time.sleep.assert_called()
+        mock_append_event.assert_called()
+
 
 if __name__ == "__main__":
     unittest.main()
