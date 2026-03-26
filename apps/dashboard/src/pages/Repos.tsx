@@ -67,6 +67,7 @@ const Repos = () => {
             <th>Severity</th>
             <th>Letzte Review</th>
             <th>Letztes Event</th>
+            <th>Event-Zeit</th>
           </tr>
         </thead>
         <tbody>
@@ -87,6 +88,7 @@ const Repos = () => {
                   )}
                 </td>
                 <td>{f?.lastReviewedAt ?? '–'}</td>
+                <td>{repo.lastEvent?.kind ?? repo.lastEvent?.line ?? '–'}</td>
                 <td>{repo.lastEvent?.ts ?? '–'}</td>
               </tr>
             );
