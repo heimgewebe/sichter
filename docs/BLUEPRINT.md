@@ -119,7 +119,7 @@
 - [ ] **2.4** Python-Security (bandit)
   - [x] `lib/checks/bandit.py` — JSON-Output parsen
   - [x] Security-Findings als `category: "security"` taggen
-  - [ ] Security-PRs optional nur intern (nicht öffentlich)
+  - [x] Security-PRs optional nur intern (nicht öffentlich)
 - [ ] **2.5** Shell-Auto-Fix (shfmt)
   - [x] `lib/checks/shfmt.py` — Formatierung + Diff
   - [x] Optional in Policy: `checks.shell.shfmt_fix: true`
@@ -130,9 +130,9 @@
   - [x] `lib/checks/trivy.py` — FS-Scan, JSON-Output
   - [x] Streng policy-gated, default deaktiviert
 - [ ] **2.8** Auto-Fix-Pipeline verdrahten
-  - [ ] Worker: Nach Linter-Run → `autofix()` aufrufen → geänderte Dateien committen
-  - [ ] `fix_available`-Findings tatsächlich applizieren
-  - [ ] Themen-PRs: Style-Fixes ≠ Security-Fixes ≠ Correctness-Fixes
+  - [x] Worker: Nach Linter-Run → `autofix()` aufrufen → geänderte Dateien committen
+  - [x] `fix_available`-Findings tatsächlich applizieren
+  - [x] Themen-PRs: Style-Fixes ≠ Security-Fixes ≠ Correctness-Fixes
 - [ ] **2.9** Tests
   - [x] Pro Linter-Modul: Parser-Test mit Sample-Output
   - [x] Integration: Check-Registry mit Policy-Steuerung
@@ -144,27 +144,27 @@
 
 > Aktuell: Keine Heuristiken. Ziel: Hotspots, Drift, Redundanz als Signalquellen.
 
-- [ ] **3.1** Hotspot-Erkennung
-  - [ ] `lib/heuristics/__init__.py`
-  - [ ] `lib/heuristics/hotspots.py` — Git-Churn der letzten 90 Tage
-  - [ ] Dateien mit hoher Änderungsfrequenz → erhöhtes Risiko in Review
-  - [ ] Output als `Finding(category="maintainability", severity="info")`
-- [ ] **3.2** Drift-Detektion
-  - [ ] `lib/heuristics/drift.py` — Versionsnummern, Config-Keys vergleichen
-  - [ ] Quellen: `pyproject.toml` vs `toolchain.versions.yml`, `Dockerfile` vs `requirements.txt`
-  - [ ] Drift ≠ Fehler → Beobachtung, kein Auto-Fix
+- [x] **3.1** Hotspot-Erkennung
+  - [x] `lib/heuristics/__init__.py`
+  - [x] `lib/heuristics/hotspots.py` — Git-Churn der letzten 90 Tage
+  - [x] Dateien mit hoher Änderungsfrequenz → erhöhtes Risiko in Review
+  - [x] Output als `Finding(category="maintainability", severity="info")`
+- [~] **3.2** Drift-Detektion
+  - [~] `lib/heuristics/drift.py` — **IMPLEMENTIERT für**: `pyproject.toml` vs `requirements.txt`
+  - [ ] **TODO**: Dockerfile vs `requirements.txt`, `toolchain.versions.yml` Vergleiche
+  - [x] Drift ≠ Fehler → Beobachtung, kein Auto-Fix
   - [ ] Policy-Flag: `heuristics.drift.create_pr: false` (default)
-- [ ] **3.3** Redundanz-Scanner
-  - [ ] `lib/heuristics/redundancy.py` — Hash-basierte Code-Block-Duplikation
-  - [ ] Schwelle konfigurierbar (default: 0.8)
-  - [ ] Output als Konsolidierungsvorschlag oder Rückfrage (`severity: "question"`)
-- [ ] **3.4** Integration in Worker
-  - [ ] Heuristiken nach Linter-Phase ausführen
-  - [ ] Ergebnisse in `risk_overall` der LLM-Review einspeisen
-  - [ ] Heuristik-Findings separat in Events loggen
-- [ ] **3.5** Tests
-  - [ ] Hotspot: Mock-Git-Log mit bekanntem Churn
-  - [ ] Drift: Fixture-Repos mit absichtlicher Versionsinkonsistenz
+- [x] **3.3** Redundanz-Scanner
+  - [x] `lib/heuristics/redundancy.py` — Hash-basierte Code-Block-Duplikation
+  - [x] Schwelle konfigurierbar (default: 0.8)
+  - [x] Output als Konsolidierungsvorschlag oder Rückfrage (`severity: "question"`)
+- [x] **3.4** Integration in Worker
+  - [x] Heuristiken nach Linter-Phase ausführen
+  - [x] Ergebnisse in `risk_overall` der LLM-Review einspeisen
+  - [x] Heuristik-Findings separat in Events loggen
+- [x] **3.5** Tests
+  - [x] Hotspot: Mock-Git-Log mit bekanntem Churn
+  - [x] Drift: Fixture-Repos mit absichtlicher Versionsinkonsistenz
 
 ---
 
@@ -173,19 +173,19 @@
 > Aktuell: Jeder Run prüft alles neu. Ziel: Ergebnis-Cache + parallele Verarbeitung.
 
 - [ ] **4.1** Ergebnis-Cache
-  - [ ] `lib/cache.py` — Cache-Key: `repo + commit_hash + check_name + policy_hash`
-  - [ ] Speicherort: `~/.cache/sichter/`
-  - [ ] TTL: 7 Tage (konfigurierbar)
-  - [ ] Cache-Hit überspringt den Check komplett
+  - [x] `lib/cache.py` — Cache-Key: `repo + commit_hash + check_name + policy_hash`
+  - [x] Speicherort: `~/.cache/sichter/`
+  - [x] TTL: 7 Tage (konfigurierbar)
+  - [x] Cache-Hit überspringt den Check komplett
 - [ ] **4.2** Parallele Repo-Verarbeitung
-  - [ ] `apps/worker/run.py` — `ThreadPoolExecutor` mit bounded concurrency (default: 4)
-  - [ ] Jedes Repo in eigenem Thread, Thread-sichere Event-Emission
+  - [x] `apps/worker/run.py` — `ThreadPoolExecutor` mit bounded concurrency (default: 4)
+  - [x] Jedes Repo in eigenem Thread, Thread-sichere Event-Emission
 - [ ] **4.3** GitHub-Rate-Limit-Handling
-  - [ ] Exponential Backoff bei 403/429 von `gh` CLI
-  - [ ] Rate-Limit-Status loggen
+  - [x] Exponential Backoff bei 403/429 von `gh` CLI
+  - [x] Rate-Limit-Status loggen
 - [ ] **4.4** Queue-Priorisierung
-  - [ ] Jobs mit `priority: high` vorziehen (z.B. Security-Findings)
-  - [ ] FIFO als Default beibehalten
+  - [x] Jobs mit `priority: high` vorziehen (z.B. Security-Findings)
+  - [x] FIFO als Default beibehalten
 
 ---
 
@@ -194,22 +194,21 @@
 > Aktuell: Ein PR pro Run. Ziel: Themen-PRs, Inline-Kommentare, bessere Beschreibungen.
 
 - [ ] **5.1** Themen-Bündelung realisieren
-  - [ ] Ein Branch + PR pro Finding-Category (style, correctness, security, ...)
-  - [ ] Branch-Naming: `sichter/<category>/<date>-<shortsha>`
-  - [ ] Existierende PRs updaten statt neue erstellen
+  - [x] Ein Branch + PR pro Finding-Category (style, correctness, security, ...)
+  - [x] Branch-Naming: `sichter/<category>/<date>-<shortsha>`
+  - [x] Existierende PRs updaten statt neue erstellen
 - [ ] **5.2** PR-Beschreibung mit Review-Summary
-  - [ ] Risiko-Badge (🟢 Low / 🟡 Medium / 🔴 High)
-  - [ ] Zusammenfassung (2–6 Sätze)
-  - [ ] Vorschläge als nummerierte Liste mit Risiko
-  - [ ] Betroffene Dateien mit Änderungszählern
-  - [ ] Verifikationshinweise ("So prüfst du den Fix")
+  - [~] Basic Finding-Liste vorhanden
+  - [ ] **TODO**: Risiko-Badge (🟢 Low / 🟡 Medium / 🔴 High)
+  - [ ] **TODO**: Zusammenfassung (2–6 Sätze) + Verifikationshinweise
+  - [ ] **TODO**: Betroffene Dateien mit Änderungszählern
 - [ ] **5.3** Inline-Review-Kommentare
-  - [ ] `gh pr review --comment` an betroffenen Zeilen
-  - [ ] Nur bei Findings mit konkretem `file` + `line`
-  - [ ] Limit: Max 10 Inline-Kommentare pro PR
+  - [x] `gh pr review --comment` an betroffenen Zeilen
+  - [x] Nur bei Findings mit konkretem `file` + `line`
+  - [x] Limit: Max 10 Inline-Kommentare pro PR
 - [ ] **5.4** Security-Findings nur intern
-  - [ ] Policy-Flag: `security.findings_public: false`
-  - [ ] Bei `false`: Security-PRs nur als Draft oder gar nicht erstellen
+  - [x] Policy-Flag: `security.findings_public: false`
+  - [x] Bei `false`: Security-PRs nur als Draft oder gar nicht erstellen
   - [ ] Stattdessen: Event + interne Benachrichtigung
 
 ---
@@ -246,11 +245,11 @@
 > Aktuell: JSONL-Events, kein Metrics-Export. Ziel: Messbare Qualität.
 
 - [ ] **7.1** Strukturierte Metriken sammeln
-  - [ ] `lib/metrics.py` — `ReviewMetrics`-Dataclass
-  - [ ] Felder: repo, duration_seconds, findings_count, findings_by_severity, llm_tokens_used, cache_hits, prs_created
-  - [ ] Speicherung in `insights/reviews.jsonl` (erweitern)
+  - [x] `lib/metrics.py` — `ReviewMetrics`-Dataclass
+  - [x] Felder: repo, duration_seconds, findings_count, findings_by_severity, llm_tokens_used, cache_hits, prs_created
+  - [x] Speicherung in `insights/reviews.jsonl` (erweitern)
 - [ ] **7.2** Metriken-API-Endpoint
-  - [ ] `GET /metrics` — Aggregierte Metriken (JSON)
+  - [x] `GET /metrics` — Aggregierte Metriken (JSON)
   - [ ] Optional: Prometheus-kompatibles Format
 - [ ] **7.3** Alerts bei Anomalien
   - [ ] Plötzlicher Finding-Anstieg → Event + optionale Benachrichtigung

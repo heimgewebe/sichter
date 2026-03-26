@@ -1,116 +1,147 @@
 
-import pytest
-from unittest.mock import MagicMock, patch
-from pathlib import Path
+"""Test suite for API event caching (requires pytest).
 
-from apps.api.main import _scan_files_cached, _get_sorted_files, _cache_bucket
+NOTE (Test-Schuldenrest):
+  This module uses pytest fixtures (@pytest.fixture, @pytest.fixture(autouse=True)).
+  While pytest is not available, this file is intentionally kept and skipped
+  rather than rewritten for unittest (fixture model is fundamentally different).
+  
+  Future work: Either install pytest or redesign tests without fixtures.
+  See: docs/BLUEPRINT.md for test infrastructure roadmap.
+"""
+import sys
+import unittest
 
-class FakeEntry:
-    def __init__(self, name, path, is_file=True, mtime_ns=0, raise_on_stat=False):
-        self.name = name
-        self.path = path
-        self._is_file = is_file
-        self._mtime_ns = mtime_ns
-        self._raise_on_stat = raise_on_stat
+try:
+    import pytest
+    _PYTEST_AVAILABLE = True
+except ImportError:
+    _PYTEST_AVAILABLE = False
 
-    def is_file(self, follow_symlinks=True):
-        return self._is_file
+@unittest.skipIf(not _PYTEST_AVAILABLE, "SKIP: pytest not available — requires pytest.fixture (TEST-SCHULDENREST m3.2)")
+class TestApiEventCachingSkipped(unittest.TestCase):
+    """Placeholder test class; actual tests require pytest (fixtures).
+    
+    The fixture-based tests below check event file scanning, caching, and bucket logic.
+    They are NOT executed in unittest.discover() but defined for future pytest runs.
+    """
+    
+    def test_placeholder(self):
+        """Placeholder to avoid empty test suite."""
+        pass
 
-    def stat(self, follow_symlinks=True):
-        if self._raise_on_stat:
-            raise OSError("Inaccessible")
+if _PYTEST_AVAILABLE:
+    from unittest.mock import MagicMock, patch
+    from pathlib import Path
 
-        stat_mock = MagicMock()
-        stat_mock.st_mtime_ns = self._mtime_ns
-        return stat_mock
+    from apps.api.main import _scan_files_cached, _get_sorted_files, _cache_bucket
 
-@pytest.fixture(autouse=True)
-def clear_cache():
-    _scan_files_cached.cache_clear()
-    yield
-    _scan_files_cached.cache_clear()
+    class FakeEntry:
+        def __init__(self, name, path, is_file=True, mtime_ns=0, raise_on_stat=False):
+            self.name = name
+            self.path = path
+            self._is_file = is_file
+            self._mtime_ns = mtime_ns
+            self._raise_on_stat = raise_on_stat
 
-@pytest.fixture
-def mock_scandir():
-    with patch("os.scandir") as mock:
-        yield mock
+        def is_file(self, follow_symlinks=True):
+            return self._is_file
 
-def test_scan_files_sorting(mock_scandir):
-    entries = [
-        FakeEntry("a.jsonl", "/tmp/a.jsonl", mtime_ns=100),
-        FakeEntry("b.jsonl", "/tmp/b.jsonl", mtime_ns=300),
-        FakeEntry("c.jsonl", "/tmp/c.jsonl", mtime_ns=200),
-    ]
-    mock_scandir.return_value.__enter__.return_value = entries
+        def stat(self, follow_symlinks=True):
+            if self._raise_on_stat:
+                raise OSError("Inaccessible")
 
-    # First call
-    result = _scan_files_cached("/tmp", 12345, ".jsonl", bucket=1)
+            stat_mock = MagicMock()
+            stat_mock.st_mtime_ns = self._mtime_ns
+            return stat_mock
 
-    assert len(result) == 3
-    assert result[0][0].name == "b.jsonl" # 300
-    assert result[1][0].name == "c.jsonl" # 200
-    assert result[2][0].name == "a.jsonl" # 100
+    @pytest.fixture(autouse=True)
+    def clear_cache():
+        _scan_files_cached.cache_clear()
+        yield
+        _scan_files_cached.cache_clear()
 
-def test_scan_files_filtering(mock_scandir):
-    entries = [
-        FakeEntry("a.jsonl", "/tmp/a.jsonl", mtime_ns=100),
-        FakeEntry("b.log", "/tmp/b.log", mtime_ns=300), # Wrong suffix
-        FakeEntry("c.jsonl", "/tmp/c.jsonl", is_file=False), # Directory
-    ]
-    mock_scandir.return_value.__enter__.return_value = entries
+    @pytest.fixture
+    def mock_scandir():
+        with patch("os.scandir") as mock:
+            yield mock
 
-    result = _scan_files_cached("/tmp", 12345, ".jsonl", bucket=1)
+    def test_scan_files_sorting(mock_scandir):
+        entries = [
+            FakeEntry("a.jsonl", "/tmp/a.jsonl", mtime_ns=100),
+            FakeEntry("b.jsonl", "/tmp/b.jsonl", mtime_ns=300),
+            FakeEntry("c.jsonl", "/tmp/c.jsonl", mtime_ns=200),
+        ]
+        mock_scandir.return_value.__enter__.return_value = entries
 
-    assert len(result) == 1
-    assert result[0][0].name == "a.jsonl"
+        # First call
+        result = _scan_files_cached("/tmp", 12345, ".jsonl", bucket=1)
 
-def test_scan_files_error_handling(mock_scandir):
-    entries = [
-        FakeEntry("a.jsonl", "/tmp/a.jsonl", mtime_ns=100),
-        FakeEntry("b.jsonl", "/tmp/b.jsonl", raise_on_stat=True), # Error on stat
-    ]
-    mock_scandir.return_value.__enter__.return_value = entries
+        assert len(result) == 3
+        assert result[0][0].name == "b.jsonl" # 300
+        assert result[1][0].name == "c.jsonl" # 200
+        assert result[2][0].name == "a.jsonl" # 100
 
-    result = _scan_files_cached("/tmp", 12345, ".jsonl", bucket=1)
+    def test_scan_files_filtering(mock_scandir):
+        entries = [
+            FakeEntry("a.jsonl", "/tmp/a.jsonl", mtime_ns=100),
+            FakeEntry("b.log", "/tmp/b.log", mtime_ns=300), # Wrong suffix
+            FakeEntry("c.jsonl", "/tmp/c.jsonl", is_file=False), # Directory
+        ]
+        mock_scandir.return_value.__enter__.return_value = entries
 
-    assert len(result) == 1
-    assert result[0][0].name == "a.jsonl"
+        result = _scan_files_cached("/tmp", 12345, ".jsonl", bucket=1)
 
-def test_cache_invalidation_bucket(mock_scandir):
-    entries = [FakeEntry("a.jsonl", "/tmp/a.jsonl", mtime_ns=100)]
-    mock_scandir.return_value.__enter__.return_value = entries
+        assert len(result) == 1
+        assert result[0][0].name == "a.jsonl"
 
-    # Call 1
-    _scan_files_cached("/tmp", 12345, ".jsonl", bucket=1)
-    assert mock_scandir.call_count == 1
+    def test_scan_files_error_handling(mock_scandir):
+        entries = [
+            FakeEntry("a.jsonl", "/tmp/a.jsonl", mtime_ns=100),
+            FakeEntry("b.jsonl", "/tmp/b.jsonl", raise_on_stat=True), # Error on stat
+        ]
+        mock_scandir.return_value.__enter__.return_value = entries
 
-    # Call 2 (Same inputs) -> Cache hit
-    _scan_files_cached("/tmp", 12345, ".jsonl", bucket=1)
-    assert mock_scandir.call_count == 1
+        result = _scan_files_cached("/tmp", 12345, ".jsonl", bucket=1)
 
-    # Call 3 (Different bucket) -> Cache miss
-    _scan_files_cached("/tmp", 12345, ".jsonl", bucket=2)
-    assert mock_scandir.call_count == 2
+        assert len(result) == 1
+        assert result[0][0].name == "a.jsonl"
 
-@patch("apps.api.main._scan_files_cached")
-@patch("apps.api.main._cache_bucket")
-@patch("apps.api.main.EVENTS")
-def test_get_sorted_files_flow(mock_events, mock_bucket, mock_scan):
-    # Setup
-    mock_events.stat.return_value.st_mtime_ns = 9999
-    mock_events.__str__.return_value = "/events"
-    mock_bucket.return_value = 10
+    def test_cache_invalidation_bucket(mock_scandir):
+        entries = [FakeEntry("a.jsonl", "/tmp/a.jsonl", mtime_ns=100)]
+        mock_scandir.return_value.__enter__.return_value = entries
 
-    expected_path = Path("/events/a.jsonl")
-    mock_scan.return_value = [(expected_path, 100)]
+        # Call 1
+        _scan_files_cached("/tmp", 12345, ".jsonl", bucket=1)
+        assert mock_scandir.call_count == 1
 
-    # Execution
-    files = _get_sorted_files(".jsonl")
+        # Call 2 (Same inputs) -> Cache hit
+        _scan_files_cached("/tmp", 12345, ".jsonl", bucket=1)
+        assert mock_scandir.call_count == 1
 
-    # Assertions
-    assert len(files) == 1
-    assert files[0] == expected_path
+        # Call 3 (Different bucket) -> Cache miss
+        _scan_files_cached("/tmp", 12345, ".jsonl", bucket=2)
+        assert mock_scandir.call_count == 2
 
-    mock_events.stat.assert_called_once()
-    mock_bucket.assert_called_once()
-    mock_scan.assert_called_once_with(str(mock_events), 9999, ".jsonl", 10)
+    @patch("apps.api.main._scan_files_cached")
+    @patch("apps.api.main._cache_bucket")
+    @patch("apps.api.main.EVENTS")
+    def test_get_sorted_files_flow(mock_events, mock_bucket, mock_scan):
+        # Setup
+        mock_events.stat.return_value.st_mtime_ns = 9999
+        mock_events.__str__.return_value = "/events"
+        mock_bucket.return_value = 10
+
+        expected_path = Path("/events/a.jsonl")
+        mock_scan.return_value = [(expected_path, 100)]
+
+        # Execution
+        files = _get_sorted_files(".jsonl")
+
+        # Assertions
+        assert len(files) == 1
+        assert files[0] == expected_path
+
+        mock_events.stat.assert_called_once()
+        mock_bucket.assert_called_once()
+        mock_scan.assert_called_once_with(str(mock_events), 9999, ".jsonl", 10)

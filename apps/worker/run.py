@@ -10,6 +10,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from fnmatch import fnmatch
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
     from lib.llm.review import ReviewResult
 
 from apps.worker.dedupe import dedupe_findings
+from lib.cache import cache_get, cache_set, make_check_key, policy_hash as cache_policy_hash
 from lib.checks import run_autofixes as registry_run_autofixes
 from lib.checks import run_checks as registry_run_checks
 from lib.checks.base import policy_check_enabled
@@ -35,6 +37,8 @@ from lib.config import (
   ensure_directories,
 )
 from lib.findings import Finding, Severity
+from lib.heuristics import run_drift_check, run_hotspot_check, run_redundancy_check
+from lib.metrics import ReviewMetrics, record_metrics
 
 PID_FILE = STATE / "worker.pid"
 LOG_DIR = HOME / "sichter/logs"
@@ -122,6 +126,8 @@ class Policy:
   llm: dict | None = None
   checks: dict | None = None
   excludes: Iterable[str] = ()
+  security: dict | None = None
+  max_parallel_repos: int = 4
 
   @staticmethod
   def _bool_with_default(value: object, default: bool) -> bool:
@@ -161,6 +167,8 @@ class Policy:
       llm=data.get("llm", {}),
       checks=data.get("checks", {}),
       excludes=data.get("excludes", []) or [],
+      security=data.get("security", {}),
+      max_parallel_repos=int(data.get("max_parallel_repos", 4)),
     )
 
 
@@ -269,6 +277,105 @@ def run_cmd(cmd: list[str], cwd: Path, check: bool = True) -> subprocess.Complet
     Completed process result
   """
   return subprocess.run(cmd, cwd=cwd, text=True, capture_output=True, check=check)
+
+
+def run_gh_with_backoff(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+  """Run `gh` commands with exponential backoff on rate limits."""
+  wait_seconds = 15
+  for attempt in range(3):
+    result = run_cmd(cmd, cwd, check=False)
+    if result.returncode == 0:
+      return result
+    stderr = (result.stderr or "").lower()
+    if not any(token in stderr for token in ("rate limit", "429", "403")):
+      return result
+    log(f"GitHub-Rate-Limit erkannt fur {' '.join(cmd[:3])}, warte {wait_seconds}s")
+    append_event({"type": "github_rate_limit", "wait_seconds": wait_seconds, "command": cmd[:3]})
+    time.sleep(wait_seconds)
+    wait_seconds *= 2
+  return result
+
+
+def current_commit(repo_dir: Path) -> str:
+  if not repo_dir.exists():
+    return "unknown"
+  try:
+    result = run_cmd(["git", "rev-parse", "HEAD"], repo_dir, check=False)
+  except OSError:
+    return "unknown"
+  return (result.stdout or "").strip() or "unknown"
+
+
+def serialize_findings(findings: Iterable[Finding]) -> list[dict]:
+  return [
+    {
+      "severity": finding.severity,
+      "category": finding.category,
+      "file": finding.file,
+      "line": finding.line,
+      "message": finding.message,
+      "evidence": finding.evidence,
+      "fix_available": finding.fix_available,
+      "dedupe_key": finding.dedupe_key,
+      "uncertainty": finding.uncertainty,
+      "tool": finding.tool,
+      "rule_id": finding.rule_id,
+    }
+    for finding in findings
+  ]
+
+
+def deserialize_findings(items: Iterable[dict]) -> list[Finding]:
+  findings: list[Finding] = []
+  for item in items:
+    findings.append(
+      Finding(
+        severity=item.get("severity", "warning"),
+        category=item.get("category", "correctness"),
+        file=item.get("file", ""),
+        line=item.get("line"),
+        message=item.get("message", ""),
+        evidence=item.get("evidence"),
+        fix_available=bool(item.get("fix_available", False)),
+        dedupe_key=item.get("dedupe_key", ""),
+        uncertainty=item.get("uncertainty"),
+        tool=item.get("tool"),
+        rule_id=item.get("rule_id"),
+      )
+    )
+  return findings
+
+
+def run_heuristics(repo_dir: Path, changed_files: list[Path] | None) -> list[Finding]:
+  findings: list[Finding] = []
+  findings.extend(run_hotspot_check(repo_dir, changed_files, POLICY.checks, run_cmd, log))
+  findings.extend(run_drift_check(repo_dir, POLICY.checks, log))
+  findings.extend(run_redundancy_check(repo_dir, changed_files, POLICY.checks, log))
+  return findings
+
+
+def add_inline_pr_comments(repo: str, repo_dir: Path, branch: str, findings: Iterable[Finding]) -> None:
+  """Post a compact review comment with line-addressable findings."""
+  inline_candidates = [finding for finding in findings if finding.file and finding.line is not None][:10]
+  if not inline_candidates:
+    return
+  lines = [
+    "### Sichter Inline-Hinweise",
+    "",
+    "| Datei | Zeile | Severity | Regel | Nachricht |",
+    "| --- | --- | --- | --- | --- |",
+  ]
+  for finding in inline_candidates:
+    rule = finding.rule_id or finding.tool or ""
+    lines.append(
+      f"| {finding.file} | {finding.line} | {finding.severity} | {rule} | {finding.message} |"
+    )
+  result = run_gh_with_backoff(
+    ["gh", "pr", "review", branch, "--comment", "--body", "\n".join(lines)],
+    repo_dir,
+  )
+  if result.returncode != 0:
+    log(f"Inline-Review-Kommentar fehlgeschlagen fur {repo}/{branch}")
 
 
 def normalize_severity(severity: str) -> Severity:
@@ -590,7 +697,8 @@ def create_or_update_pr(
   findings: Iterable[Finding] | None = None,
   review: ReviewResult | None = None,
   pr_title: str | None = None,
-) -> None:
+  is_security: bool | None = None,
+) -> bool:
   """Create or update a pull request for the changes.
 
   Args:
@@ -601,13 +709,21 @@ def create_or_update_pr(
     findings: Linter findings to include in PR body.
     review: Optional LLM review to append to PR body.
     pr_title: Optional custom PR title.
+    is_security: Override for security-only PR handling.
   """
   if not auto_pr:
     log(f"Auto-PR deaktiviert, Änderungen verbleiben lokal ({repo})")
     append_event({"type": "commit", "repo": repo, "branch": branch, "auto_pr": False})
-    return
+    return False
 
-  pr_body = build_pr_body(repo, findings, review)
+  findings_list = list(findings or [])
+  security_pr = is_security if is_security is not None else any(
+    finding.category == "security" for finding in findings_list
+  )
+  security_cfg = POLICY.security or {}
+  draft_security = security_pr and not bool(security_cfg.get("findings_public", False))
+
+  pr_body = build_pr_body(repo, findings_list, review)
   effective_title = pr_title or f"Sichter: auto PR ({repo})"
 
   try:
@@ -615,46 +731,47 @@ def create_or_update_pr(
   except subprocess.CalledProcessError as exc:
     log(f"Push fehlgeschlagen für {repo}/{branch}: {exc}")
     append_event({"type": "push_failed", "repo": repo, "branch": branch, "error": str(exc)})
-    return
+    return False
 
-  view = run_cmd(["gh", "pr", "view", branch, "--json", "url", "-q", ".url"], repo_dir, check=False)
+  view = run_gh_with_backoff(["gh", "pr", "view", branch, "--json", "url", "-q", ".url"], repo_dir)
   if view.returncode != 0 or not view.stdout.strip():
     try:
-      run_cmd(
-        [
-          "gh",
-          "pr",
-          "create",
-          "--base",
-          DEFAULT_BRANCH,
-          "--title",
-          effective_title,
-          "--body",
-          pr_body,
-          "--label",
-          PR_LABEL_SICHTER,
-          "--label",
-          PR_LABEL_AUTOMATION,
-        ],
-        repo_dir,
-      )
+      create_cmd = [
+        "gh",
+        "pr",
+        "create",
+        "--base",
+        DEFAULT_BRANCH,
+        "--title",
+        effective_title,
+        "--body",
+        pr_body,
+        "--label",
+        PR_LABEL_SICHTER,
+        "--label",
+        PR_LABEL_AUTOMATION,
+      ]
+      if draft_security:
+        create_cmd.append("--draft")
+      run_cmd(create_cmd, repo_dir)
     except subprocess.CalledProcessError as exc:
       log(f"PR-Erstellung fehlgeschlagen für {repo}/{branch}: {exc}")
       append_event({"type": "pr_failed", "repo": repo, "branch": branch, "error": str(exc)})
-      return
+      return False
 
-  edit_result = run_cmd(
+  edit_result = run_gh_with_backoff(
     ["gh", "pr", "edit", branch, "--title", effective_title, "--body", pr_body],
     repo_dir,
-    check=False,
   )
   if edit_result.returncode != 0:
     log(f"PR-Metadaten konnten nicht aktualisiert werden für {repo}/{branch}")
 
-  view = run_cmd(["gh", "pr", "view", branch, "--json", "url", "-q", ".url"], repo_dir, check=False)
+  view = run_gh_with_backoff(["gh", "pr", "view", branch, "--json", "url", "-q", ".url"], repo_dir)
   url = view.stdout.strip() if view.stdout else ""
-  append_event({"type": "pr", "repo": repo, "branch": branch, "url": url})
+  append_event({"type": "pr", "repo": repo, "branch": branch, "url": url, "draft": draft_security})
   log(f"PR {repo}: {url or 'unbekannt'}")
+  add_inline_pr_comments(repo, repo_dir, branch, findings_list)
+  return True
 
 
 def _sanitize_branch_segment(value: str) -> str:
@@ -679,7 +796,7 @@ def create_themed_prs(
   auto_pr: bool,
   findings: Iterable[Finding] | None = None,
   review: ReviewResult | None = None,
-) -> None:
+) -> int:
   """Create one PR per finding category by projecting changes from source branch.
 
   If findings are missing or all findings map to a single category, this falls back
@@ -688,8 +805,14 @@ def create_themed_prs(
   findings_list = list(findings or [])
   categories = sorted({finding.category for finding in findings_list})
   if len(categories) <= 1:
-    create_or_update_pr(repo, repo_dir, source_branch, auto_pr, findings_list, review=review)
-    return
+    return 1 if create_or_update_pr(
+      repo,
+      repo_dir,
+      source_branch,
+      auto_pr,
+      findings_list,
+      review=review,
+    ) else 0
 
   # Keep only categories that can be mapped to concrete files.
   category_files: dict[str, list[str]] = {}
@@ -700,8 +823,14 @@ def create_themed_prs(
 
   actionable_categories = [cat for cat in categories if category_files.get(cat)]
   if not actionable_categories:
-    create_or_update_pr(repo, repo_dir, source_branch, auto_pr, findings_list, review=review)
-    return
+    return 1 if create_or_update_pr(
+      repo,
+      repo_dir,
+      source_branch,
+      auto_pr,
+      findings_list,
+      review=review,
+    ) else 0
 
   if len(actionable_categories) == 1:
     single = actionable_categories[0]
@@ -716,7 +845,7 @@ def create_themed_prs(
       review=review,
       pr_title=themed_title,
     )
-    return
+    return 1
 
   # Guard: if any file appears in more than one category, a multi-PR split would
   # produce overlapping branches with conflicting changes.  Fall back to a single PR.
@@ -729,8 +858,14 @@ def create_themed_prs(
       f"{repo}: Überlappende Dateien in mehreren Kategorien – "
       "Fallback auf einzelne PR"
     )
-    create_or_update_pr(repo, repo_dir, source_branch, auto_pr, findings_list, review=review)
-    return
+    return 1 if create_or_update_pr(
+      repo,
+      repo_dir,
+      source_branch,
+      auto_pr,
+      findings_list,
+      review=review,
+    ) else 0
 
   rev = run_cmd(["git", "rev-parse", "--short", source_branch], repo_dir, check=False)
   shortsha = (rev.stdout or "").strip() if rev.returncode == 0 else "manual"
@@ -738,6 +873,7 @@ def create_themed_prs(
     shortsha = "manual"
 
   base_ref = f"origin/{DEFAULT_BRANCH}"
+  pr_count = 0
   for category in actionable_categories:
     files = sorted(set(category_files.get(category, [])))
     if not files:
@@ -771,7 +907,7 @@ def create_themed_prs(
 
     category_findings = [finding for finding in findings_list if finding.category == category]
     themed_title = f"Sichter: {category} auto PR ({repo})"
-    create_or_update_pr(
+    created = create_or_update_pr(
       repo,
       repo_dir,
       themed_branch,
@@ -779,7 +915,126 @@ def create_themed_prs(
       category_findings,
       review=None,  # global review covers the full diff; don't attach it to a partial themed PR
       pr_title=themed_title,
+      is_security=(category == "security"),
     )
+    if created:
+      pr_count += 1
+  return pr_count
+
+
+def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
+  """Process a single repository end-to-end."""
+  started = time.monotonic()
+  cache_hits = 0
+  prs_created = 0
+
+  repo_dir = ensure_repo(repo)
+  if not repo_dir:
+    return
+
+  branch = fresh_branch(repo_dir)
+  changed_files: list[Path] | None
+  if mode == "changed":
+    changed_files = get_changed_files(repo_dir, base=None, excludes=POLICY.excludes)
+    if not changed_files:
+      log(f"Keine geänderten Dateien für {repo} (mode=changed)")
+  else:
+    changed_files = None
+
+  policy_hash = cache_policy_hash(
+    POLICY.checks if isinstance(POLICY.checks, dict) else {},
+    list(POLICY.excludes),
+  )
+  findings_key = make_check_key(repo, current_commit(repo_dir), "registry", policy_hash)
+  cache_allowed = isinstance(repo_dir, Path) and repo_dir.exists() and (repo_dir / ".git").exists()
+  cached = cache_get(findings_key) if cache_allowed else None
+  if cached and isinstance(cached.get("findings"), list):
+    findings = deserialize_findings(cached["findings"])
+    cache_hits += 1
+    log(f"{repo}: Check-Ergebnisse aus Cache geladen")
+  else:
+    findings = registry_run_checks(
+      repo_dir,
+      changed_files,
+      POLICY.checks,
+      POLICY.excludes,
+      run_cmd,
+      log,
+    )
+    if cache_allowed:
+      cache_set(findings_key, {"findings": serialize_findings(findings)})
+
+  heuristic_findings = run_heuristics(repo_dir, changed_files)
+  if heuristic_findings:
+    append_event({"type": "heuristics", "repo": repo, "count": len(heuristic_findings)})
+  findings = findings + heuristic_findings
+
+  autofix = registry_run_autofixes(
+    repo_dir,
+    changed_files,
+    POLICY.checks,
+    POLICY.excludes,
+    run_cmd,
+    log,
+  )
+  for tool_name, changed in autofix.items():
+    changed_int = int(changed)
+    if changed_int <= 0:
+      continue
+    log(f"{repo}: {tool_name} hat {changed_int} Datei(en) angepasst")
+    append_event(
+      {
+        "type": "autofix",
+        "repo": repo,
+        "tool": tool_name,
+        "changed": changed_int,
+      }
+    )
+
+  grouped = dedupe_findings(findings)
+  if findings:
+    log(f"{repo}: {len(findings)} Findings ({len(grouped)} dedupliziert)")
+    append_event(
+      {
+        "type": "findings",
+        "repo": repo,
+        "count": len(findings),
+        "deduped": len(grouped),
+      }
+    )
+
+  review = llm_review(repo, repo_dir, findings)
+
+  if commit_if_changes(repo_dir):
+    prs_created = create_themed_prs(repo, repo_dir, branch, auto_pr, findings, review)
+  else:
+    log(f"Keine Änderungen für {repo}")
+    append_event({"type": "noop", "repo": repo, "branch": branch})
+
+  findings_by_severity: dict[str, int] = {}
+  for finding in findings:
+    findings_by_severity[finding.severity] = findings_by_severity.get(finding.severity, 0) + 1
+
+  try:
+    llm_tokens_used = int(getattr(review, "tokens_used", 0)) if review is not None else 0
+  except (TypeError, ValueError):
+    llm_tokens_used = 0
+  try:
+    prs_created_int = int(prs_created)
+  except (TypeError, ValueError):
+    prs_created_int = 0
+
+  record_metrics(
+    ReviewMetrics(
+      repo=repo,
+      duration_seconds=round(time.monotonic() - started, 2),
+      findings_count=len(findings),
+      findings_by_severity=findings_by_severity,
+      llm_tokens_used=llm_tokens_used,
+      cache_hits=cache_hits,
+      prs_created=prs_created_int,
+    )
+  )
 
 
 def handle_job(job: dict) -> None:
@@ -800,79 +1055,29 @@ def handle_job(job: dict) -> None:
 
   log(f"Job erhalten: mode={mode} repo={repo_one} auto_pr={auto_pr}")
 
-  repos: Iterable[str]
+  repos: list[str]
   if repo_one:
     repos = [repo_one]
   elif mode == "all":
-    repos = job.get("repos") or list_repos_remote()
+    repos = list(job.get("repos") or list_repos_remote())
   else:
     repos = list_repos_local()
 
-  for repo in repos:
-    repo_dir = ensure_repo(repo)
-    if not repo_dir:
-      continue
+  if len(repos) <= 1:
+    for repo in repos:
+      process_repo(repo, mode, auto_pr)
+    return
 
-    branch = fresh_branch(repo_dir)
-
-    changed_files: list[Path] | None
-    if mode == "changed":
-      changed_files = get_changed_files(repo_dir, base=None, excludes=POLICY.excludes)
-      if not changed_files:
-        log(f"Keine geänderten Dateien für {repo} (mode=changed)")
-    else:
-      changed_files = None
-
-    findings = registry_run_checks(
-      repo_dir,
-      changed_files,
-      POLICY.checks,
-      POLICY.excludes,
-      run_cmd,
-      log,
-    )
-
-    autofix = registry_run_autofixes(
-      repo_dir,
-      changed_files,
-      POLICY.checks,
-      POLICY.excludes,
-      run_cmd,
-      log,
-    )
-    for tool_name, changed in autofix.items():
-      changed_int = int(changed)
-      if changed_int <= 0:
-        continue
-      log(f"{repo}: {tool_name} hat {changed_int} Datei(en) angepasst")
-      append_event(
-        {
-          "type": "autofix",
-          "repo": repo,
-          "tool": tool_name,
-          "changed": changed_int,
-        }
-      )
-
-    grouped = dedupe_findings(findings)
-    if findings:
-      log(f"{repo}: {len(findings)} Findings ({len(grouped)} dedupliziert)")
-      append_event(
-        {
-          "type": "findings",
-          "repo": repo,
-          "count": len(findings),
-          "deduped": len(grouped),
-        }
-      )
-
-    review = llm_review(repo, repo_dir, findings)
-
-    if commit_if_changes(repo_dir):
-      create_themed_prs(repo, repo_dir, branch, auto_pr, findings, review)
-    else:
-      log(f"Keine Änderungen für {repo}")
-      append_event({"type": "noop", "repo": repo, "branch": branch})
+  max_workers = max(1, min(POLICY.max_parallel_repos, len(repos)))
+  with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    future_map = {executor.submit(process_repo, repo, mode, auto_pr): repo for repo in repos}
+    for future in as_completed(future_map):
+      repo = future_map[future]
+      try:
+        future.result()
+      except Exception as exc:  # pragma: no cover
+        log(f"Fehler bei Repo {repo}: {exc}")
+        append_event({"type": "error", "repo": repo, "message": str(exc)})
 
 
 def list_repos_local() -> list[str]:
@@ -895,11 +1100,7 @@ def list_repos_remote() -> list[str]:
 
 
 def get_sorted_jobs(queue_dir: Path) -> list[Path]:
-  """Return sorted list of job files in queue using efficient scandir.
-
-  Sorting strings and converting to Path is significantly faster than
-  globbing and sorting Path objects directly (observed in local benchmarks).
-  """
+  """Return sorted list of job files in queue with priority support."""
   files: list[str] = []
   try:
     with os.scandir(queue_dir) as it:
@@ -921,6 +1122,16 @@ def get_sorted_jobs(queue_dir: Path) -> list[Path]:
     return []
 
   files.sort()
+  priority_rank = {"high": 0, "normal": 1, "low": 2}
+
+  def file_priority(path_str: str) -> int:
+    try:
+      data = json.loads(Path(path_str).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+      return 1
+    return priority_rank.get(str(data.get("priority", "normal")).lower(), 1)
+
+  files.sort(key=file_priority)
   return [Path(p) for p in files]
 
 
