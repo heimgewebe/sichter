@@ -71,6 +71,7 @@ def write_job(policy: dict, mode: str, repo: str | None) -> Path:
     "org": policy.get("org", DEFAULT_ORG),
     "repo": repo,
     "auto_pr": auto_pr,
+    "priority": "normal",
     "timestamp": now.isoformat(),
   }
   job_file = QUEUE_DIR / f"{int(now.timestamp())}-{uuid.uuid4().hex}.json"
