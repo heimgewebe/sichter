@@ -536,6 +536,27 @@ def read_policy() -> dict[str, str]:
   return _read_policy()
 
 
+# --- metrics: /metrics --------------------------------------------------------
+
+@app.get("/metrics", dependencies=[Depends(verify_api_key)])
+def get_metrics(n: int = 200) -> dict:
+  """Return aggregated review metrics from the last ``n`` runs.
+
+  Query params:
+    n: Maximum number of records to load (default 200).
+  """
+  from lib.metrics import aggregate_metrics, load_metrics
+  records = load_metrics(n=max(1, min(n, 10_000)))
+  return aggregate_metrics(records)
+
+
+@app.get("/metrics/raw", dependencies=[Depends(verify_api_key)])
+def get_metrics_raw(n: int = 50) -> dict:
+  """Return raw per-run review metrics (last ``n`` records)."""
+  from lib.metrics import load_metrics
+  return {"records": load_metrics(n=max(1, min(n, 1_000)))}
+
+
 # --- websocket: /events/stream ------------------------------------------------
 
 
