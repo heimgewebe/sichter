@@ -47,6 +47,7 @@ def build_review_prompt(
     diff: str,
     static_findings: list[Finding],
     max_suggestions: int = 3,
+    denylist_patterns: list[str] | None = None,
 ) -> str:
     """Build a diff-focused LLM review prompt.
 
@@ -61,7 +62,7 @@ def build_review_prompt(
     Returns:
         Ready-to-send prompt string.
     """
-    safe_diff = redact(diff)
+    safe_diff = redact(diff, extra_patterns=denylist_patterns)
     if len(safe_diff) > _MAX_DIFF_CHARS:
         truncated = safe_diff[:_MAX_DIFF_CHARS]
         omitted = len(safe_diff) - _MAX_DIFF_CHARS

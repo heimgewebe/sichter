@@ -55,8 +55,8 @@
 - [x] **0.1** Dedupe-Key stabilisieren: Tool-ID + Rule-ID statt Message-Hash
   - Datei: `lib/findings.py` — `__post_init__` erweitern
   - Datei: `apps/worker/run.py` — `tool` und `rule_id` konsequent setzen
-- [ ] **0.2** Uncertainty-Felder tatsächlich befüllen (aktuell immer `None`)
-- [ ] **0.3** Themen-Bündelung: ein PR pro Category statt ein PR für alles
+- [x] **0.2** Uncertainty-Felder tatsächlich befüllen (aktuell immer `None`)
+- [x] **0.3** Themen-Bündelung: ein PR pro Category statt ein PR für alles
   - Datei: Neue Funktion `create_themed_prs()` in `apps/worker/run.py`
   - Branch-Naming: `sichter/<category>/<date>`
 
@@ -80,18 +80,18 @@
   - [x] Kontext: Repo-Meta + Diff-Hunks + aggregierte Static-Findings
 - [x] **1.3** Secrets-Schutz vor Prompt-Erstellung
   - [x] `lib/llm/sanitize.py` — `.env`, Tokens, Keys aus Diff entfernen
-  - [ ] Denylist-Patterns aus Policy respektieren (offen)
+  - [x] Denylist-Patterns aus Policy respektieren
 - [x] **1.4** Review-Output parsen
   - [x] `lib/llm/review.py` — JSON-Parsing mit robustem Fallback
   - [x] `ReviewResult`-Dataclass: summary, risk_overall, suggestions[], uncertainty
   - [x] Provider-Provenienz im Output (Modell + Provider + ob gewechselt)
-- [ ] **1.5** Token-Budget & Rate-Limiting
-  - [ ] `lib/llm/budget.py` — `max_tokens_per_review`, `max_reviews_per_hour`
-  - [ ] Policy-Erweiterung für Budget-Konfiguration
-  - [ ] Fallback-Provider bei lokalen Fehlern
+- [x] **1.5** Token-Budget & Rate-Limiting
+  - [x] `lib/llm/budget.py` — `max_tokens_per_review`, `max_reviews_per_hour`
+  - [x] Policy-Erweiterung für Budget-Konfiguration
+  - [x] Fallback-Provider bei lokalen Fehlern
 - [x] **1.6** Integration in Worker-Pipeline
   - [x] `apps/worker/run.py` — `llm_review()` mit echten LLM-Calls ersetzen
-  - [ ] Review-Ergebnisse als JSONL speichern (`~/.local/state/sichter/reviews/`)
+  - [x] Review-Ergebnisse als JSONL speichern (`~/.local/state/sichter/reviews/`)
   - [x] Review-Summary in PR-Beschreibung / PR-Kommentar einbetten
 - [x] **1.7** Tests
   - [x] Unit-Test für Prompt-Generator (Truncation + Redaction)
@@ -105,37 +105,37 @@
 > Aktuell: Nur Shell + YAML. Ziel: Python, JS/TS, Security — mit Auto-Fix.
 
 - [ ] **2.1** Check-Modul-Architektur einführen
-  - [ ] `lib/checks/__init__.py`
-  - [ ] `lib/checks/base.py` — Protocol `Check` mit `detect()`, `run()`, `autofix()`
-  - [ ] `lib/checks/registry.py` — Alle Checks registrieren, policy-gesteuert aktivieren
+  - [x] `lib/checks/__init__.py`
+  - [x] `lib/checks/base.py` — Protocol `Check` mit `detect()`, `run()`, `autofix()`
+  - [x] `lib/checks/registry.py` — Alle Checks registrieren, policy-gesteuert aktivieren
 - [ ] **2.2** Bestehende Linter refactoren
-  - [ ] `lib/checks/shellcheck.py` — aus `run.py` extrahieren
-  - [ ] `lib/checks/yamllint.py` — aus `run.py` extrahieren
-  - [ ] Worker ruft Registry statt einzelne Funktionen auf
+  - [x] `lib/checks/shellcheck.py` — aus `run.py` extrahieren
+  - [x] `lib/checks/yamllint.py` — aus `run.py` extrahieren
+  - [x] Worker ruft Registry statt einzelne Funktionen auf
 - [ ] **2.3** Python-Linting (ruff)
-  - [ ] `lib/checks/ruff.py` — `ruff check` + Output-Parsing
-  - [ ] Auto-Fix: `ruff check --fix` + `ruff format` (policy-gated)
-  - [ ] `fix_available = True` setzen bei fixbaren Findings
+  - [x] `lib/checks/ruff.py` — `ruff check` + Output-Parsing
+  - [x] Auto-Fix: `ruff check --fix` + `ruff format` (policy-gated)
+  - [x] `fix_available = True` setzen bei fixbaren Findings
 - [ ] **2.4** Python-Security (bandit)
-  - [ ] `lib/checks/bandit.py` — JSON-Output parsen
-  - [ ] Security-Findings als `category: "security"` taggen
+  - [x] `lib/checks/bandit.py` — JSON-Output parsen
+  - [x] Security-Findings als `category: "security"` taggen
   - [ ] Security-PRs optional nur intern (nicht öffentlich)
 - [ ] **2.5** Shell-Auto-Fix (shfmt)
-  - [ ] `lib/checks/shfmt.py` — Formatierung + Diff
-  - [ ] Optional in Policy: `checks.shell.shfmt_fix: true`
+  - [x] `lib/checks/shfmt.py` — Formatierung + Diff
+  - [x] Optional in Policy: `checks.shell.shfmt_fix: true`
 - [ ] **2.6** JavaScript/TypeScript (eslint)
-  - [ ] `lib/checks/eslint.py` — nur wenn `.eslintrc`/`eslint.config.*` existiert
-  - [ ] Auto-Fix: `eslint --fix` (policy-gated)
+  - [x] `lib/checks/eslint.py` — nur wenn `.eslintrc`/`eslint.config.*` existiert
+  - [x] Auto-Fix: `eslint --fix` (policy-gated)
 - [ ] **2.7** Supply-Chain-Security (trivy)
-  - [ ] `lib/checks/trivy.py` — FS-Scan, JSON-Output
-  - [ ] Streng policy-gated, default deaktiviert
+  - [x] `lib/checks/trivy.py` — FS-Scan, JSON-Output
+  - [x] Streng policy-gated, default deaktiviert
 - [ ] **2.8** Auto-Fix-Pipeline verdrahten
   - [ ] Worker: Nach Linter-Run → `autofix()` aufrufen → geänderte Dateien committen
   - [ ] `fix_available`-Findings tatsächlich applizieren
   - [ ] Themen-PRs: Style-Fixes ≠ Security-Fixes ≠ Correctness-Fixes
 - [ ] **2.9** Tests
-  - [ ] Pro Linter-Modul: Parser-Test mit Sample-Output
-  - [ ] Integration: Check-Registry mit Policy-Steuerung
+  - [x] Pro Linter-Modul: Parser-Test mit Sample-Output
+  - [x] Integration: Check-Registry mit Policy-Steuerung
   - [ ] Auto-Fix: Patch anwendbar, kein Dirty-State nach Revert
 
 ---

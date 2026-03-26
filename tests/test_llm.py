@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from lib.findings import Finding
+from lib.llm.budget import ReviewBudget
 from lib.llm.review import ReviewResult, Suggestion, parse_review_response
 from lib.llm.sanitize import redact
 
@@ -50,6 +53,47 @@ class TestRedact(unittest.TestCase):
         result = redact(text)
         # Should not redact very short values
         self.assertNotIn("[REDACTED]", result)
+
+    def test_extra_policy_pattern_is_redacted(self):
+        text = "SENSITIVE_MARKER_42"
+        result = redact(text, extra_patterns=[r"SENSITIVE_MARKER_\d+"])
+        self.assertEqual(result, "[REDACTED]")
+
+
+class TestReviewBudget(unittest.TestCase):
+    def _budget(self, tmpdir: str) -> ReviewBudget:
+        return ReviewBudget(Path(tmpdir) / "budget.jsonl")
+
+    def test_allows_until_limit_then_blocks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            budget = self._budget(tmp)
+            now = 1_000_000.0
+
+            self.assertTrue(budget.allow_review(2, now=now))
+            budget.record_review("repo", 10, now=now)
+            self.assertTrue(budget.allow_review(2, now=now + 1))
+            budget.record_review("repo", 15, now=now + 2)
+            self.assertFalse(budget.allow_review(2, now=now + 3))
+
+    def test_entries_expire_after_hour(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            budget = self._budget(tmp)
+            now = 1_000_000.0
+            budget.record_review("repo", 10, now=now)
+
+            self.assertFalse(budget.allow_review(1, now=now + 3599))
+            self.assertTrue(budget.allow_review(1, now=now + 3601))
+
+    def test_invalid_ts_entry_does_not_crash_and_is_not_counted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            budget = self._budget(tmp)
+            # Write a JSONL entry with a bad timestamp directly
+            state_file = Path(tmp) / "budget.jsonl"
+            state_file.write_text('{"ts": "not-a-number", "repo": "r", "tokens_used": 5}\n')
+            now = 1_000_000.0
+            # Should not raise; broken entry treated as expired (ts=0.0 < window_start)
+            self.assertEqual(budget.reviews_in_last_hour(now=now), 0)
+            self.assertTrue(budget.allow_review(1, now=now))
 
 
 class TestParseReviewResponse(unittest.TestCase):

@@ -8,28 +8,28 @@ from lib.findings import Finding
 
 class TestWorkerRun(unittest.TestCase):
     @patch("apps.worker.run.get_changed_files", return_value=[])
-    @patch("apps.worker.run.create_or_update_pr")
+    @patch("apps.worker.run.create_themed_prs")
     @patch("apps.worker.run.commit_if_changes", return_value=True)
     @patch("apps.worker.run.llm_review")
-    @patch("apps.worker.run.run_yamllint", return_value=[])
-    @patch("apps.worker.run.run_shellcheck", return_value=[])
+    @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
+    @patch("apps.worker.run.registry_run_checks", return_value=[])
     @patch("apps.worker.run.fresh_branch")
     @patch("apps.worker.run.ensure_repo")
     def test_handle_job_respects_auto_pr_flag(
         self,
         mock_ensure_repo,
         mock_fresh_branch,
-        mock_run_shellcheck,
-        mock_run_yamllint,
+        mock_registry_run_checks,
+        mock_registry_run_autofixes,
         mock_llm_review,
         mock_commit_if_changes,
-        mock_create_or_update_pr,
+        mock_create_themed_prs,
         mock_get_changed_files,
     ):
         # Test case 1: job with auto_pr=False
         job_false = {"repo": "test_repo", "auto_pr": False}
         worker_run.handle_job(job_false)
-        mock_create_or_update_pr.assert_called_with(
+        mock_create_themed_prs.assert_called_with(
             "test_repo",
             mock_ensure_repo.return_value,
             mock_fresh_branch.return_value,
@@ -41,7 +41,7 @@ class TestWorkerRun(unittest.TestCase):
         # Test case 2: job with auto_pr=True
         job_true = {"repo": "test_repo", "auto_pr": True}
         worker_run.handle_job(job_true)
-        mock_create_or_update_pr.assert_called_with(
+        mock_create_themed_prs.assert_called_with(
             "test_repo",
             mock_ensure_repo.return_value,
             mock_fresh_branch.return_value,
@@ -54,7 +54,7 @@ class TestWorkerRun(unittest.TestCase):
         job_none = {"repo": "test_repo"}
         with patch("apps.worker.run.POLICY.auto_pr", True):
             worker_run.handle_job(job_none)
-            mock_create_or_update_pr.assert_called_with(
+            mock_create_themed_prs.assert_called_with(
                 "test_repo",
                 mock_ensure_repo.return_value,
                 mock_fresh_branch.return_value,
@@ -65,7 +65,7 @@ class TestWorkerRun(unittest.TestCase):
 
         with patch("apps.worker.run.POLICY.auto_pr", False):
             worker_run.handle_job(job_none)
-            mock_create_or_update_pr.assert_called_with(
+            mock_create_themed_prs.assert_called_with(
                 "test_repo",
                 mock_ensure_repo.return_value,
                 mock_fresh_branch.return_value,
@@ -78,7 +78,7 @@ class TestWorkerRun(unittest.TestCase):
         job_none_value = {"repo": "test_repo", "auto_pr": None}
         with patch("apps.worker.run.POLICY.auto_pr", True):
             worker_run.handle_job(job_none_value)
-            mock_create_or_update_pr.assert_called_with(
+            mock_create_themed_prs.assert_called_with(
                 "test_repo",
                 mock_ensure_repo.return_value,
                 mock_fresh_branch.return_value,
@@ -89,7 +89,7 @@ class TestWorkerRun(unittest.TestCase):
 
         with patch("apps.worker.run.POLICY.auto_pr", False):
             worker_run.handle_job(job_none_value)
-            mock_create_or_update_pr.assert_called_with(
+            mock_create_themed_prs.assert_called_with(
                 "test_repo",
                 mock_ensure_repo.return_value,
                 mock_fresh_branch.return_value,
@@ -102,7 +102,7 @@ class TestWorkerRun(unittest.TestCase):
         job_invalid_type = {"repo": "test_repo", "auto_pr": "false"}
         with patch("apps.worker.run.POLICY.auto_pr", True):
             worker_run.handle_job(job_invalid_type)
-            mock_create_or_update_pr.assert_called_with(
+            mock_create_themed_prs.assert_called_with(
                 "test_repo",
                 mock_ensure_repo.return_value,
                 mock_fresh_branch.return_value,
@@ -113,7 +113,7 @@ class TestWorkerRun(unittest.TestCase):
 
         with patch("apps.worker.run.POLICY.auto_pr", False):
             worker_run.handle_job(job_invalid_type)
-            mock_create_or_update_pr.assert_called_with(
+            mock_create_themed_prs.assert_called_with(
                 "test_repo",
                 mock_ensure_repo.return_value,
                 mock_fresh_branch.return_value,
@@ -123,22 +123,22 @@ class TestWorkerRun(unittest.TestCase):
             )
 
     @patch("apps.worker.run.get_changed_files")
-    @patch("apps.worker.run.create_or_update_pr")
+    @patch("apps.worker.run.create_themed_prs")
     @patch("apps.worker.run.commit_if_changes", return_value=True)
     @patch("apps.worker.run.llm_review")
-    @patch("apps.worker.run.run_yamllint", return_value=[])
-    @patch("apps.worker.run.run_shellcheck", return_value=[])
+    @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
+    @patch("apps.worker.run.registry_run_checks", return_value=[])
     @patch("apps.worker.run.fresh_branch", return_value="test-branch")
     @patch("apps.worker.run.ensure_repo")
     def test_handle_job_mode_changed_calls_get_changed_files(
         self,
         mock_ensure_repo,
         mock_fresh_branch,
-        mock_run_shellcheck,
-        mock_run_yamllint,
+        mock_registry_run_checks,
+        mock_registry_run_autofixes,
         mock_llm_review,
         mock_commit_if_changes,
-        mock_create_or_update_pr,
+        mock_create_themed_prs,
         mock_get_changed_files,
     ):
         """Test that mode='changed' invokes get_changed_files and passes result to linters."""
@@ -151,26 +151,28 @@ class TestWorkerRun(unittest.TestCase):
         worker_run.handle_job(job)
 
         mock_get_changed_files.assert_called_once()
-        mock_run_shellcheck.assert_called_once_with(mock_repo_dir, mock_changed)
-        mock_run_yamllint.assert_called_once_with(mock_repo_dir, mock_changed)
+        mock_registry_run_checks.assert_called_once()
+        args = mock_registry_run_checks.call_args[0]
+        self.assertEqual(args[0], mock_repo_dir)
+        self.assertEqual(args[1], mock_changed)
 
     @patch("apps.worker.run.get_changed_files")
-    @patch("apps.worker.run.create_or_update_pr")
+    @patch("apps.worker.run.create_themed_prs")
     @patch("apps.worker.run.commit_if_changes", return_value=True)
     @patch("apps.worker.run.llm_review")
-    @patch("apps.worker.run.run_yamllint", return_value=[])
-    @patch("apps.worker.run.run_shellcheck", return_value=[])
+    @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
+    @patch("apps.worker.run.registry_run_checks", return_value=[])
     @patch("apps.worker.run.fresh_branch", return_value="test-branch")
     @patch("apps.worker.run.ensure_repo")
     def test_handle_job_mode_all_skips_get_changed_files(
         self,
         mock_ensure_repo,
         mock_fresh_branch,
-        mock_run_shellcheck,
-        mock_run_yamllint,
+        mock_registry_run_checks,
+        mock_registry_run_autofixes,
         mock_llm_review,
         mock_commit_if_changes,
-        mock_create_or_update_pr,
+        mock_create_themed_prs,
         mock_get_changed_files,
     ):
         """Test that mode='all' does not invoke get_changed_files and passes None to linters."""
@@ -181,28 +183,30 @@ class TestWorkerRun(unittest.TestCase):
         worker_run.handle_job(job)
 
         mock_get_changed_files.assert_not_called()
-        mock_run_shellcheck.assert_called_once_with(mock_repo_dir, None)
-        mock_run_yamllint.assert_called_once_with(mock_repo_dir, None)
+        mock_registry_run_checks.assert_called_once()
+        args = mock_registry_run_checks.call_args[0]
+        self.assertEqual(args[0], mock_repo_dir)
+        self.assertIsNone(args[1])
 
     @patch("apps.worker.run.get_changed_files", return_value=[])
     @patch("apps.worker.run.append_event")
     @patch("apps.worker.run.dedupe_findings")
-    @patch("apps.worker.run.create_or_update_pr")
+    @patch("apps.worker.run.create_themed_prs")
     @patch("apps.worker.run.commit_if_changes", return_value=True)
     @patch("apps.worker.run.llm_review")
-    @patch("apps.worker.run.run_yamllint")
-    @patch("apps.worker.run.run_shellcheck")
+    @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
+    @patch("apps.worker.run.registry_run_checks")
     @patch("apps.worker.run.fresh_branch", return_value="test-branch")
     @patch("apps.worker.run.ensure_repo")
     def test_handle_job_dedupes_findings(
         self,
         mock_ensure_repo,
         mock_fresh_branch,
-        mock_run_shellcheck,
-        mock_run_yamllint,
+        mock_registry_run_checks,
+        mock_registry_run_autofixes,
         mock_llm_review,
         mock_commit_if_changes,
-        mock_create_or_update_pr,
+        mock_create_themed_prs,
         mock_dedupe_findings,
         mock_append_event,
         mock_get_changed_files,
@@ -239,8 +243,7 @@ class TestWorkerRun(unittest.TestCase):
             rule_id="SC2006",
         )
 
-        mock_run_shellcheck.return_value = [finding1, finding3]
-        mock_run_yamllint.return_value = [finding2]
+        mock_registry_run_checks.return_value = [finding1, finding3, finding2]
         mock_dedupe_findings.return_value = {
             "key1": [finding1, finding3],
             "key2": [finding2],
@@ -339,11 +342,180 @@ class TestWorkerRun(unittest.TestCase):
         with patch("apps.worker.run.POLICY.checks", {"ruff": {"enabled": True}}):
             self.assertTrue(worker_run.is_check_enabled("ruff"))
 
+    @patch("apps.worker.run.create_or_update_pr")
+    def test_create_themed_prs_falls_back_to_single_pr_without_findings(self, mock_create_or_update_pr):
+        worker_run.create_themed_prs(
+            repo="test_repo",
+            repo_dir=Path("/fake/repo"),
+            source_branch="sichter/autofix-branch",
+            auto_pr=True,
+            findings=[],
+            review=None,
+        )
+
+        mock_create_or_update_pr.assert_called_once_with(
+            "test_repo",
+            Path("/fake/repo"),
+            "sichter/autofix-branch",
+            True,
+            [],
+            review=None,
+        )
+
+    @patch("apps.worker.run.create_or_update_pr")
+    @patch("apps.worker.run.run_cmd")
+    @patch("apps.worker.run.commit_if_changes")
+    def test_create_themed_prs_creates_pr_per_category(
+        self,
+        mock_commit_if_changes,
+        mock_run_cmd,
+        mock_create_or_update_pr,
+    ):
+        findings = [
+            Finding(
+                severity="warning",
+                category="style",
+                file="a.sh",
+                line=1,
+                message="style issue",
+                tool="shellcheck",
+                rule_id="SC1000",
+            ),
+            Finding(
+                severity="error",
+                category="security",
+                file="sec.py",
+                line=3,
+                message="security issue",
+                tool="ruff",
+                rule_id="S101",
+            ),
+        ]
+
+        def _run_cmd_side_effect(cmd, cwd, check=True):
+            class _Result:
+                def __init__(self, returncode=0, stdout="", stderr=""):
+                    self.returncode = returncode
+                    self.stdout = stdout
+                    self.stderr = stderr
+
+            if cmd[:3] == ["git", "rev-parse", "--short"]:
+                return _Result(returncode=0, stdout="abc123\n")
+            return _Result(returncode=0, stdout="")
+
+        mock_run_cmd.side_effect = _run_cmd_side_effect
+        mock_commit_if_changes.return_value = True
+
+        worker_run.create_themed_prs(
+            repo="test_repo",
+            repo_dir=Path("/fake/repo"),
+            source_branch="sichter/autofix-branch",
+            auto_pr=True,
+            findings=findings,
+            review=None,
+        )
+
+        self.assertEqual(mock_create_or_update_pr.call_count, 2)
+        called_titles = [kwargs.get("pr_title", "") for _, kwargs in mock_create_or_update_pr.call_args_list]
+        self.assertTrue(any("style auto PR" in title for title in called_titles))
+        self.assertTrue(any("security auto PR" in title for title in called_titles))
+
+        # In a genuine multi-PR split, the global review must NOT be passed to themed PRs.
+        for call in mock_create_or_update_pr.call_args_list:
+            review_arg = call.kwargs.get("review")
+            self.assertIsNone(review_arg,
+                              "review must be None for themed PRs in multi-PR split")
+
         with patch("apps.worker.run.POLICY.checks", {"ruff": {"autofix": True}}):
             self.assertTrue(worker_run.is_check_enabled("ruff"))
 
         with patch("apps.worker.run.POLICY.checks", {"ruff": {"enabled": False}}):
             self.assertFalse(worker_run.is_check_enabled("ruff"))
+
+    @patch("apps.worker.run.create_or_update_pr")
+    def test_create_themed_prs_falls_back_on_overlapping_files(self, mock_create_or_update_pr):
+        """When the same file has findings in multiple categories, themed split must not happen."""
+        findings = [
+            Finding(
+                severity="warning",
+                category="style",
+                file="shared.py",
+                line=1,
+                message="style issue",
+                tool="ruff",
+                rule_id="E501",
+            ),
+            Finding(
+                severity="error",
+                category="security",
+                file="shared.py",  # same file, different category
+                line=5,
+                message="security issue",
+                tool="bandit",
+                rule_id="B101",
+            ),
+        ]
+
+        worker_run.create_themed_prs(
+            repo="test_repo",
+            repo_dir=Path("/fake/repo"),
+            source_branch="sichter/autofix-branch",
+            auto_pr=True,
+            findings=findings,
+            review=None,
+        )
+
+        # Must fall back to a single PR, not two themed PRs
+        mock_create_or_update_pr.assert_called_once()
+        args = mock_create_or_update_pr.call_args
+        # Called without a custom pr_title (single-PR fallback)
+        self.assertNotIn("pr_title", args.kwargs or {})
+
+    @patch("apps.worker.run.create_or_update_pr")
+    @patch("apps.worker.run.run_cmd")
+    @patch("apps.worker.run.commit_if_changes")
+    def test_create_themed_prs_review_passed_for_single_category(
+        self,
+        mock_commit_if_changes,
+        mock_run_cmd,
+        mock_create_or_update_pr,
+    ):
+        """When there is only one actionable category, the review is forwarded."""
+        from lib.llm.review import ReviewResult
+
+        fake_review = ReviewResult(
+            summary="ok",
+            risk_overall="low",
+            uncertainty={"level": 0.1, "sources": [], "productive": False},
+            suggestions=[],
+            raw_response="{}",
+            model="llama3",
+            provider="ollama",
+        )
+        findings = [
+            Finding(
+                severity="warning",
+                category="style",
+                file="only.py",
+                line=1,
+                message="style issue",
+                tool="ruff",
+                rule_id="E501",
+            ),
+        ]
+
+        worker_run.create_themed_prs(
+            repo="test_repo",
+            repo_dir=Path("/fake/repo"),
+            source_branch="sichter/autofix-branch",
+            auto_pr=True,
+            findings=findings,
+            review=fake_review,
+        )
+
+        mock_create_or_update_pr.assert_called_once()
+        call = mock_create_or_update_pr.call_args
+        self.assertIs(call.kwargs.get("review"), fake_review)
 
     def test_build_pr_body_includes_findings_summary(self):
         findings = [
@@ -438,7 +610,9 @@ class TestWorkerRun(unittest.TestCase):
         mock_run_cmd.return_value.returncode = 0
 
         with patch("apps.worker.run.POLICY") as mock_policy, \
-             patch("lib.llm.factory.get_provider") as mock_get_provider:
+             patch("lib.llm.factory.get_provider") as mock_get_provider, \
+             patch("lib.llm.budget.ReviewBudget") as mock_budget_cls:
+            mock_budget_cls.return_value.allow_review.return_value = True
             mock_policy.run_mode = "normal"
             mock_policy.llm = {"enabled": True}
             result = worker_run.llm_review("repo", Path("/fake/repo"), findings=[])
@@ -455,7 +629,11 @@ class TestWorkerRun(unittest.TestCase):
 
         with patch("apps.worker.run.POLICY") as mock_policy, \
              patch("lib.llm.factory.get_provider") as mock_get_provider, \
-             patch("apps.worker.run.append_event"):
+             patch("apps.worker.run.append_event"), \
+             patch("apps.worker.run.persist_review_result"), \
+             patch("lib.llm.budget.ReviewBudget") as mock_budget_cls:
+            mock_budget = mock_budget_cls.return_value
+            mock_budget.allow_review.return_value = True
             mock_provider = mock_get_provider.return_value
             mock_provider.complete.return_value = (
                 '{"summary":"ok","risk_overall":"low",'
@@ -470,6 +648,7 @@ class TestWorkerRun(unittest.TestCase):
             result = worker_run.llm_review("repo", Path("/fake/repo"), findings=[])
         self.assertIsNotNone(result)
         mock_provider.complete.assert_called_once()
+        mock_budget.record_review.assert_called_once()
 
     @patch("apps.worker.run.run_cmd")
     def test_llm_review_runs_when_enabled_and_has_findings(
@@ -491,7 +670,10 @@ class TestWorkerRun(unittest.TestCase):
 
         with patch("apps.worker.run.POLICY") as mock_policy, \
              patch("lib.llm.factory.get_provider") as mock_get_provider, \
-             patch("apps.worker.run.append_event"):
+             patch("apps.worker.run.append_event"), \
+             patch("apps.worker.run.persist_review_result"), \
+             patch("lib.llm.budget.ReviewBudget") as mock_budget_cls:
+            mock_budget_cls.return_value.allow_review.return_value = True
             mock_provider = mock_get_provider.return_value
             mock_provider.complete.return_value = (
                 '{"summary":"ok","risk_overall":"low",'
@@ -506,6 +688,150 @@ class TestWorkerRun(unittest.TestCase):
             result = worker_run.llm_review("repo", Path("/fake/repo"), findings=[finding])
         self.assertIsNotNone(result)
         mock_provider.complete.assert_called_once()
+
+    @patch("apps.worker.run.append_event")
+    def test_llm_review_skips_when_rate_limit_reached(self, mock_append_event):
+        with patch("apps.worker.run.POLICY") as mock_policy, \
+             patch("lib.llm.budget.ReviewBudget") as mock_budget_cls, \
+             patch("lib.llm.factory.get_provider") as mock_get_provider:
+            mock_policy.llm = {"enabled": True, "max_reviews_per_hour": 1}
+            mock_budget = mock_budget_cls.return_value
+            mock_budget.allow_review.return_value = False
+            mock_budget.reviews_in_last_hour.return_value = 1
+
+            result = worker_run.llm_review("repo", Path("/fake/repo"), findings=[
+                Finding(
+                    severity="warning",
+                    category="correctness",
+                    file="f.py",
+                    line=1,
+                    message="m",
+                    tool="ruff",
+                    rule_id="E1",
+                )
+            ])
+
+        self.assertIsNone(result)
+        mock_get_provider.assert_not_called()
+        event = mock_append_event.call_args_list[0][0][0]
+        self.assertEqual(event.get("type"), "llm_review_skipped")
+        self.assertEqual(event.get("reason"), "rate_limit")
+
+    @patch("apps.worker.run.run_cmd")
+    def test_llm_review_invalid_max_reviews_falls_back_to_default(self, mock_run_cmd):
+        """Non-numeric max_reviews_per_hour must not crash or disable reviews."""
+        mock_run_cmd.return_value.stdout = "diff --git a/x.py b/x.py\n+line"
+        mock_run_cmd.return_value.returncode = 0
+
+        provider = unittest.mock.Mock()
+        provider.complete.return_value = (
+            '{"summary":"ok","risk_overall":"low",'
+            '"uncertainty":{"level":0.1,"sources":[],"productive":false},'
+            '"suggestions":[]}',
+            10,
+        )
+        provider.model = "llama3"
+        provider.provider_name = "ollama"
+
+        with patch("apps.worker.run.POLICY") as mock_policy, \
+             patch("lib.llm.factory.get_provider", return_value=provider), \
+             patch("apps.worker.run.append_event"), \
+             patch("apps.worker.run.persist_review_result"), \
+             patch("lib.llm.budget.ReviewBudget") as mock_budget_cls:
+            mock_budget = mock_budget_cls.return_value
+            mock_budget.allow_review.return_value = True
+            mock_policy.llm = {
+                "enabled": True,
+                "max_reviews_per_hour": "not-a-number",
+            }
+
+            result = worker_run.llm_review("repo", Path("/fake/repo"), findings=[])
+
+        # Should succeed using default of 20; allow_review called with 20
+        mock_budget.allow_review.assert_called_once_with(max_reviews_per_hour=20)
+        self.assertIsNotNone(result)
+
+    @patch("apps.worker.run.run_cmd")
+    def test_llm_review_invalid_max_tokens_falls_back_to_default(self, mock_run_cmd):
+        """Non-numeric max_tokens_per_review must not crash; falls back to 4000."""
+        mock_run_cmd.return_value.stdout = "diff --git a/x.py b/x.py\n+line"
+        mock_run_cmd.return_value.returncode = 0
+
+        provider = unittest.mock.Mock()
+        provider.complete.return_value = (
+            '{"summary":"ok","risk_overall":"low",'
+            '"uncertainty":{"level":0.1,"sources":[],"productive":false},'
+            '"suggestions":[]}',
+            10,
+        )
+        provider.model = "llama3"
+        provider.provider_name = "ollama"
+
+        with patch("apps.worker.run.POLICY") as mock_policy, \
+             patch("lib.llm.factory.get_provider", return_value=provider), \
+             patch("apps.worker.run.append_event"), \
+             patch("apps.worker.run.persist_review_result"), \
+             patch("lib.llm.budget.ReviewBudget") as mock_budget_cls:
+            mock_budget = mock_budget_cls.return_value
+            mock_budget.allow_review.return_value = True
+            mock_policy.llm = {
+                "enabled": True,
+                "max_tokens_per_review": "bad",
+            }
+
+            result = worker_run.llm_review("repo", Path("/fake/repo"), findings=[])
+
+        # Should succeed using default of 4000 tokens
+        provider.complete.assert_called_once()
+        _, call_kwargs = provider.complete.call_args
+        self.assertEqual(call_kwargs.get("max_tokens"), 4000)
+        self.assertIsNotNone(result)
+
+    @patch("apps.worker.run.run_cmd")
+    def test_llm_review_uses_fallback_provider_on_error(self, mock_run_cmd):
+        mock_run_cmd.return_value.stdout = "diff --git a/x.py b/x.py\n+line"
+        mock_run_cmd.return_value.returncode = 0
+
+        primary_provider = unittest.mock.Mock()
+        primary_provider.complete.side_effect = RuntimeError("primary down")
+        primary_provider.model = "qwen"
+        primary_provider.provider_name = "ollama"
+
+        fallback_provider = unittest.mock.Mock()
+        fallback_provider.complete.return_value = (
+            '{"summary":"ok","risk_overall":"low",'
+            '"uncertainty":{"level":0.1,"sources":[],"productive":false},'
+            '"suggestions":[]}',
+            42,
+        )
+        fallback_provider.model = "gpt-4o-mini"
+        fallback_provider.provider_name = "openai"
+
+        with patch("apps.worker.run.POLICY") as mock_policy, \
+             patch("lib.llm.factory.get_provider", side_effect=[primary_provider, fallback_provider]), \
+             patch("apps.worker.run.append_event") as mock_append_event, \
+             patch("apps.worker.run.persist_review_result"), \
+             patch("lib.llm.budget.ReviewBudget") as mock_budget_cls:
+            mock_budget = mock_budget_cls.return_value
+            mock_budget.allow_review.return_value = True
+            mock_policy.llm = {
+                "enabled": True,
+                "provider": "ollama",
+                "fallback": {"provider": "openai", "model": "gpt-4o-mini"},
+            }
+
+            result = worker_run.llm_review("repo", Path("/fake/repo"), findings=[])
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertTrue(result.provider_switched)
+        self.assertEqual(result.provider, "openai")
+        fallback_events = [
+            c[0][0]
+            for c in mock_append_event.call_args_list
+            if c[0] and isinstance(c[0][0], dict) and c[0][0].get("type") == "llm_provider_fallback"
+        ]
+        self.assertEqual(len(fallback_events), 1)
 
 
 if __name__ == "__main__":
