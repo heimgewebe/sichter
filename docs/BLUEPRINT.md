@@ -119,7 +119,7 @@
 - [x] **2.4** Python-Security (bandit)
   - [x] `lib/checks/bandit.py` — JSON-Output parsen
   - [x] Security-Findings als `category: "security"` taggen
-  - [ ] Security-PRs optional nur intern (nicht öffentlich)
+  - [x] Security-PRs optional nur intern: `security.findings_public: false` → Draft
 - [x] **2.5** Shell-Auto-Fix (shfmt)
   - [x] `lib/checks/shfmt.py` — Formatierung + Diff
   - [x] Optional in Policy: `checks.shell.shfmt_fix: true`
@@ -132,7 +132,7 @@
 - [ ] **2.8** Auto-Fix-Pipeline verdrahten
   - [x] Worker: Nach Linter-Run → `autofix()` aufrufen → geänderte Dateien committen
   - [ ] `fix_available`-Findings tatsächlich applizieren
-  - [ ] Themen-PRs: Style-Fixes ≠ Security-Fixes ≠ Correctness-Fixes
+  - [x] Themen-PRs: Style-Fixes ≠ Security-Fixes ≠ Correctness-Fixes (`create_themed_prs`)
 - [ ] **2.9** Tests
   - [x] Pro Linter-Modul: Parser-Test mit Sample-Output
   - [x] Integration: Check-Registry mit Policy-Steuerung
@@ -194,23 +194,24 @@
 
 > Aktuell: 🟡 Themen-PRs, Inline-Kommentare und Review-Summary sind angelegt; Feinschliff bleibt offen.
 
-- [ ] **5.1** Themen-Bündelung realisieren
-  - [ ] Ein Branch + PR pro Finding-Category (style, correctness, security, ...)
-  - [ ] Branch-Naming: `sichter/<category>/<date>-<shortsha>`
-  - [ ] Existierende PRs updaten statt neue erstellen
+- [x] **5.1** Themen-Bündelung realisieren
+  - [x] Ein Branch + PR pro Finding-Category (style, correctness, security, ...)
+  - [x] Branch-Naming: `sichter/<category>/<date>-<shortsha>`
+  - [x] Existierende PRs updaten statt neue erstellen
 - [ ] **5.2** PR-Beschreibung mit Review-Summary
-  - [ ] Risiko-Badge (🟢 Low / 🟡 Medium / 🔴 High)
-  - [ ] Zusammenfassung (2–6 Sätze)
-  - [ ] Vorschläge als nummerierte Liste mit Risiko
+  - [x] Risiko-Badge (🟢 Low / 🟡 Medium / 🔴 High)
+  - [x] Zusammenfassung (2–6 Sätze)
+  - [x] Vorschläge als nummerierte Liste mit Risiko
   - [ ] Betroffene Dateien mit Änderungszählern
   - [ ] Verifikationshinweise ("So prüfst du den Fix")
-- [ ] **5.3** Inline-Review-Kommentare
-  - [ ] `gh pr review --comment` an betroffenen Zeilen
-  - [ ] Nur bei Findings mit konkretem `file` + `line`
-  - [ ] Limit: Max 10 Inline-Kommentare pro PR
+- [x] **5.3** Inline-Review-Kommentare
+  - [x] `gh pr review --comment` an betroffenen Zeilen
+  - [x] Nur bei Findings mit konkretem `file` + `line`
+  - [x] Limit: Max 10 Inline-Kommentare pro PR
 - [ ] **5.4** Security-Findings nur intern
-  - [ ] Policy-Flag: `security.findings_public: false`
-  - [ ] Bei `false`: Security-PRs nur als Draft oder gar nicht erstellen
+  - [x] Policy-Flag: `security.findings_public: false`
+  - [x] Bei `false`: Security-PRs als Draft erstellen
+  - [ ] Security-PRs vollständig unterdrücken (gar nicht erstellen)
   - [ ] Stattdessen: Event + interne Benachrichtigung
 
 ---
@@ -221,7 +222,8 @@
 
 - [ ] **6.1** Repo-Übersicht mit Findings-Heatmap
   - [x] API: Neuer Endpoint `/repos/findings` — letzter Findings-Snapshot pro Repo aus Metrics
-  - [ ] UI: Farbcodierte Kacheln (Grün/Gelb/Rot nach Severity)
+  - [x] UI-Basisanschluss: Repos-Tabelle zeigt `findingsCount` und `topSeverity` mit Farbpunkt
+  - [ ] UI-Heatmap: Farbcodierte Kacheln (Grün/Gelb/Rot nach Severity)
 - [ ] **6.2** Drill-Down: Repo → Dateien → Findings
   - [ ] Klick auf Repo zeigt Datei-Liste mit Finding-Counts
   - [ ] Klick auf Datei zeigt einzelne Findings mit Code-Kontext
@@ -235,7 +237,7 @@
 - [ ] **6.5** Job-Submit-Formular
   - [ ] Repo-Auswahl (Dropdown oder Autocomplete)
   - [ ] Modus (changed/all/deep)
-  - [ ] Submit-Button → `/jobs/submit`
+  - [x] Submit-Button → `/jobs/submit` (Actions-Seite mit festen Workflows)
 - [ ] **6.6** Live-Event-Feed
   - [ ] WebSocket-Stream als scrollbare Timeline
   - [ ] Event-Typ-Filter (sweep, findings, pr, error)

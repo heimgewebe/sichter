@@ -39,6 +39,18 @@ export type ReposResponse = {
   repos: RepoStatus[];
 };
 
+export type RepoFindingsEntry = {
+  name: string;
+  findingsCount: number;
+  findingsBySeverity: Record<string, number>;
+  topSeverity: string;
+  lastReviewedAt: string | null;
+};
+
+export type RepoFindingsResponse = {
+  repos: RepoFindingsEntry[];
+};
+
 export type PolicyResponse = {
   path?: string;
   content?: string;
@@ -73,6 +85,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const fetchOverview = () => request<OverviewResponse>('/api/overview');
 
 export const fetchRepos = () => request<ReposResponse>('/api/repos/status');
+
+export const fetchRepoFindings = (n = 200) =>
+  request<RepoFindingsResponse>(`/api/repos/findings?n=${n}`);
 
 export const fetchEvents = (limit = 200) =>
   request<{ events: EventEntry[] }>(`/api/events/recent?n=${limit}`);
