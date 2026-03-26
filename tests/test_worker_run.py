@@ -517,6 +517,114 @@ class TestWorkerRun(unittest.TestCase):
         call = mock_create_or_update_pr.call_args
         self.assertIs(call.kwargs.get("review"), fake_review)
 
+    @patch("apps.worker.run.create_or_update_pr")
+    def test_create_themed_prs_single_category_returns_real_creation_status(
+        self,
+        mock_create_or_update_pr,
+    ):
+        findings = [
+            Finding(
+                severity="warning",
+                category="style",
+                file="only.py",
+                line=1,
+                message="style issue",
+                tool="ruff",
+                rule_id="E501",
+            ),
+        ]
+
+        mock_create_or_update_pr.return_value = False
+        result_false = worker_run.create_themed_prs(
+            repo="test_repo",
+            repo_dir=Path("/fake/repo"),
+            source_branch="sichter/autofix-branch",
+            auto_pr=True,
+            findings=findings,
+            review=None,
+        )
+        self.assertEqual(result_false, 0)
+
+        mock_create_or_update_pr.return_value = True
+        result_true = worker_run.create_themed_prs(
+            repo="test_repo",
+            repo_dir=Path("/fake/repo"),
+            source_branch="sichter/autofix-branch",
+            auto_pr=True,
+            findings=findings,
+            review=None,
+        )
+        self.assertEqual(result_true, 1)
+
+    @patch("apps.worker.run.add_inline_pr_comments")
+    @patch("apps.worker.run.run_gh_with_backoff")
+    @patch("apps.worker.run.run_cmd")
+    def test_create_or_update_pr_uses_backoff_for_create(
+        self,
+        mock_run_cmd,
+        mock_run_gh_with_backoff,
+        _mock_add_inline,
+    ):
+        class _Result:
+            def __init__(self, returncode=0, stdout="", stderr=""):
+                self.returncode = returncode
+                self.stdout = stdout
+                self.stderr = stderr
+
+        def _run_cmd_side_effect(cmd, cwd, check=True):
+            if cmd[:2] == ["git", "push"]:
+                return _Result(returncode=0)
+            return _Result(returncode=0)
+
+        state = {"view_calls": 0}
+
+        def _backoff_side_effect(cmd, cwd):
+            if cmd[:3] == ["gh", "pr", "view"]:
+                state["view_calls"] += 1
+                if state["view_calls"] == 1:
+                    return _Result(returncode=1, stdout="", stderr="not found")
+                return _Result(returncode=0, stdout="https://github.com/heimgewebe/sichter/pull/1\n")
+            if cmd[:3] == ["gh", "pr", "create"]:
+                return _Result(returncode=0, stdout="https://github.com/heimgewebe/sichter/pull/1\n")
+            if cmd[:3] == ["gh", "pr", "edit"]:
+                return _Result(returncode=0)
+            return _Result(returncode=0)
+
+        mock_run_cmd.side_effect = _run_cmd_side_effect
+        mock_run_gh_with_backoff.side_effect = _backoff_side_effect
+
+        created = worker_run.create_or_update_pr(
+            repo="test_repo",
+            repo_dir=Path("/fake/repo"),
+            branch="sichter/autofix-branch",
+            auto_pr=True,
+            findings=[],
+            review=None,
+        )
+
+        self.assertTrue(created)
+        backoff_cmds = [call_args[0][0] for call_args in mock_run_gh_with_backoff.call_args_list]
+        self.assertTrue(any(cmd[:3] == ["gh", "pr", "create"] for cmd in backoff_cmds))
+
+    @patch("lib.config.get_policy_path")
+    @patch("lib.config.load_yaml")
+    def test_policy_load_max_parallel_repos_is_robust(self, mock_load_yaml, mock_get_policy_path):
+        mock_path = unittest.mock.Mock()
+        mock_path.exists.return_value = True
+        mock_get_policy_path.return_value = mock_path
+
+        mock_load_yaml.return_value = {"max_parallel_repos": "bad"}
+        policy_bad = worker_run.Policy.load()
+        self.assertEqual(policy_bad.max_parallel_repos, 4)
+
+        mock_load_yaml.return_value = {"max_parallel_repos": 0}
+        policy_zero = worker_run.Policy.load()
+        self.assertEqual(policy_zero.max_parallel_repos, 1)
+
+        mock_load_yaml.return_value = {"max_parallel_repos": -1}
+        policy_negative = worker_run.Policy.load()
+        self.assertEqual(policy_negative.max_parallel_repos, 1)
+
     def test_build_pr_body_includes_findings_summary(self):
         findings = [
             Finding(

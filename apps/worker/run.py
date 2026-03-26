@@ -158,6 +158,12 @@ class Policy:
 
     auto_pr = cls._bool_with_default(data.get("auto_pr"), True)
     sweep_on_omnipull = cls._bool_with_default(data.get("sweep_on_omnipull"), True)
+    try:
+      max_parallel_repos = int(data.get("max_parallel_repos", 4))
+    except (TypeError, ValueError):
+      max_parallel_repos = 4
+    if max_parallel_repos <= 0:
+      max_parallel_repos = 1
 
     return cls(
       auto_pr=auto_pr,
@@ -168,7 +174,7 @@ class Policy:
       checks=data.get("checks", {}),
       excludes=data.get("excludes", []) or [],
       security=data.get("security", {}),
-      max_parallel_repos=int(data.get("max_parallel_repos", 4)),
+      max_parallel_repos=max_parallel_repos,
     )
 
 
@@ -735,28 +741,34 @@ def create_or_update_pr(
 
   view = run_gh_with_backoff(["gh", "pr", "view", branch, "--json", "url", "-q", ".url"], repo_dir)
   if view.returncode != 0 or not view.stdout.strip():
-    try:
-      create_cmd = [
-        "gh",
-        "pr",
-        "create",
-        "--base",
-        DEFAULT_BRANCH,
-        "--title",
-        effective_title,
-        "--body",
-        pr_body,
-        "--label",
-        PR_LABEL_SICHTER,
-        "--label",
-        PR_LABEL_AUTOMATION,
-      ]
-      if draft_security:
-        create_cmd.append("--draft")
-      run_cmd(create_cmd, repo_dir)
-    except subprocess.CalledProcessError as exc:
-      log(f"PR-Erstellung fehlgeschlagen für {repo}/{branch}: {exc}")
-      append_event({"type": "pr_failed", "repo": repo, "branch": branch, "error": str(exc)})
+    create_cmd = [
+      "gh",
+      "pr",
+      "create",
+      "--base",
+      DEFAULT_BRANCH,
+      "--title",
+      effective_title,
+      "--body",
+      pr_body,
+      "--label",
+      PR_LABEL_SICHTER,
+      "--label",
+      PR_LABEL_AUTOMATION,
+    ]
+    if draft_security:
+      create_cmd.append("--draft")
+    create_result = run_gh_with_backoff(create_cmd, repo_dir)
+    if create_result.returncode != 0:
+      log(f"PR-Erstellung fehlgeschlagen für {repo}/{branch}")
+      append_event(
+        {
+          "type": "pr_failed",
+          "repo": repo,
+          "branch": branch,
+          "error": (create_result.stderr or "").strip(),
+        }
+      )
       return False
 
   edit_result = run_gh_with_backoff(
@@ -836,7 +848,7 @@ def create_themed_prs(
     single = actionable_categories[0]
     themed_title = f"Sichter: {single} auto PR ({repo})"
     themed_findings = [f for f in findings_list if f.category == single]
-    create_or_update_pr(
+    created = create_or_update_pr(
       repo,
       repo_dir,
       source_branch,
@@ -845,7 +857,7 @@ def create_themed_prs(
       review=review,
       pr_title=themed_title,
     )
-    return 1
+    return 1 if created else 0
 
   # Guard: if any file appears in more than one category, a multi-PR split would
   # produce overlapping branches with conflicting changes.  Fall back to a single PR.
