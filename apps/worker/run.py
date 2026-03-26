@@ -353,8 +353,12 @@ def deserialize_findings(items: Iterable[dict]) -> list[Finding]:
 
 
 def run_heuristics(repo_dir: Path, changed_files: list[Path] | None) -> list[Finding]:
+  if not isinstance(repo_dir, Path):
+    return []
+
   findings: list[Finding] = []
-  findings.extend(run_hotspot_check(repo_dir, changed_files, POLICY.checks, run_cmd, log))
+  if repo_dir.exists() and (repo_dir / ".git").exists():
+    findings.extend(run_hotspot_check(repo_dir, changed_files, POLICY.checks, run_cmd, log))
   findings.extend(run_drift_check(repo_dir, POLICY.checks, log))
   findings.extend(run_redundancy_check(repo_dir, changed_files, POLICY.checks, log))
   return findings
@@ -976,9 +980,7 @@ def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
     if cache_allowed:
       cache_set(findings_key, {"findings": serialize_findings(findings)})
 
-  heuristic_findings: list[Finding] = []
-  if cache_allowed:
-    heuristic_findings = run_heuristics(repo_dir, changed_files)
+  heuristic_findings = run_heuristics(repo_dir, changed_files)
   if heuristic_findings:
     append_event({"type": "heuristics", "repo": repo, "count": len(heuristic_findings)})
   findings = findings + heuristic_findings

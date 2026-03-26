@@ -625,6 +625,47 @@ class TestWorkerRun(unittest.TestCase):
         policy_negative = worker_run.Policy.load()
         self.assertEqual(policy_negative.max_parallel_repos, 1)
 
+    @patch("apps.worker.run.run_redundancy_check", return_value=[])
+    @patch("apps.worker.run.run_drift_check", return_value=[])
+    @patch("apps.worker.run.run_hotspot_check", return_value=[])
+    def test_run_heuristics_non_git_runs_only_file_based_checks(
+        self,
+        mock_hotspots,
+        mock_drift,
+        mock_redundancy,
+    ):
+        with patch("apps.worker.run.POLICY.checks", {}):
+            worker_run.run_heuristics(Path("/definitely/not/a/git/repo"), None)
+
+        mock_hotspots.assert_not_called()
+        mock_drift.assert_called_once()
+        mock_redundancy.assert_called_once()
+
+    @patch("apps.worker.run.record_metrics")
+    @patch("apps.worker.run.run_heuristics", return_value=[])
+    @patch("apps.worker.run.commit_if_changes", return_value=False)
+    @patch("apps.worker.run.llm_review", return_value=None)
+    @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
+    @patch("apps.worker.run.registry_run_checks", return_value=[])
+    @patch("apps.worker.run.fresh_branch", return_value="test-branch")
+    @patch("apps.worker.run.ensure_repo")
+    def test_process_repo_runs_heuristics_without_git_cache_eligibility(
+        self,
+        mock_ensure_repo,
+        _mock_fresh_branch,
+        _mock_registry_run_checks,
+        _mock_registry_run_autofixes,
+        _mock_llm_review,
+        _mock_commit_if_changes,
+        mock_run_heuristics,
+        _mock_record_metrics,
+    ):
+        with unittest.mock.patch("pathlib.Path.exists", return_value=False):
+            mock_ensure_repo.return_value = Path("/fake/repo")
+            worker_run.process_repo("test_repo", "all", True)
+
+        mock_run_heuristics.assert_called_once_with(Path("/fake/repo"), None)
+
     def test_build_pr_body_includes_findings_summary(self):
         findings = [
             Finding(
