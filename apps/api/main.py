@@ -11,7 +11,7 @@ import uuid
 import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Annotated, cast
+from typing import Annotated, Literal, cast
 
 import yaml
 from fastapi import Body, Depends, FastAPI, HTTPException, Security, WebSocket, WebSocketDisconnect, status
@@ -53,6 +53,7 @@ class Job(BaseModel):
   org: str = "heimgewebe"  # Keep default for backward compatibility
   repo: str | None = None
   auto_pr: bool = True
+  priority: Literal["high", "normal", "low"] = "normal"
 
 
 class JobSubmitResponse(BaseModel):
