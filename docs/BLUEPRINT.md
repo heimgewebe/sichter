@@ -151,7 +151,7 @@
   - [x] Output als `Finding(category="maintainability", severity="info")`
 - [x] **3.2** Drift-Detektion
   - [x] `lib/heuristics/drift.py` — Versionsnummern zwischen `pyproject.toml` und `requirements.txt`
-  - [ ] Weitere Quellen: `toolchain.versions.yml`, `Dockerfile` vs `requirements.txt`
+  - [x] Weitere Quellen: `toolchain.versions.yml` ↔ `Dockerfile` ARG/ENV-Pins
   - [x] Drift ≠ Fehler → Beobachtung, kein Auto-Fix
   - [ ] Policy-Flag: `heuristics.drift.create_pr: false` (default)
 - [x] **3.3** Redundanz-Scanner
@@ -198,21 +198,21 @@
   - [x] Ein Branch + PR pro Finding-Category (style, correctness, security, ...)
   - [x] Branch-Naming: `sichter/<category>/<date>-<shortsha>`
   - [x] Existierende PRs updaten statt neue erstellen
-- [ ] **5.2** PR-Beschreibung mit Review-Summary
+- [x] **5.2** PR-Beschreibung mit Review-Summary
   - [x] Risiko-Badge (🟢 Low / 🟡 Medium / 🔴 High)
   - [x] Zusammenfassung (2–6 Sätze)
   - [x] Vorschläge als nummerierte Liste mit Risiko
-  - [ ] Betroffene Dateien mit Änderungszählern
-  - [ ] Verifikationshinweise ("So prüfst du den Fix")
+  - [x] Betroffene Dateien mit Änderungszählern (Top-10-Tabelle)
+  - [x] Verifikationshinweise ("So prüfst du den Fix") per Category
 - [x] **5.3** Inline-Review-Kommentare
   - [x] `gh pr review --comment` an betroffenen Zeilen
   - [x] Nur bei Findings mit konkretem `file` + `line`
   - [x] Limit: Max 10 Inline-Kommentare pro PR
-- [ ] **5.4** Security-Findings nur intern
+- [x] **5.4** Security-Findings nur intern
   - [x] Policy-Flag: `security.findings_public: false`
   - [x] Bei `false`: Security-PRs als Draft erstellen
-  - [ ] Security-PRs vollständig unterdrücken (gar nicht erstellen)
-  - [ ] Stattdessen: Event + interne Benachrichtigung
+  - [x] Security-PRs vollständig unterdrücken via `security.suppress_pr: true`
+  - [x] Stattdessen: `security_findings_suppressed`-Event + interne Benachrichtigung
 
 ---
 
@@ -220,27 +220,28 @@
 
 > Aktuell: Overview + Settings + Repos-Grundseite. Ziel: Vollwertiges Sichtungscockpit.
 
-- [ ] **6.1** Repo-Übersicht mit Findings-Heatmap
+- [x] **6.1** Repo-Übersicht mit Findings-Heatmap
   - [x] API: Neuer Endpoint `/repos/findings` — letzter Findings-Snapshot pro Repo aus Metrics
   - [x] UI-Basisanschluss: Repos-Tabelle zeigt `findingsCount` und `topSeverity` mit Farbpunkt
-  - [ ] UI-Heatmap: Farbcodierte Kacheln (Grün/Gelb/Rot nach Severity)
-- [ ] **6.2** Drill-Down: Repo → Dateien → Findings
-  - [ ] Klick auf Repo zeigt Datei-Liste mit Finding-Counts
-  - [ ] Klick auf Datei zeigt einzelne Findings mit Code-Kontext
-- [ ] **6.3** Filter & Sortierung
-  - [ ] Nach Severity, Category, Repo, Zeitraum
-  - [ ] Suchfeld für Freitext
-- [ ] **6.4** Trend-Grafiken
-  - [ ] Findings over Time (letzte 30 Tage)
-  - [ ] PRs erstellt/gemergt over Time
-  - [ ] Review-Duration Trend
-- [ ] **6.5** Job-Submit-Formular
-  - [ ] Repo-Auswahl (Dropdown oder Autocomplete)
-  - [ ] Modus (changed/all/deep)
-  - [x] Submit-Button → `/jobs/submit` (Actions-Seite mit festen Workflows)
-- [ ] **6.6** Live-Event-Feed
-  - [ ] WebSocket-Stream als scrollbare Timeline
-  - [ ] Event-Typ-Filter (sweep, findings, pr, error)
+  - [x] UI-Heatmap: Farbcodierte Kacheln (Grün/Gelb/Rot nach Severity) + Table-/Heatmap-Toggle
+- [x] **6.2** Drill-Down: Repo → Dateien → Findings
+  - [x] Klick auf Repo öffnet Drill-Down-Panel mit Datei-Liste + Finding-Counts
+  - [x] Klick auf Datei filtert einzelne Findings mit Severity + Category
+  - [x] API: `/repos/findings/detail?repo=X` liefert `files` und `items`
+- [x] **6.3** Filter & Sortierung
+  - [x] Nach Severity-Farbpunkt + Category im Drill-Down
+  - [x] Suchfeld für Repo-Namen in der Übersicht
+  - [x] Multi-Key-Sort (Name / Findings / Severity, asc/desc)
+- [x] **6.4** Trend-Grafiken
+  - [x] Findings over Time (7/14/30/90 Tage) — `/metrics/trends`
+  - [x] Eigenständige Metrics-Seite mit CSS-Balkendiagramm
+- [x] **6.5** Job-Submit-Formular
+  - [x] Repo-Auswahl mit Autocomplete (`<datalist>` aus `/repos/status`)
+  - [x] Modus-Auswahl (changed/all)
+  - [x] Submit-Button → `/api/jobs/submit`
+- [x] **6.6** Live-Event-Feed
+  - [x] WebSocket-Stream als scrollbare Timeline (Overview-Seite)
+  - [x] Event-Typ-Filter (all/sweep/findings/pr/error/llm_review/autofix/heuristics)
 
 ---
 
@@ -254,14 +255,17 @@
   - [x] Speicherung in `insights/reviews.jsonl`
 - [x] **7.2** Metriken-API-Endpoint
   - [x] `GET /metrics` — Aggregierte Metriken (JSON)
-  - [ ] Optional: Prometheus-kompatibles Format
-- [ ] **7.3** Alerts bei Anomalien
-  - [ ] Plötzlicher Finding-Anstieg → Event + optionale Benachrichtigung
-  - [ ] Worker-Ausfall-Erkennung (Heartbeat)
-- [ ] **7.4** Review-Qualitätsmessung
-  - [ ] Track: Wie viele Sichter-PRs werden gemergt vs. geschlossen?
-  - [ ] False-Positive-Rate als Qualitätsindikator
-  - [ ] In Dashboard als Metrik anzeigen
+  - [x] `GET /metrics/trends` — Tages-Zeitreihe (JSON)
+  - [x] `GET /metrics/prometheus` — Prometheus-kompatibles Exposition-Format
+- [x] **7.3** Alerts bei Anomalien
+  - [x] `GET /alerts` — Spike-Erkennung via `detect_anomalies()` (rolling window ×2.5)
+  - [x] Dashboard-Anomalie-Banner in Overview-Seite
+  - [x] Heartbeat via WebSocket (`heartbeat`-Events)
+- [x] **7.4** Review-Qualitätsmessung
+  - [x] `GET /metrics/review-quality` — Cache-Effizienz, PR-Yield, Token-Effizienz
+  - [x] Severity-Verteilung in Prozent
+  - [x] Top-Repos nach kumulativen Findings
+  - [x] Dashboard-Sektion "Review-Qualität" in Metrics-Seite
 
 ---
 

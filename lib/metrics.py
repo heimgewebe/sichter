@@ -240,6 +240,7 @@ def detect_anomalies(
 
     # Group finding counts by (repo, date)
     repo_daily: dict[str, dict[str, int]] = {}
+    all_days: list[str] = []
     for r in records:
         repo = str(r.get("repo") or "").strip()
         ts = r.get("timestamp", "")
@@ -253,18 +254,26 @@ def detect_anomalies(
         repo_daily[repo][day] = repo_daily[repo].get(day, 0) + int(
             r.get("findings_count", 0)
         )
+        all_days.append(day)
 
-    today = date.today()
-    today_str = today.isoformat()
-    baseline_start = (today - timedelta(days=window + 1)).isoformat()
+    if not all_days:
+        return []
+
+    # Use the most recent day with any recorded data, not wall-clock today.
+    # This avoids false negatives when no run has occurred yet today or when
+    # timestamps drift slightly across time zones.
+    latest_day = max(all_days)
+    baseline_start = (
+        datetime.fromisoformat(latest_day).date() - timedelta(days=window + 1)
+    ).isoformat()
 
     alerts: list[dict] = []
     for repo, daily in repo_daily.items():
-        current = daily.get(today_str, 0)
+        current = daily.get(latest_day, 0)
         baseline_vals = [
             v
             for d, v in daily.items()
-            if baseline_start <= d < today_str
+            if baseline_start <= d < latest_day
         ]
         if not baseline_vals:
             continue
@@ -280,7 +289,7 @@ def detect_anomalies(
                     "baseline_avg": round(avg, 2),
                     "ratio": round(ratio, 2),
                     "message": (
-                        f"{repo}: {current} findings today vs avg {avg:.1f} "
+                        f"{repo}: {current} findings on {latest_day} vs avg {avg:.1f} "
                         f"(×{ratio:.1f})"
                     ),
                 }

@@ -501,8 +501,15 @@ def repos_findings(n: int = 200) -> dict[str, list[dict]]:
 def repo_findings_detail(repo: str, n: int = 500) -> dict:
   """Return the latest detailed findings payload for one repository.
 
-  The payload is sourced from the most recent ``type=findings`` event emitted by
-  the worker for the requested repository.
+  .. note::
+    **Data source**: The per-file ``files`` list and individual ``items`` are
+    sourced from the most recent ``type=findings`` *worker event*, not from the
+    metrics snapshot that backs ``/repos/findings``.  This is intentional:
+    events carry the full finding detail that is too large for the metrics JSONL.
+    The two endpoints may differ when no findings event was emitted for a clean
+    run (zero findings) — in that case this endpoint returns an empty payload
+    while ``/repos/findings`` may still show a stale non-zero count.
+    Consumers should treat the detail response as best-effort / most-recent-run.
   """
   events = _collect_events(max(1, min(n, 5_000)))
   for evt in reversed(events):
@@ -614,6 +621,9 @@ def get_metrics_prometheus(n: int = 200) -> str:
   from lib.metrics import aggregate_metrics, load_metrics
   records = load_metrics(n=max(1, min(n, 10_000)))
   agg = aggregate_metrics(records)
+  # Each metric name must have HELP/TYPE declared exactly once, followed by
+  # all its label variants.  Repeating HELP/TYPE per label is non-conformant
+  # with the Prometheus exposition format specification.
   lines = [
     "# HELP sichter_runs_total Total number of review runs recorded",
     "# TYPE sichter_runs_total counter",
@@ -633,13 +643,12 @@ def get_metrics_prometheus(n: int = 200) -> str:
     "# HELP sichter_avg_duration_seconds Average run duration in seconds",
     "# TYPE sichter_avg_duration_seconds gauge",
     f"sichter_avg_duration_seconds {agg.get('avg_duration_seconds', 0)}",
+    # Per-severity breakdown: HELP/TYPE declared once, all label variants grouped below
+    "# HELP sichter_findings_by_severity_total Findings grouped by severity label",
+    "# TYPE sichter_findings_by_severity_total counter",
   ]
   for sev, cnt in sorted((agg.get("findings_by_severity") or {}).items()):
-    lines += [
-      f'# HELP sichter_findings_by_severity_total Findings with severity={sev}',
-      f'# TYPE sichter_findings_by_severity_total counter',
-      f'sichter_findings_by_severity_total{{severity="{sev}"}} {cnt}',
-    ]
+    lines.append(f'sichter_findings_by_severity_total{{severity="{sev}"}} {cnt}')
   return "\n".join(lines) + "\n"
 
 

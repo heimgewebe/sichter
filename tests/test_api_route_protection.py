@@ -16,6 +16,11 @@ def test_routes_are_protected():
     "/settings/policy",
     "/events/stream"
   }
+  "/repos/findings/detail",
+  "/metrics/trends",
+  "/metrics/prometheus",
+  "/alerts",
+  "/metrics/review-quality",
 
   found_routes = set()
   unprotected_routes = []
