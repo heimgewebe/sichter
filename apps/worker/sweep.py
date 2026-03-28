@@ -74,7 +74,7 @@ def write_job(policy: dict, mode: str, repo: str | None) -> Path:
     "timestamp": now.isoformat(),
   }
   job_file = QUEUE_DIR / f"{int(now.timestamp())}-{uuid.uuid4().hex}.json"
-  job_file.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
+  job_file.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
   return job_file
 
 

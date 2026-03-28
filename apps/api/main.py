@@ -97,7 +97,7 @@ def _enqueue(job: dict) -> str:
   jid = f"{int(time.time())}-{uuid.uuid4().hex[:8]}"
   f = QUEUE / f"{jid}.json"
   try:
-    f.write_text(json.dumps(job, ensure_ascii=False, indent=2))
+    f.write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8")
   except OSError as e:
     logger.error(f"Failed to enqueue job: {e}")
     raise

@@ -186,7 +186,8 @@
   - [x] Rate-Limit-Status loggen
 - [ ] **4.4** Queue-Priorisierung
   - [ ] Jobs mit `priority: high` vorziehen (z.B. Security-Findings)
-  - [ ] FIFO als Default beibehalten
+  - [ ] Best-effort-FIFO innerhalb gleicher Priorität über Queue-Filename-Sortierung
+  - [ ] Keine strikte FIFO-Garantie bei gleicher Sekunde / UUID-Suffix behaupten
 
 ---
 
