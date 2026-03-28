@@ -198,21 +198,21 @@
   - [x] Ein Branch + PR pro Finding-Category (style, correctness, security, ...)
   - [x] Branch-Naming: `sichter/<category>/<date>-<shortsha>`
   - [x] Existierende PRs updaten statt neue erstellen
-- [x] **5.2** PR-Beschreibung mit Review-Summary
+- [ ] **5.2** PR-Beschreibung mit Review-Summary
   - [x] Risiko-Badge (🟢 Low / 🟡 Medium / 🔴 High)
   - [x] Zusammenfassung (2–6 Sätze)
   - [x] Vorschläge als nummerierte Liste mit Risiko
-  - [x] Betroffene Dateien mit Änderungszählern (Top-10-Tabelle)
-  - [x] Verifikationshinweise ("So prüfst du den Fix") per Category
+  - [ ] Betroffene Dateien mit Änderungszählern (Top-10-Tabelle)
+  - [ ] Verifikationshinweise ("So prüfst du den Fix") per Category
 - [x] **5.3** Inline-Review-Kommentare
   - [x] `gh pr review --comment` an betroffenen Zeilen
   - [x] Nur bei Findings mit konkretem `file` + `line`
   - [x] Limit: Max 10 Inline-Kommentare pro PR
-- [x] **5.4** Security-Findings nur intern
+- [ ] **5.4** Security-Findings nur intern
   - [x] Policy-Flag: `security.findings_public: false`
   - [x] Bei `false`: Security-PRs als Draft erstellen
-  - [x] Security-PRs vollständig unterdrücken via `security.suppress_pr: true`
-  - [x] Stattdessen: `security_findings_suppressed`-Event + interne Benachrichtigung
+  - [ ] Security-PRs vollständig unterdrücken via `security.suppress_pr: true`
+  - [ ] Stattdessen: `security_findings_suppressed`-Event + interne Benachrichtigung
 
 ---
 
