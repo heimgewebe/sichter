@@ -1,0 +1,36 @@
+<%- include('partials/header', { path: '/' }) %>
+<div class="container">
+  <h1>Leitstand</h1>
+  <p style="color:var(--muted); margin-bottom:2rem;">Dashboard und Kontrollraum für den Heimgewebe-Organismus.</p>
+  <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(260px,1fr)); gap:1rem;">
+    <a href="/observatory" class="nav-card">
+      <div class="card">
+        <div style="font-size:1.5rem; margin-bottom:0.5rem;">🔭</div>
+        <h3 style="margin-bottom:0.25rem;">Observatorium</h3>
+        <p style="color:var(--muted); font-size:0.875rem;">Metriken & Systemzustand</p>
+      </div>
+    </a>
+    <a href="/anatomy" class="nav-card">
+      <div class="card">
+        <div style="font-size:1.5rem; margin-bottom:0.5rem;">🧬</div>
+        <h3 style="margin-bottom:0.25rem;">Anatomie</h3>
+        <p style="color:var(--muted); font-size:0.875rem;">Topologie-Graph des Heimgewebes</p>
+      </div>
+    </a>
+    <a href="/timeline" class="nav-card">
+      <div class="card">
+        <div style="font-size:1.5rem; margin-bottom:0.5rem;">🕐</div>
+        <h3 style="margin-bottom:0.25rem;">Zeitachse</h3>
+        <p style="color:var(--muted); font-size:0.875rem;">Chronologische Event-Timeline</p>
+      </div>
+    </a>
+    <a href="/ops" class="nav-card">
+      <div class="card">
+        <div style="font-size:1.5rem; margin-bottom:0.5rem;">⚙️</div>
+        <h3 style="margin-bottom:0.25rem;">Ops</h3>
+        <p style="color:var(--muted); font-size:0.875rem;">Betriebsstatus & Logs</p>
+      </div>
+    </a>
+  </div>
+</div>
+<%- include('partials/footer') %>

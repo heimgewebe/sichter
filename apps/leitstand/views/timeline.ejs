@@ -1,0 +1,163 @@
+<%- include('partials/header', { path: '/timeline' }) %>
+<style>
+  .tl-toolbar {
+    display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;
+    padding: 1rem 1.5rem; background: var(--surface);
+    border-bottom: 1px solid var(--border); position: sticky; top: 56px; z-index: 50;
+    backdrop-filter: blur(8px);
+  }
+  .tl-toolbar label { font-size: 0.8rem; color: var(--muted); }
+  .tl-toolbar select {
+    background: rgba(13,17,23,0.8); border: 1px solid var(--border);
+    color: var(--text); border-radius: 6px; padding: 0.3rem 0.6rem;
+    font-size: 0.8rem; cursor: pointer;
+  }
+  .tl-toolbar select:focus { outline: none; border-color: var(--accent); }
+  #tl-count { margin-left: auto; font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
+  .tl-list { max-width: 860px; margin: 1.5rem auto; padding: 0 1.5rem 4rem; }
+  .date-sep {
+    display: flex; align-items: center; gap: 0.75rem;
+    margin: 1.5rem 0 0.75rem; color: var(--muted); font-size: 0.8rem;
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .date-sep::before, .date-sep::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+  .tl-event {
+    display: flex; gap: 0.75rem; padding: 0.75rem 1rem;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; margin-bottom: 0.5rem;
+    border-left: 3px solid transparent; transition: border-color 0.15s;
+  }
+  .tl-event[data-severity="error"]   { border-left-color: var(--danger);  }
+  .tl-event[data-severity="warning"] { border-left-color: var(--warning); }
+  .tl-event[data-severity="info"]    { border-left-color: #3b82f6; }
+  .tl-event:hover { border-color: rgba(88,166,255,0.3); }
+  .tl-time { font-size: 0.75rem; color: var(--muted); flex-shrink: 0; width: 5.5rem; padding-top: 0.15rem; }
+  .tl-body { flex: 1; }
+  .tl-kind { font-size: 0.8rem; font-weight: 600; margin-bottom: 0.15rem; }
+  .tl-repo { font-size: 0.75rem; color: var(--muted); margin-bottom: 0.25rem; }
+  .tl-payload { font-size: 0.75rem; color: var(--muted); font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sev-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 0.35rem; }
+  .sev-dot-info    { background: #3b82f6; }
+  .sev-dot-warning { background: var(--warning); }
+  .sev-dot-error   { background: var(--danger); }
+  .fixture-note {
+    text-align: center; font-size: 0.8rem; color: var(--warning);
+    padding: 0.5rem; margin-bottom: 1rem;
+    background: rgba(210,153,34,0.1); border-radius: 6px;
+    border: 1px solid rgba(210,153,34,0.3);
+    display: <%= isFixture ? 'block' : 'none' %>;
+  }
+  #empty-state { display: none; }
+  #empty-state.visible { display: block; }
+</style>
+
+<div class="tl-toolbar">
+  <label>Kind
+    <select id="filter-kind">
+      <option value="">Alle</option>
+      <% kinds.forEach(function(k) { %><option value="<%= k %>"><%= k %></option><% }) %>
+    </select>
+  </label>
+  <label>Repo
+    <select id="filter-repo">
+      <option value="">Alle</option>
+      <% repos.forEach(function(r) { %><option value="<%= r %>"><%= r %></option><% }) %>
+    </select>
+  </label>
+  <label>Severity
+    <select id="filter-sev">
+      <option value="">Alle</option>
+      <option value="error">Error</option>
+      <option value="warning">Warning</option>
+      <option value="info">Info</option>
+    </select>
+  </label>
+  <span id="tl-count"></span>
+</div>
+
+<div class="tl-list">
+  <% if (isFixture) { %>
+  <div class="fixture-note">Fixture-Daten — kein Chronik-Verzeichnis verfügbar</div>
+  <% } %>
+
+  <% let lastDate = ''; %>
+  <% events.forEach(function(ev) { %>
+  <%   const d = new Date(ev.ts); %>
+  <%   const dateStr = d.toLocaleDateString('de-DE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }); %>
+  <%   const timeStr = d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }); %>
+  <%   if (dateStr !== lastDate) { lastDate = dateStr; %>
+  <div class="date-sep" data-datesep="<%= dateStr %>"><%= dateStr %></div>
+  <%   } %>
+  <div class="tl-event"
+       data-kind="<%= ev.kind %>"
+       data-repo="<%= ev.repo %>"
+       data-severity="<%= ev.severity %>">
+    <div class="sev-dot sev-dot-<%= ev.severity %>"></div>
+    <div class="tl-time"><%= timeStr %></div>
+    <div class="tl-body">
+      <div class="tl-kind"><%= ev.kind %></div>
+      <div class="tl-repo"><%= ev.repo %></div>
+      <div class="tl-payload"><%= JSON.stringify(ev.payload) %></div>
+    </div>
+  </div>
+  <% }) %>
+
+  <div id="empty-state" class="empty">
+    <h2>Keine Events</h2>
+    <p>Keine Events entsprechen den aktiven Filtern.</p>
+  </div>
+</div>
+
+<script nonce="<%= cspNonce %>">
+(function () {
+  'use strict';
+
+  const kindSel = document.getElementById('filter-kind');
+  const repoSel = document.getElementById('filter-repo');
+  const sevSel  = document.getElementById('filter-sev');
+  const count   = document.getElementById('tl-count');
+  const empty   = document.getElementById('empty-state');
+
+  function applyFilters() {
+    const kind = kindSel.value;
+    const repo = repoSel.value;
+    const sev  = sevSel.value;
+
+    const events = document.querySelectorAll('.tl-event');
+    let visible = 0;
+    events.forEach(el => {
+      const ok =
+        (!kind || el.dataset.kind === kind) &&
+        (!repo || el.dataset.repo === repo) &&
+        (!sev  || el.dataset.severity === sev);
+      el.style.display = ok ? '' : 'none';
+      if (ok) visible++;
+    });
+
+    // Show/hide date separators based on whether any event below them is visible
+    document.querySelectorAll('.date-sep').forEach(sep => {
+      let sibling = sep.nextElementSibling;
+      let hasVisible = false;
+      while (sibling && !sibling.classList.contains('date-sep')) {
+        if (sibling.classList.contains('tl-event') && sibling.style.display !== 'none') {
+          hasVisible = true; break;
+        }
+        sibling = sibling.nextElementSibling;
+      }
+      sep.style.display = hasVisible ? '' : 'none';
+    });
+
+    count.textContent = `${visible} Event${visible !== 1 ? 's' : ''}`;
+    empty.classList.toggle('visible', visible === 0);
+  }
+
+  kindSel.addEventListener('change', applyFilters);
+  repoSel.addEventListener('change', applyFilters);
+  sevSel.addEventListener('change',  applyFilters);
+
+  applyFilters(); // initial count
+})();
+</script>
+<%- include('partials/footer') %>

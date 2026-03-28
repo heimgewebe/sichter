@@ -1,0 +1,12 @@
+<%- include('partials/header', { path: '/observatory' }) %>
+<div class="container">
+  <h1>Observatorium</h1>
+  <% if (locals.title) { %>
+  <p style="color:var(--muted); margin-bottom:2rem;">Systemzustand & Metriken</p>
+  <% } %>
+  <div class="empty">
+    <h2>Keine Daten verfügbar</h2>
+    <p>Das Observatorium-Artefakt ist noch nicht konfiguriert.</p>
+  </div>
+</div>
+<%- include('partials/footer') %>

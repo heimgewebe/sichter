@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= locals.title ?? 'Leitstand' %></title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0d1117; --surface: rgba(22,27,34,0.8); --border: rgba(48,54,61,0.8);
+      --text: #c9d1d9; --muted: #8b949e; --accent: #58a6ff;
+      --success: #3fb950; --warning: #d29922; --danger: #f85149;
+    }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+    nav {
+      display: flex; gap: 0.25rem; padding: 0.75rem 1.5rem;
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(8px); position: sticky; top: 0; z-index: 100;
+    }
+    nav a {
+      color: var(--muted); text-decoration: none; padding: 0.35rem 0.75rem;
+      border-radius: 6px; font-size: 0.875rem; transition: all 0.15s;
+    }
+    nav a:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+    nav a.active { color: var(--accent); background: rgba(88,166,255,0.1); }
+    .container { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem; }
+    h1 { font-size: 1.75rem; font-weight: 600; margin-bottom: 0.5rem; }
+    .badge {
+      display: inline-block; padding: 0.2rem 0.6rem; border-radius: 99px;
+      font-size: 0.75rem; font-weight: 600;
+    }
+    .badge-fixture { background: rgba(210,153,34,0.2); color: var(--warning); border: 1px solid rgba(210,153,34,0.4); }
+    .badge-live    { background: rgba(63,185,80,0.2);  color: var(--success); border: 1px solid rgba(63,185,80,0.4); }
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 1.25rem; backdrop-filter: blur(4px);
+    }
+    .nav-card { text-decoration: none; display: block; }
+    .nav-card .card { cursor: pointer; transition: border-color 0.15s, transform 0.15s; }
+    .nav-card .card:hover { border-color: var(--accent); transform: translateY(-1px); }
+    .empty { text-align: center; color: var(--muted); padding: 4rem 2rem; }
+    .empty h2 { margin-bottom: 0.5rem; color: var(--text); }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="/" <%- locals.path === '/'            ? 'class="active"' : '' %>>Home</a>
+  <a href="/observatory" <%- locals.path === '/observatory' ? 'class="active"' : '' %>>Observatorium</a>
+  <a href="/anatomy"     <%- locals.path === '/anatomy'     ? 'class="active"' : '' %>>Anatomie</a>
+  <a href="/timeline"    <%- locals.path === '/timeline'    ? 'class="active"' : '' %>>Zeitachse</a>
+  <a href="/ops"         <%- locals.path === '/ops'         ? 'class="active"' : '' %>>Ops</a>
+  <a href="/intent"      <%- locals.path === '/intent'      ? 'class="active"' : '' %>>Intent</a>
+</nav>

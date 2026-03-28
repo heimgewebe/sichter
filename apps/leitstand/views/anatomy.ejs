@@ -1,0 +1,219 @@
+<%- include('partials/header', { path: '/anatomy' }) %>
+<style>
+  #graph-container {
+    width: 100%; height: calc(100vh - 56px);
+    position: relative; overflow: hidden;
+  }
+  #graph-svg { width: 100%; height: 100%; display: block; }
+  #legend {
+    position: absolute; top: 1rem; right: 1rem;
+    background: rgba(13,17,23,0.85); border: 1px solid var(--border);
+    border-radius: 10px; padding: 1rem; backdrop-filter: blur(8px);
+    min-width: 180px;
+  }
+  #legend h3 { font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.75rem; }
+  .legend-item { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; font-size: 0.8rem; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  #edge-legend { margin-top: 0.75rem; }
+  #edge-legend .edge-sample { width: 28px; height: 2px; flex-shrink: 0; }
+  .edge-data       { background: #6b7280; }
+  .edge-control    { background: #f85149; }
+  .edge-governance { background: repeating-linear-gradient(90deg,#8b5cf6 0,#8b5cf6 4px,transparent 4px,transparent 8px); }
+  #tooltip {
+    position: absolute; background: rgba(13,17,23,0.95); border: 1px solid var(--border);
+    border-radius: 8px; padding: 0.6rem 0.9rem; font-size: 0.8rem; pointer-events: none;
+    max-width: 220px; display: none; backdrop-filter: blur(4px);
+  }
+  #tooltip .tt-label { font-weight: 600; margin-bottom: 0.2rem; }
+  #tooltip .tt-axis  { color: var(--muted); font-size: 0.75rem; }
+  #controls {
+    position: absolute; bottom: 1rem; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 0.5rem;
+  }
+  #controls button {
+    background: var(--surface); border: 1px solid var(--border); color: var(--text);
+    padding: 0.4rem 0.9rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem;
+    backdrop-filter: blur(4px); transition: all 0.15s;
+  }
+  #controls button:hover { border-color: var(--accent); color: var(--accent); }
+  #fixture-banner {
+    position: absolute; top: 0.5rem; left: 50%; transform: translateX(-50%);
+    background: rgba(210,153,34,0.15); border: 1px solid rgba(210,153,34,0.4);
+    color: #d29922; padding: 0.3rem 0.9rem; border-radius: 6px; font-size: 0.75rem;
+    display: <%= isFixture ? 'block' : 'none' %>;
+  }
+</style>
+
+<div id="graph-container">
+  <svg id="graph-svg">
+    <defs id="defs"></defs>
+    <g id="root"></g>
+  </svg>
+  <div id="fixture-banner">Fixture-Daten — kein Artefakt verfügbar</div>
+  <div id="legend">
+    <h3>Achsen</h3>
+    <% snapshot.axes.forEach(function(ax) { %>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:<%= ax.color %>"></div>
+      <span><%= ax.label %></span>
+    </div>
+    <% }) %>
+    <div id="edge-legend">
+      <h3 style="margin-top:0.75rem;">Kanten</h3>
+      <div class="legend-item"><div class="edge-sample edge-data"></div><span>Daten</span></div>
+      <div class="legend-item"><div class="edge-sample edge-control"></div><span>Kontrolle</span></div>
+      <div class="legend-item"><div class="edge-sample edge-governance"></div><span>Governance</span></div>
+    </div>
+  </div>
+  <div id="tooltip">
+    <div class="tt-label"></div>
+    <div class="tt-desc"></div>
+    <div class="tt-axis"></div>
+  </div>
+  <div id="controls">
+    <button id="btn-reset">Reset</button>
+    <button id="btn-center">Zentrieren</button>
+  </div>
+</div>
+
+<script nonce="<%= cspNonce %>">
+const SNAPSHOT = <%- JSON.stringify(snapshot) %>;
+</script>
+<script nonce="<%= cspNonce %>" src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script nonce="<%= cspNonce %>">
+(function () {
+  'use strict';
+
+  const AXIS_COLOR = Object.fromEntries(SNAPSHOT.axes.map(a => [a.id, a.color]));
+
+  const svg  = d3.select('#graph-svg');
+  const root = svg.select('#root');
+  const defs = svg.select('#defs');
+  const tt   = document.getElementById('tooltip');
+
+  // ---- Arrow markers for each edge type ----
+  const markerConf = [
+    { id: 'arr-data',       color: '#6b7280', dasharray: null           },
+    { id: 'arr-control',    color: '#f85149', dasharray: null           },
+    { id: 'arr-governance', color: '#8b5cf6', dasharray: '6,3'         },
+  ];
+  markerConf.forEach(mc => {
+    defs.append('marker')
+      .attr('id', mc.id)
+      .attr('viewBox', '0 -5 10 10')
+      .attr('refX', 22).attr('refY', 0)
+      .attr('markerWidth', 6).attr('markerHeight', 6)
+      .attr('orient', 'auto')
+      .append('path')
+        .attr('d', 'M0,-5L10,0L0,5')
+        .attr('fill', mc.color)
+        .attr('opacity', 0.8);
+  });
+
+  const edgeConf = {
+    data:       { color: '#6b7280', dasharray: null,   marker: 'url(#arr-data)' },
+    control:    { color: '#f85149', dasharray: null,   marker: 'url(#arr-control)' },
+    governance: { color: '#8b5cf6', dasharray: '6,3',  marker: 'url(#arr-governance)' },
+  };
+
+  // ---- Build graph data ----
+  const nodes = SNAPSHOT.nodes.map(n => ({ ...n }));
+  const nodeById = Object.fromEntries(nodes.map(n => [n.id, n]));
+  const links = SNAPSHOT.edges
+    .filter(e => nodeById[e.source] && nodeById[e.target])
+    .map(e => ({ ...e, source: nodeById[e.source], target: nodeById[e.target] }));
+
+  const W = () => document.getElementById('graph-container').clientWidth;
+  const H = () => document.getElementById('graph-container').clientHeight;
+
+  // ---- Simulation ----
+  const sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d => d.id).distance(120).strength(0.4))
+    .force('charge', d3.forceManyBody().strength(-280))
+    .force('center', d3.forceCenter(W() / 2, H() / 2))
+    .force('collide', d3.forceCollide(36));
+
+  // ---- Zoom ----
+  const zoom = d3.zoom().scaleExtent([0.25, 4]).on('zoom', ev => root.attr('transform', ev.transform));
+  svg.call(zoom);
+
+  // ---- Links ----
+  const linkSel = root.append('g').attr('class', 'links')
+    .selectAll('line')
+    .data(links)
+    .join('line')
+      .attr('stroke',           d => edgeConf[d.type]?.color ?? '#6b7280')
+      .attr('stroke-dasharray', d => edgeConf[d.type]?.dasharray ?? null)
+      .attr('stroke-width', 1.5)
+      .attr('opacity', 0.6)
+      .attr('marker-end', d => edgeConf[d.type]?.marker ?? null);
+
+  // ---- Nodes ----
+  const nodeSel = root.append('g').attr('class', 'nodes')
+    .selectAll('g')
+    .data(nodes)
+    .join('g')
+      .attr('class', 'node')
+      .style('cursor', 'pointer')
+      .call(d3.drag()
+        .on('start', (ev, d) => { if (!ev.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+        .on('drag',  (ev, d) => { d.fx = ev.x; d.fy = ev.y; })
+        .on('end',   (ev, d) => { if (!ev.active) sim.alphaTarget(0); d.fx = null; d.fy = null; }));
+
+  nodeSel.append('circle')
+    .attr('r', 18)
+    .attr('fill',   d => AXIS_COLOR[d.axis] + '33')
+    .attr('stroke', d => AXIS_COLOR[d.axis] ?? '#58a6ff')
+    .attr('stroke-width', 2)
+    .style('filter', d => `drop-shadow(0 0 6px ${AXIS_COLOR[d.axis] ?? '#58a6ff'}55)`);
+
+  nodeSel.append('text')
+    .attr('dy', '0.35em')
+    .attr('text-anchor', 'middle')
+    .attr('font-size', '10px')
+    .attr('fill', d => AXIS_COLOR[d.axis] ?? '#c9d1d9')
+    .attr('pointer-events', 'none')
+    .text(d => d.label);
+
+  // Tooltip
+  nodeSel
+    .on('mouseover', (ev, d) => {
+      const axLabel = SNAPSHOT.axes.find(a => a.id === d.axis)?.label ?? d.axis;
+      tt.style.display = 'block';
+      tt.querySelector('.tt-label').textContent = d.label;
+      tt.querySelector('.tt-desc').textContent  = d.description ?? '';
+      tt.querySelector('.tt-axis').textContent  = axLabel;
+      tt.style.left = (ev.pageX + 12) + 'px';
+      tt.style.top  = (ev.pageY - 10) + 'px';
+    })
+    .on('mousemove', ev => {
+      tt.style.left = (ev.pageX + 12) + 'px';
+      tt.style.top  = (ev.pageY - 10) + 'px';
+    })
+    .on('mouseout', () => { tt.style.display = 'none'; });
+
+  // ---- Tick ----
+  sim.on('tick', () => {
+    linkSel
+      .attr('x1', d => d.source.x)
+      .attr('y1', d => d.source.y)
+      .attr('x2', d => d.target.x)
+      .attr('y2', d => d.target.y);
+    nodeSel.attr('transform', d => `translate(${d.x},${d.y})`);
+  });
+
+  // ---- Controls ----
+  document.getElementById('btn-reset').addEventListener('click', () => {
+    svg.transition().duration(600).call(zoom.transform, d3.zoomIdentity);
+  });
+  document.getElementById('btn-center').addEventListener('click', () => {
+    sim.force('center', d3.forceCenter(W() / 2, H() / 2)).alpha(0.3).restart();
+  });
+
+  // Resize
+  window.addEventListener('resize', () => {
+    sim.force('center', d3.forceCenter(W() / 2, H() / 2));
+  });
+})();
+</script>
+<%- include('partials/footer') %>

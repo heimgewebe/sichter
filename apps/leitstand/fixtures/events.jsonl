@@ -1,0 +1,20 @@
+{"ts":"2026-03-28T06:01:00.000Z","kind":"sweep.start","repo":"heimgewebe/sichter","severity":"info","payload":{"mode":"changed","trigger":"cron"}}
+{"ts":"2026-03-28T06:01:45.000Z","kind":"finding.new","repo":"heimgewebe/sichter","severity":"warning","payload":{"rule":"no-bare-except","file":"apps/worker/run.py","line":142}}
+{"ts":"2026-03-28T06:02:10.000Z","kind":"sweep.done","repo":"heimgewebe/sichter","severity":"info","payload":{"duration_s":70,"findings":3}}
+{"ts":"2026-03-28T05:50:00.000Z","kind":"sweep.start","repo":"heimgewebe/chronik","severity":"info","payload":{"mode":"all","trigger":"manual"}}
+{"ts":"2026-03-28T05:52:30.000Z","kind":"pr.created","repo":"heimgewebe/chronik","severity":"info","payload":{"pr":42,"branch":"sichter/style/2026-03-28"}}
+{"ts":"2026-03-28T05:53:00.000Z","kind":"sweep.done","repo":"heimgewebe/chronik","severity":"info","payload":{"duration_s":150,"findings":1}}
+{"ts":"2026-03-28T04:30:00.000Z","kind":"sweep.start","repo":"heimgewebe/hauski","severity":"info","payload":{"mode":"changed","trigger":"cron"}}
+{"ts":"2026-03-28T04:31:20.000Z","kind":"finding.new","repo":"heimgewebe/hauski","severity":"error","payload":{"rule":"shellcheck-SC2086","file":"bin/hauski-auto-commit","line":37}}
+{"ts":"2026-03-28T04:32:00.000Z","kind":"pr.created","repo":"heimgewebe/hauski","severity":"info","payload":{"pr":89,"branch":"sichter/correctness/2026-03-28"}}
+{"ts":"2026-03-28T04:32:45.000Z","kind":"sweep.done","repo":"heimgewebe/hauski","severity":"info","payload":{"duration_s":105,"findings":2}}
+{"ts":"2026-03-28T03:00:00.000Z","kind":"policy.decide","repo":"heimgewebe/sentinel","severity":"info","payload":{"decision":"allow","score":0.92}}
+{"ts":"2026-03-28T03:05:00.000Z","kind":"sweep.start","repo":"heimgewebe/aussen","severity":"info","payload":{"mode":"changed","trigger":"push"}}
+{"ts":"2026-03-28T03:05:55.000Z","kind":"finding.new","repo":"heimgewebe/aussen","severity":"warning","payload":{"rule":"yamllint-truthy","file":"config/routes.yml","line":14}}
+{"ts":"2026-03-28T03:06:20.000Z","kind":"sweep.done","repo":"heimgewebe/aussen","severity":"info","payload":{"duration_s":55,"findings":1}}
+{"ts":"2026-03-27T22:15:00.000Z","kind":"sweep.error","repo":"heimgewebe/oracle","severity":"error","payload":{"reason":"llm-timeout","model":"qwen2.5-coder:7b"}}
+{"ts":"2026-03-27T21:00:00.000Z","kind":"pr.merged","repo":"heimgewebe/sichter","severity":"info","payload":{"pr":224,"merged_by":"heimgeist[bot]"}}
+{"ts":"2026-03-27T20:30:00.000Z","kind":"sweep.start","repo":"heimgewebe/wgx","severity":"info","payload":{"mode":"all","trigger":"cron"}}
+{"ts":"2026-03-27T20:32:00.000Z","kind":"sweep.done","repo":"heimgewebe/wgx","severity":"info","payload":{"duration_s":120,"findings":0}}
+{"ts":"2026-03-27T18:45:00.000Z","kind":"policy.decide","repo":"heimgewebe/hauski","severity":"warning","payload":{"decision":"shadow","score":0.55,"why":"low confidence"}}
+{"ts":"2026-03-27T16:00:00.000Z","kind":"pr.created","repo":"heimgewebe/sichter","severity":"info","payload":{"pr":228,"branch":"sichter/autofix-20260328-070901"}}
