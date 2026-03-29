@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   RepoFindingsDetailResponse,
@@ -18,7 +18,7 @@ const SEVERITY_COLOR: Record<string, string> = {
   ok: '#27ae60',
 };
 
-const SEVERITY_ORDER = ['critical', 'error', 'warning', 'info', 'question', 'ok'];
+const SEVERITY_ORDER = ['critical', 'error', 'warning', 'question', 'info', 'ok'];
 
 const severityRank = (sev: string) => {
   const idx = SEVERITY_ORDER.indexOf(sev);
@@ -48,6 +48,7 @@ const Repos = () => {
   const [findings, setFindings] = useState<Record<string, RepoFindingsEntry>>({});
   const [detail, setDetail] = useState<RepoFindingsDetailResponse | null>(null);
   const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
+  const pendingRepoRef = useRef<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<'table' | 'heatmap'>('table');
@@ -103,11 +104,17 @@ const Repos = () => {
   const loadRepoDetail = async (repoName: string) => {
     setSelectedRepo(repoName);
     setSelectedFile(null);
+    setDetail(null);
+    pendingRepoRef.current = repoName;
     try {
       const payload = await fetchRepoFindingsDetail(repoName);
-      setDetail(payload);
+      if (pendingRepoRef.current === repoName) {
+        setDetail(payload);
+      }
     } catch {
-      setDetail({ repo: repoName, count: 0, deduped: 0, files: [], items: [], ts: null });
+      if (pendingRepoRef.current === repoName) {
+        setDetail({ repo: repoName, count: 0, deduped: 0, files: [], items: [], ts: null });
+      }
     }
   };
 

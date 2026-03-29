@@ -264,7 +264,7 @@ def detect_anomalies(
     # timestamps drift slightly across time zones.
     latest_day = max(all_days)
     baseline_start = (
-        datetime.fromisoformat(latest_day).date() - timedelta(days=window + 1)
+        datetime.fromisoformat(latest_day).date() - timedelta(days=window)
     ).isoformat()
 
     alerts: list[dict] = []
@@ -346,13 +346,18 @@ def review_quality_stats(records: list[dict]) -> dict:
             )
     top_repos = sorted(repo_totals.items(), key=lambda x: x[1], reverse=True)[:10]
 
+    if total_findings > 0:
+        pr_yield_rate = round(total_prs / total_findings, 4)
+        avg_tokens_per_finding = round(total_tokens / total_findings, 1)
+    else:
+        pr_yield_rate = 0.0
+        avg_tokens_per_finding = 0.0
+
     return {
         "record_count": total_runs,
         "cache_hit_rate": round(total_cache / max(total_runs, 1), 2),
-        "pr_yield_rate": round(total_prs / max(total_findings, 1), 4),
-        "avg_tokens_per_finding": round(
-            total_tokens / max(total_findings, 1), 1
-        ),
+        "pr_yield_rate": pr_yield_rate,
+        "avg_tokens_per_finding": avg_tokens_per_finding,
         "findings_by_severity": by_sev,
         "severity_distribution_pct": sev_pct,
         "top_repos_by_findings": [
