@@ -1021,6 +1021,7 @@ def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
     )
 
   grouped = dedupe_findings(findings)
+  record_findings_snapshot(repo, findings)
   if findings:
     log(f"{repo}: {len(findings)} Findings ({len(grouped)} dedupliziert)")
     findings_by_file: dict[str, int] = {}
@@ -1039,7 +1040,6 @@ def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
             "rule_id": finding.rule_id,
           }
         )
-    record_findings_snapshot(repo, findings)
     append_event(
       {
         "type": "findings",
