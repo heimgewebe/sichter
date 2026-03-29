@@ -40,6 +40,9 @@ from lib.findings import Finding, Severity
 from lib.heuristics import run_drift_check, run_hotspot_check, run_redundancy_check
 from lib.metrics import ReviewMetrics, record_findings_snapshot, record_metrics
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+NOTIFY_SCRIPT = REPO_ROOT / "bin" / "hauski-notify"
+NOTIFY_TIMEOUT_SECONDS = 5
 PID_FILE = STATE / "worker.pid"
 LOG_DIR = HOME / "sichter/logs"
 REVIEW_DIR = STATE / "reviews"
@@ -77,6 +80,39 @@ def append_event(event: dict) -> None:
   record = {"ts": now.isoformat(), **event}
   with event_file.open("a", encoding="utf-8") as handle:
     handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def notify_internal(message: str) -> None:
+  """Best-effort internal notification that must never block worker progress."""
+  if not NOTIFY_SCRIPT.exists():
+    log(f"Interne Benachrichtigung übersprungen: Script fehlt ({NOTIFY_SCRIPT})")
+    return
+
+  try:
+    result = subprocess.run(
+      [str(NOTIFY_SCRIPT), message],
+      cwd=REPO_ROOT,
+      text=True,
+      capture_output=True,
+      check=False,
+      timeout=NOTIFY_TIMEOUT_SECONDS,
+    )
+  except subprocess.TimeoutExpired:
+    log(
+      "Interne Benachrichtigung abgebrochen: "
+      f"Timeout nach {NOTIFY_TIMEOUT_SECONDS}s"
+    )
+    return
+  except OSError as exc:
+    log(f"Interne Benachrichtigung fehlgeschlagen (OSError): {exc}")
+    return
+
+  if result.returncode != 0:
+    stderr = (result.stderr or "").strip()
+    log(
+      "Interne Benachrichtigung fehlgeschlagen "
+      f"(exit={result.returncode}): {stderr}"
+    )
 
 
 def is_process_alive(pid: int) -> bool:
@@ -421,6 +457,12 @@ def _filter_findings_for_prs(
       "repo": repo,
       "count": count,
     })
+
+  security_count = suppressed_counts.get("security", 0)
+  if security_count > 0:
+    notify_internal(
+      f"Sichter: {repo} – {security_count} Security-Finding(s) per Policy unterdrückt"
+    )
 
   return result
 

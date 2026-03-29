@@ -202,8 +202,8 @@
   - [x] Risiko-Badge (🟢 Low / 🟡 Medium / 🔴 High)
   - [x] Zusammenfassung (2–6 Sätze)
   - [x] Vorschläge als nummerierte Liste mit Risiko
-  - [ ] Betroffene Dateien mit Änderungszählern (Top-10-Tabelle)
-  - [ ] Verifikationshinweise ("So prüfst du den Fix") per Category
+  - [x] Betroffene Dateien mit Änderungszählern (Top-10-Tabelle)
+  - [x] Verifikationshinweise ("So prüfst du den Fix") per Category
 - [x] **5.3** Inline-Review-Kommentare
   - [x] `gh pr review --comment` an betroffenen Zeilen
   - [x] Nur bei Findings mit konkretem `file` + `line`
@@ -211,8 +211,8 @@
 - [ ] **5.4** Security-Findings nur intern
   - [x] Policy-Flag: `security.findings_public: false`
   - [x] Bei `false`: Security-PRs als Draft erstellen
-  - [ ] Security-PRs vollständig unterdrücken via `security.suppress_pr: true`
-  - [ ] Stattdessen: `security_findings_suppressed`-Event + interne Benachrichtigung
+  - [x] Security-PRs vollständig unterdrücken via `security.suppress_pr: true`
+  - [x] Stattdessen: `security_findings_suppressed`-Event + interne Benachrichtigung
 
 ---
 
@@ -229,7 +229,7 @@
   - [x] Klick auf Datei filtert einzelne Findings mit Severity + Category
   - [x] API: `/repos/findings/detail?repo=X` liefert `files` und `items`
 - 🟡 **6.3** Filter & Sortierung
-  - [ ] Severity-Filter + Category-Filter im Drill-Down
+  - [x] Severity-Filter + Category-Filter im Drill-Down
   - [x] Suchfeld für Repo-Namen in der Übersicht
   - [x] Multi-Key-Sort (Name / Findings / Severity, asc/desc)
 - [x] **6.4** Trend-Grafiken

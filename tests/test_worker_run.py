@@ -1,4 +1,5 @@
 import unittest
+import subprocess
 from pathlib import Path
 from unittest.mock import call, patch
 
@@ -7,6 +8,49 @@ from lib.findings import Finding
 
 
 class TestWorkerRun(unittest.TestCase):
+    def test_notify_internal_timeout_is_logged_and_non_blocking(self):
+        class _FakeScript:
+            def exists(self):
+                return True
+
+            def __str__(self):
+                return "/fake/hauski-notify"
+
+        with patch("apps.worker.run.NOTIFY_SCRIPT", _FakeScript()), \
+             patch(
+                 "apps.worker.run.subprocess.run",
+                 side_effect=subprocess.TimeoutExpired(cmd="hauski-notify", timeout=5),
+             ) as mock_run, \
+             patch("apps.worker.run.log") as mock_log:
+            worker_run.notify_internal("hello")
+
+        self.assertEqual(mock_run.call_args.kwargs["timeout"], worker_run.NOTIFY_TIMEOUT_SECONDS)
+        self.assertTrue(mock_log.called)
+        self.assertIn("Timeout", mock_log.call_args[0][0])
+
+    def test_notify_internal_non_zero_exit_is_logged_and_non_blocking(self):
+        class _FakeScript:
+            def exists(self):
+                return True
+
+            def __str__(self):
+                return "/fake/hauski-notify"
+
+        result = subprocess.CompletedProcess(
+            args=["/fake/hauski-notify", "hello"],
+            returncode=2,
+            stdout="",
+            stderr="notify failed",
+        )
+        with patch("apps.worker.run.NOTIFY_SCRIPT", _FakeScript()), \
+             patch("apps.worker.run.subprocess.run", return_value=result) as mock_run, \
+             patch("apps.worker.run.log") as mock_log:
+            worker_run.notify_internal("hello")
+
+        self.assertEqual(mock_run.call_args.kwargs["timeout"], worker_run.NOTIFY_TIMEOUT_SECONDS)
+        self.assertTrue(mock_log.called)
+        self.assertIn("exit=2", mock_log.call_args[0][0])
+
     @patch("apps.worker.run.get_changed_files", return_value=[])
     @patch("apps.worker.run.create_themed_prs")
     @patch("apps.worker.run.commit_if_changes", return_value=True)
@@ -815,8 +859,9 @@ class TestWorkerRun(unittest.TestCase):
             {"type": "drift_findings_suppressed", "repo": "demo-repo", "count": 1}
         )
 
+    @patch("apps.worker.run.notify_internal")
     @patch("apps.worker.run.append_event")
-    def test_filter_findings_for_prs_suppresses_security_when_configured(self, mock_append_event):
+    def test_filter_findings_for_prs_suppresses_security_when_configured(self, mock_append_event, mock_notify_internal):
         findings = [
             Finding(
                 severity="error",
@@ -848,6 +893,9 @@ class TestWorkerRun(unittest.TestCase):
         self.assertEqual([finding.category for finding in filtered], ["style"])
         mock_append_event.assert_any_call(
             {"type": "security_findings_suppressed", "repo": "demo-repo", "count": 1}
+        )
+        mock_notify_internal.assert_called_once_with(
+            "Sichter: demo-repo – 1 Security-Finding(s) per Policy unterdrückt"
         )
 
     @patch("apps.worker.run.append_event")
