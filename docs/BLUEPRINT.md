@@ -229,7 +229,7 @@
   - [x] Klick auf Datei filtert einzelne Findings mit Severity + Category
   - [x] API: `/repos/findings/detail?repo=X` liefert `files` und `items`
 - 🟡 **6.3** Filter & Sortierung
-  - [x] Severity-Filter + Category-Filter im Drill-Down
+  - [ ] Severity-Filter + Category-Filter im Drill-Down
   - [x] Suchfeld für Repo-Namen in der Übersicht
   - [x] Multi-Key-Sort (Name / Findings / Severity, asc/desc)
 - [x] **6.4** Trend-Grafiken

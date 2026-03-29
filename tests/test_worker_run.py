@@ -8,6 +8,23 @@ from lib.findings import Finding
 
 
 class TestWorkerRun(unittest.TestCase):
+    def test_notify_internal_skips_and_logs_when_script_missing(self):
+        class _MissingScript:
+            def exists(self):
+                return False
+
+            def __str__(self):
+                return "/fake/hauski-notify"
+
+        with patch("apps.worker.run.NOTIFY_SCRIPT", _MissingScript()), \
+             patch("apps.worker.run.subprocess.run") as mock_run, \
+             patch("apps.worker.run.log") as mock_log:
+            worker_run.notify_internal("hello")
+
+        mock_run.assert_not_called()
+        self.assertTrue(mock_log.called)
+        self.assertIn("Script fehlt", mock_log.call_args[0][0])
+
     def test_notify_internal_timeout_is_logged_and_non_blocking(self):
         class _FakeScript:
             def exists(self):
