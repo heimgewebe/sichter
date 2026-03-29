@@ -815,8 +815,9 @@ class TestWorkerRun(unittest.TestCase):
             {"type": "drift_findings_suppressed", "repo": "demo-repo", "count": 1}
         )
 
+    @patch("apps.worker.run.notify_internal")
     @patch("apps.worker.run.append_event")
-    def test_filter_findings_for_prs_suppresses_security_when_configured(self, mock_append_event):
+    def test_filter_findings_for_prs_suppresses_security_when_configured(self, mock_append_event, mock_notify_internal):
         findings = [
             Finding(
                 severity="error",
@@ -848,6 +849,9 @@ class TestWorkerRun(unittest.TestCase):
         self.assertEqual([finding.category for finding in filtered], ["style"])
         mock_append_event.assert_any_call(
             {"type": "security_findings_suppressed", "repo": "demo-repo", "count": 1}
+        )
+        mock_notify_internal.assert_called_once_with(
+            "Sichter: demo-repo – 1 Security-Finding(s) per Policy unterdrückt"
         )
 
     @patch("apps.worker.run.append_event")

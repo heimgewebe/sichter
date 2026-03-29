@@ -4,26 +4,31 @@ set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 [ -n "$ROOT" ] || exit 0
 REPO_NAME="$(basename "$ROOT")"
-REPORT_DIR="$HOME/sichter/review/$REPO_NAME"
-LAST=""
-if [ -d "$REPORT_DIR" ]; then
-  LAST="$(find "$REPORT_DIR" -name '*-review.md' -type f -print0 | xargs -0 ls -1t 2>/dev/null | head -n1 || true)"
+
+if [ "$#" -gt 0 ]; then
+  MSG="$*"
+else
+  REPORT_DIR="$HOME/sichter/review/$REPO_NAME"
+  LAST=""
+  if [ -d "$REPORT_DIR" ]; then
+    LAST="$(find "$REPORT_DIR" -name '*-review.md' -type f -print0 | xargs -0 ls -1t 2>/dev/null | head -n1 || true)"
+  fi
+  [ -n "$LAST" ] || exit 0
+
+  extract_flag() {
+    local patt="$1"
+    grep -Eiq "$patt" "$LAST"
+  }
+
+  NEED_ALERT=0
+  extract_flag 'TESTS?.*FAILED|failures' && NEED_ALERT=1
+  extract_flag 'security|critical|advisory' && NEED_ALERT=1
+  extract_flag 'CHANGES_REQUESTED' && NEED_ALERT=1
+
+  [ "$NEED_ALERT" -eq 1 ] || exit 0
+
+  MSG="HausKI: ⚠️  $REPO_NAME – Review-Alarm ($(basename "$LAST"))"
 fi
-[ -n "$LAST" ] || exit 0
-
-extract_flag() {
-  local patt="$1"
-  grep -Eiq "$patt" "$LAST"
-}
-
-NEED_ALERT=0
-extract_flag 'TESTS?.*FAILED|failures' && NEED_ALERT=1
-extract_flag 'security|critical|advisory' && NEED_ALERT=1
-extract_flag 'CHANGES_REQUESTED' && NEED_ALERT=1
-
-[ "$NEED_ALERT" -eq 1 ] || exit 0
-
-MSG="HausKI: ⚠️  $REPO_NAME – Review-Alarm ($(basename "$LAST"))"
 
 # Desktop
 if command -v notify-send >/dev/null 2>&1; then
