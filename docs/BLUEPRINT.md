@@ -228,8 +228,8 @@
   - [x] Klick auf Repo öffnet Drill-Down-Panel mit Datei-Liste + Finding-Counts
   - [x] Klick auf Datei filtert einzelne Findings mit Severity + Category
   - [x] API: `/repos/findings/detail?repo=X` liefert `files` und `items`
-- [x] **6.3** Filter & Sortierung
-  - [x] Nach Severity-Farbpunkt + Category im Drill-Down
+- 🟡 **6.3** Filter & Sortierung
+  - [ ] Severity-Filter + Category-Filter im Drill-Down
   - [x] Suchfeld für Repo-Namen in der Übersicht
   - [x] Multi-Key-Sort (Name / Findings / Severity, asc/desc)
 - [x] **6.4** Trend-Grafiken
