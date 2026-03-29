@@ -47,8 +47,37 @@ export type RepoFindingsEntry = {
   lastReviewedAt: string | null;
 };
 
+export type RepoFindingDetailFile = {
+  file: string;
+  count: number;
+  topSeverity: string;
+};
+
+export type RepoFindingDetailItem = {
+  severity: string;
+  category: string;
+  file: string;
+  line: number | null;
+  message: string;
+  evidence?: string | null;
+  fixAvailable?: boolean;
+  tool?: string | null;
+  ruleId?: string | null;
+  dedupeKey?: string;
+  uncertainty?: Record<string, unknown> | null;
+};
+
 export type RepoFindingsResponse = {
   repos: RepoFindingsEntry[];
+};
+
+export type RepoFindingDetailResponse = {
+  repo: string;
+  ts: string | null;
+  count: number;
+  deduped: number;
+  files: RepoFindingDetailFile[];
+  items: RepoFindingDetailItem[];
 };
 
 export type PolicyResponse = {
@@ -123,6 +152,11 @@ export const fetchRepos = () => request<ReposResponse>('/api/repos/status');
 
 export const fetchRepoFindings = (n = 200) =>
   request<RepoFindingsResponse>(`/api/repos/findings?n=${n}`);
+
+export const fetchRepoFindingDetail = (repo: string, n = 500) =>
+  request<RepoFindingDetailResponse>(
+    `/api/repos/findings/detail?repo=${encodeURIComponent(repo)}&n=${n}`,
+  );
 
 export const fetchEvents = (limit = 200) =>
   request<{ events: EventEntry[] }>(`/api/events/recent?n=${limit}`);

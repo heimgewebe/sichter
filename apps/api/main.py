@@ -498,19 +498,17 @@ def repos_findings(n: int = 200) -> dict[str, list[dict]]:
 
 
 @app.get("/repos/findings/detail", dependencies=[Depends(verify_api_key)])
-def repo_findings_detail(repo: str, n: int = 500) -> dict:
-  """Return the latest detailed findings payload for one repository.
+def repo_findings_detail(repo: str, n: int = 500) -> dict[str, object]:
+  """Return the latest detailed findings snapshot for a repository."""
+  from lib.metrics import latest_findings_snapshot_for_repo, load_findings_snapshots
 
-  .. note::
-    **Data source**: The per-file ``files`` list and individual ``items`` are
-    sourced from the most recent ``type=findings`` *worker event*, not from the
-    metrics snapshot that backs ``/repos/findings``.  This is intentional:
-    events carry the full finding detail that is too large for the metrics JSONL.
-    The two endpoints may differ when no findings event was emitted for a clean
-    run (zero findings) — in that case this endpoint returns an empty payload
-    while ``/repos/findings`` may still show a stale non-zero count.
-    Consumers should treat the detail response as best-effort / most-recent-run.
-  """
+  records = load_findings_snapshots(n=max(1, min(n, 10_000)))
+  snapshot = latest_findings_snapshot_for_repo(repo, records)
+
+  if snapshot.get("ts"):
+    return snapshot
+
+  # Backward-compatible fallback to the latest findings event payload.
   events = _collect_events(max(1, min(n, 5_000)))
   for evt in reversed(events):
     payload = evt.get("payload") if isinstance(evt.get("payload"), dict) else {}
@@ -520,8 +518,41 @@ def repo_findings_detail(repo: str, n: int = 500) -> dict:
       continue
     if str(payload.get("repo") or "") != repo:
       continue
-    files = payload.get("files") if isinstance(payload.get("files"), list) else []
-    items = payload.get("items") if isinstance(payload.get("items"), list) else []
+
+    files_in = payload.get("files") if isinstance(payload.get("files"), list) else []
+    items_in = payload.get("items") if isinstance(payload.get("items"), list) else []
+
+    files: list[dict[str, object]] = []
+    for entry in files_in:
+      if not isinstance(entry, dict):
+        continue
+      path = str(entry.get("file") or entry.get("path") or "")
+      if not path:
+        continue
+      files.append(
+        {
+          "file": path,
+          "count": int(entry.get("count", 0) or 0),
+          "topSeverity": str(entry.get("topSeverity") or "unknown"),
+        }
+      )
+
+    items: list[dict[str, object]] = []
+    for entry in items_in:
+      if not isinstance(entry, dict):
+        continue
+      items.append(
+        {
+          "severity": str(entry.get("severity") or "info"),
+          "category": str(entry.get("category") or "maintainability"),
+          "file": str(entry.get("file") or ""),
+          "line": entry.get("line"),
+          "message": str(entry.get("message") or ""),
+          "ruleId": entry.get("ruleId") or entry.get("rule_id"),
+          "tool": entry.get("tool"),
+        }
+      )
+
     return {
       "repo": repo,
       "count": int(payload.get("count", 0) or 0),
@@ -530,7 +561,8 @@ def repo_findings_detail(repo: str, n: int = 500) -> dict:
       "items": items,
       "ts": evt.get("ts"),
     }
-  return {"repo": repo, "count": 0, "deduped": 0, "files": [], "items": [], "ts": None}
+
+  return snapshot
 
 
 @app.post("/settings/policy", dependencies=[Depends(verify_api_key)])

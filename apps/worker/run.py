@@ -38,7 +38,7 @@ from lib.config import (
 )
 from lib.findings import Finding, Severity
 from lib.heuristics import run_drift_check, run_hotspot_check, run_redundancy_check
-from lib.metrics import ReviewMetrics, record_metrics
+from lib.metrics import ReviewMetrics, record_findings_snapshot, record_metrics
 
 PID_FILE = STATE / "worker.pid"
 LOG_DIR = HOME / "sichter/logs"
@@ -1039,6 +1039,7 @@ def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
             "rule_id": finding.rule_id,
           }
         )
+    record_findings_snapshot(repo, findings)
     append_event(
       {
         "type": "findings",

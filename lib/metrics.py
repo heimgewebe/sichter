@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from lib.config import STATE
+from lib.findings import Finding
 
 INSIGHTS_DIR = STATE / "insights"
 
@@ -86,6 +87,164 @@ def load_metrics(
     except OSError:
         pass
     return records
+
+
+def _findings_snapshots_file(path: Path | None = None) -> Path:
+    if path is not None:
+        return path
+    INSIGHTS_DIR.mkdir(parents=True, exist_ok=True)
+    return INSIGHTS_DIR / "findings.jsonl"
+
+
+def _serialize_finding(finding: Finding) -> dict[str, object]:
+    return {
+        "severity": finding.severity,
+        "category": finding.category,
+        "file": finding.file,
+        "line": finding.line,
+        "message": finding.message,
+        "evidence": finding.evidence,
+        "fixAvailable": bool(finding.fix_available),
+        "tool": finding.tool,
+        "ruleId": finding.rule_id,
+        "dedupeKey": finding.dedupe_key,
+        "uncertainty": finding.uncertainty,
+    }
+
+
+def _severity_rank(severity: str) -> int:
+    order = {
+        "critical": 5,
+        "error": 4,
+        "warning": 3,
+        "question": 2,
+        "info": 1,
+        "ok": 0,
+    }
+    return order.get(str(severity or "").lower(), -1)
+
+
+def _top_severity_for_items(items: list[dict[str, object]]) -> str:
+    top = "ok"
+    best_rank = 0
+    for item in items:
+        severity = str(item.get("severity") or "ok")
+        rank = _severity_rank(severity)
+        if rank > best_rank:
+            top = severity
+            best_rank = rank
+    return top
+
+
+def build_findings_snapshot(
+    repo: str,
+    findings: list[Finding],
+    timestamp: str | None = None,
+) -> dict[str, object]:
+    """Build an aggregated findings snapshot for a repo."""
+    deduped_items: dict[str, dict[str, object]] = {}
+    for finding in findings:
+        deduped_items[finding.dedupe_key] = _serialize_finding(finding)
+
+    items = sorted(
+        deduped_items.values(),
+        key=lambda item: (
+            -_severity_rank(str(item.get("severity") or "ok")),
+            str(item.get("file") or ""),
+            int(item.get("line") or 0),
+            str(item.get("message") or ""),
+        ),
+    )
+
+    files: dict[str, list[dict[str, object]]] = {}
+    for item in items:
+        file_name = str(item.get("file") or "")
+        files.setdefault(file_name, []).append(item)
+
+    file_entries = []
+    for file_name, file_items in sorted(files.items()):
+        file_entries.append(
+            {
+                "file": file_name,
+                "count": len(file_items),
+                "topSeverity": _top_severity_for_items(file_items),
+            }
+        )
+
+    return {
+        "repo": repo,
+        "ts": timestamp or datetime.now(timezone.utc).isoformat(),
+        "count": len(findings),
+        "deduped": len(items),
+        "files": file_entries,
+        "items": items,
+    }
+
+
+def record_findings_snapshot(
+    repo: str,
+    findings: list[Finding],
+    findings_file: Path | None = None,
+    timestamp: str | None = None,
+) -> dict[str, object]:
+    """Append a detailed findings snapshot for later repo drill-down."""
+    snapshot = build_findings_snapshot(repo, findings, timestamp=timestamp)
+    target = _findings_snapshots_file(findings_file)
+    try:
+        with target.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(snapshot, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+    return snapshot
+
+
+def load_findings_snapshots(
+    n: int = 200,
+    findings_file: Path | None = None,
+) -> list[dict[str, object]]:
+    """Return the last ``n`` findings snapshots."""
+    path = _findings_snapshots_file(findings_file)
+    if not path.exists():
+        return []
+
+    records: list[dict[str, object]] = []
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            tail: collections.deque[str] = collections.deque(maxlen=n)
+            for line in fh:
+                tail.append(line)
+        for line in tail:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                records.append(payload)
+    except OSError:
+        return []
+    return records
+
+
+def latest_findings_snapshot_for_repo(
+    repo: str,
+    records: list[dict[str, object]],
+) -> dict[str, object]:
+    """Return the newest persisted findings snapshot for ``repo``."""
+    normalized = repo.strip()
+    for record in reversed(records):
+        if str(record.get("repo") or "").strip() == normalized:
+            return record
+    return {
+        "repo": normalized,
+        "ts": None,
+        "count": 0,
+        "deduped": 0,
+        "files": [],
+        "items": [],
+    }
 
 
 def aggregate_metrics(records: list[dict]) -> dict:
