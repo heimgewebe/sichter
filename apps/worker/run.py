@@ -390,8 +390,8 @@ def _filter_findings_for_prs(
     Filtered findings that should be considered for PR creation.
   """
   result: list[Finding] = []
-  checks_dict = checks_cfg or {}
-  security_dict = security_cfg or {}
+  checks_dict = checks_cfg if isinstance(checks_cfg, dict) else {}
+  security_dict = security_cfg if isinstance(security_cfg, dict) else {}
   suppressed_counts: dict[str, int] = {}
 
   for finding in findings:
@@ -736,14 +736,13 @@ def build_pr_body(
       "style": "✓ Formatierung prüfen (Code-Style, imports, naming-conventions)",
       "correctness": "✓ Logik und Semantik des Diff überprüfen, besonders Grenzfälle",
       "security": "✓ Keine Credentials, Secrets oder sensitiven Daten in Code prüfen",
+      "drift": "✓ Versionsquellen und gewünschte Pinning-Strategie abgleichen",
       "maintainability": "✓ Leserbarkeit, Duplikationen, Dokumentation überprüfen",
-      "question": "✓ Manuell-geprüfte Punkte — Kontext erforderlich",
-      "error": "✓ Kritische Fehler — vor dem Merge lösen",
       "performance": "✓ Performance-Auswirkungen auf Latenz und Speicher prüfen",
     }
     
     for category in sorted(categories_in_findings):
-      hint = verification_hints.get(category, f"✓ {category}: überprüfen")
+      hint = verification_hints.get(category, "✓ Manuell prüfen")
       lines.append(f"- **{category}**: {hint}")
 
   if review is not None:

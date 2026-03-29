@@ -850,6 +850,41 @@ class TestWorkerRun(unittest.TestCase):
             {"type": "security_findings_suppressed", "repo": "demo-repo", "count": 1}
         )
 
+    @patch("apps.worker.run.append_event")
+    def test_filter_findings_for_prs_handles_non_dict_policy_values(self, mock_append_event):
+        findings = [
+            Finding(
+                severity="warning",
+                category="drift",
+                file="requirements.txt",
+                line=None,
+                message="Versionsdrift",
+                tool="drift",
+                rule_id="version_mismatch",
+            ),
+            Finding(
+                severity="error",
+                category="security",
+                file="auth.py",
+                line=4,
+                message="Potential secret",
+                tool="bandit",
+                rule_id="B105",
+            ),
+        ]
+
+        filtered = worker_run._filter_findings_for_prs(
+            findings,
+            "kaputt",
+            "auch-kaputt",
+            repo="demo-repo",
+        )
+
+        self.assertEqual([finding.category for finding in filtered], ["security"])
+        mock_append_event.assert_any_call(
+            {"type": "drift_findings_suppressed", "repo": "demo-repo", "count": 1}
+        )
+
     @patch("apps.worker.run.record_metrics")
     @patch("apps.worker.run.record_findings_snapshot")
     @patch("apps.worker.run.dedupe_findings", return_value={"k": []})
@@ -939,6 +974,15 @@ class TestWorkerRun(unittest.TestCase):
                 rule_id="B311",
             ),
             Finding(
+                severity="warning",
+                category="drift",
+                file="requirements.txt",
+                line=None,
+                message="Pinned versions diverge",
+                tool="drift",
+                rule_id="version_mismatch",
+            ),
+            Finding(
                 severity="info",
                 category="correctness",
                 file="",
@@ -954,8 +998,10 @@ class TestWorkerRun(unittest.TestCase):
         self.assertIn("### Betroffene Dateien", body)
         self.assertIn("| src/app.py | 2 | critical |", body)
         self.assertIn("| docs/guide.md | 1 | question |", body)
+        self.assertIn("| requirements.txt | 1 | warning |", body)
         self.assertNotIn("|  |", body)
         self.assertIn("### Verifikationshinweise", body)
+        self.assertIn("- **drift**: ✓ Versionsquellen und gewünschte Pinning-Strategie abgleichen", body)
         self.assertIn("- **security**: ✓ Keine Credentials, Secrets oder sensitiven Daten in Code prüfen", body)
         self.assertIn("- **maintainability**: ✓ Leserbarkeit, Duplikationen, Dokumentation überprüfen", body)
 
