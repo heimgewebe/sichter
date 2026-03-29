@@ -666,6 +666,60 @@ class TestWorkerRun(unittest.TestCase):
 
         mock_run_heuristics.assert_called_once_with(Path("/fake/repo"), None)
 
+    @patch("apps.worker.run.record_metrics")
+    @patch("apps.worker.run.append_event")
+    @patch("apps.worker.run.record_findings_snapshot")
+    @patch("apps.worker.run.dedupe_findings", return_value={"k": []})
+    @patch("apps.worker.run.run_heuristics", return_value=[])
+    @patch("apps.worker.run.create_themed_prs")
+    @patch("apps.worker.run.commit_if_changes", return_value=True)
+    @patch("apps.worker.run.llm_review", return_value=None)
+    @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 1})
+    @patch("apps.worker.run.registry_run_checks")
+    @patch("apps.worker.run.fresh_branch", return_value="test-branch")
+    @patch("apps.worker.run.ensure_repo", return_value=Path("/fake/repo"))
+    @patch("apps.worker.run._filter_findings_for_prs", return_value=[])
+    def test_process_repo_skips_pr_creation_when_all_findings_are_filtered(
+        self,
+        _mock_filter_findings,
+        _mock_ensure_repo,
+        _mock_fresh_branch,
+        mock_registry_run_checks,
+        _mock_registry_run_autofixes,
+        _mock_llm_review,
+        _mock_commit_if_changes,
+        mock_create_themed_prs,
+        _mock_run_heuristics,
+        _mock_dedupe_findings,
+        _mock_record_snapshot,
+        mock_append_event,
+        _mock_record_metrics,
+    ):
+        mock_registry_run_checks.return_value = [
+            Finding(
+                severity="error",
+                category="security",
+                file="secret.py",
+                line=1,
+                message="Secret detected",
+                tool="bandit",
+                rule_id="B105",
+            )
+        ]
+
+        worker_run.process_repo("demo-repo", "all", True)
+
+        mock_create_themed_prs.assert_not_called()
+        mock_append_event.assert_any_call(
+            {
+                "type": "pr_suppressed",
+                "repo": "demo-repo",
+                "branch": "test-branch",
+                "categories": ["security"],
+                "reason": "all_findings_filtered",
+            }
+        )
+
     def test_build_pr_body_includes_findings_summary(self):
         findings = [
             Finding(
@@ -725,6 +779,124 @@ class TestWorkerRun(unittest.TestCase):
         self.assertIn("Keine strukturierten Findings", body)
         keine_idx = body.index("Keine")
         self.assertNotIn("##", body[keine_idx:])
+
+    @patch("apps.worker.run.append_event")
+    def test_filter_findings_for_prs_suppresses_drift_by_default_and_logs_event(self, mock_append_event):
+        findings = [
+            Finding(
+                severity="warning",
+                category="drift",
+                file="requirements.txt",
+                line=None,
+                message="Versionsdrift",
+                tool="drift",
+                rule_id="version_mismatch",
+            ),
+            Finding(
+                severity="error",
+                category="correctness",
+                file="apps/main.py",
+                line=10,
+                message="Undefined name",
+                tool="ruff",
+                rule_id="F821",
+            ),
+        ]
+
+        filtered = worker_run._filter_findings_for_prs(
+            findings,
+            {"heuristics": {"drift": {"create_pr": False}}},
+            repo="demo-repo",
+        )
+
+        self.assertEqual([finding.category for finding in filtered], ["correctness"])
+        mock_append_event.assert_any_call(
+            {"type": "drift_findings_suppressed", "repo": "demo-repo", "count": 1}
+        )
+
+    @patch("apps.worker.run.append_event")
+    def test_filter_findings_for_prs_suppresses_security_when_configured(self, mock_append_event):
+        findings = [
+            Finding(
+                severity="error",
+                category="security",
+                file="auth.py",
+                line=4,
+                message="Potential secret",
+                tool="bandit",
+                rule_id="B105",
+            ),
+            Finding(
+                severity="warning",
+                category="style",
+                file="auth.py",
+                line=8,
+                message="Line too long",
+                tool="ruff",
+                rule_id="E501",
+            ),
+        ]
+
+        filtered = worker_run._filter_findings_for_prs(
+            findings,
+            {"security": {"suppress_pr": True}},
+            repo="demo-repo",
+        )
+
+        self.assertEqual([finding.category for finding in filtered], ["style"])
+        mock_append_event.assert_any_call(
+            {"type": "security_findings_suppressed", "repo": "demo-repo", "count": 1}
+        )
+
+    def test_build_pr_body_includes_affected_files_table_and_verification_hints(self):
+        findings = [
+            Finding(
+                severity="question",
+                category="maintainability",
+                file="docs/guide.md",
+                line=7,
+                message="Need clarification",
+                tool="docs",
+                rule_id="DOC1",
+            ),
+            Finding(
+                severity="critical",
+                category="security",
+                file="src/app.py",
+                line=12,
+                message="Credential leak",
+                tool="bandit",
+                rule_id="B105",
+            ),
+            Finding(
+                severity="warning",
+                category="security",
+                file="src/app.py",
+                line=20,
+                message="Weak entropy",
+                tool="bandit",
+                rule_id="B311",
+            ),
+            Finding(
+                severity="info",
+                category="correctness",
+                file="",
+                line=None,
+                message="No file attached",
+                tool="meta",
+                rule_id="META1",
+            ),
+        ]
+
+        body = worker_run.build_pr_body("demo-repo", findings)
+
+        self.assertIn("### Betroffene Dateien", body)
+        self.assertIn("| src/app.py | 2 | critical |", body)
+        self.assertIn("| docs/guide.md | 1 | question |", body)
+        self.assertNotIn("|  |", body)
+        self.assertIn("### Verifikationshinweise", body)
+        self.assertIn("- **security**: ✓ Keine Credentials, Secrets oder sensitiven Daten in Code prüfen", body)
+        self.assertIn("- **maintainability**: ✓ Leserbarkeit, Duplikationen, Dokumentation überprüfen", body)
 
     # ------------------------------------------------------------------
     # LLM gating semantics

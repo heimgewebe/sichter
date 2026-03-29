@@ -709,14 +709,14 @@ def build_pr_body(
 
   # **5.2** Betroffene Dateien mit Zählern (Top 10)
   lines.extend(["", "### Betroffene Dateien", ""])
+  severity_order_map = {sev: idx for idx, sev in enumerate(severity_order)}
   file_stats: dict[str, tuple[int, Severity]] = {}
   for finding in findings_list:
     if not finding.file:
       continue
-    count, max_sev = file_stats.get(finding.file, (0, "info"))
-    severity_order_map = {sev: idx for idx, sev in enumerate(severity_order)}
+    count, max_sev = file_stats.get(finding.file, (0, finding.severity))
     sev_idx = severity_order_map.get(finding.severity, 999)
-    max_sev_idx = severity_order_map.get(max_sev, -1)
+    max_sev_idx = severity_order_map.get(max_sev, 999)
     new_max_sev = finding.severity if sev_idx < max_sev_idx else max_sev
     file_stats[finding.file] = (count + 1, cast(Severity, new_max_sev))
 
@@ -1159,7 +1159,20 @@ def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
   findings_for_prs = _filter_findings_for_prs(findings, POLICY.checks, repo)
 
   if commit_if_changes(repo_dir):
-    prs_created = create_themed_prs(repo, repo_dir, branch, auto_pr, findings_for_prs, review)
+    if findings and not findings_for_prs:
+      suppressed_categories = sorted({finding.category for finding in findings if finding.category})
+      log(f"{repo}: Alle Findings für PR-Erzeugung unterdrückt ({', '.join(suppressed_categories)})")
+      append_event(
+        {
+          "type": "pr_suppressed",
+          "repo": repo,
+          "branch": branch,
+          "categories": suppressed_categories,
+          "reason": "all_findings_filtered",
+        }
+      )
+    else:
+      prs_created = create_themed_prs(repo, repo_dir, branch, auto_pr, findings_for_prs, review)
   else:
     log(f"Keine Änderungen für {repo}")
     append_event({"type": "noop", "repo": repo, "branch": branch})
