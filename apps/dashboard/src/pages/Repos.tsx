@@ -55,6 +55,8 @@ const Repos = () => {
   const [query, setQuery] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'findings' | 'severity'>('name');
   const [sortAsc, setSortAsc] = useState(true);
+  const [severityFilter, setSeverityFilter] = useState<Set<string>>(new Set());
+  const [categoryFilter, setCategoryFilter] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetchRepos()
@@ -104,6 +106,8 @@ const Repos = () => {
   const loadRepoDetail = async (repoName: string) => {
     setSelectedRepo(repoName);
     setSelectedFile(null);
+    setSeverityFilter(new Set());
+    setCategoryFilter(new Set());
     setDetail(null);
     pendingRepoRef.current = repoName;
     try {
@@ -118,9 +122,12 @@ const Repos = () => {
     }
   };
 
-  const filteredDetailItems = (detail?.items ?? []).filter((item) =>
-    selectedFile ? item.file === selectedFile : true,
-  );
+  const filteredDetailItems = (detail?.items ?? []).filter((item) => {
+    const byFile = selectedFile ? item.file === selectedFile : true;
+    const bySeverity = severityFilter.size === 0 || severityFilter.has(item.severity);
+    const byCategory = categoryFilter.size === 0 || categoryFilter.has(item.category);
+    return byFile && bySeverity && byCategory;
+  });
 
   return (
     <div>
@@ -253,6 +260,74 @@ const Repos = () => {
 
             <div>
               <h4>Findings {selectedFile ? `in ${selectedFile}` : ''}</h4>
+              
+              {/* **6.3** Severity & Category Filter */}
+              <div style={{ marginBottom: '0.75rem', fontSize: '0.85rem', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <strong>Severity:</strong>
+                  {['critical', 'error', 'warning', 'info', 'question'].map((sev) => (
+                    <button
+                      key={sev}
+                      aria-pressed={severityFilter.has(sev)}
+                      onClick={() => {
+                        const next = new Set(severityFilter);
+                        if (next.has(sev)) {
+                          next.delete(sev);
+                        } else {
+                          next.add(sev);
+                        }
+                        setSeverityFilter(next);
+                      }}
+                      style={{
+                        padding: '0.25rem 0.45rem',
+                        border: severityFilter.has(sev) ? '1.5px solid #333' : '1px solid #ccc',
+                        background: severityFilter.has(sev) ? SEVERITY_COLOR[sev] : '#f9f9f9',
+                        color: severityFilter.has(sev) ? '#fff' : '#333',
+                        borderRadius: '0.2rem',
+                        cursor: 'pointer',
+                        fontSize: '0.75rem',
+                        fontWeight: severityFilter.has(sev) ? 600 : 400,
+                      }}
+                    >
+                      {sev}
+                    </button>
+                  ))}
+                </div>
+                
+                <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <strong>Category:</strong>
+                  {Array.from(new Set(detail.items.map((item) => item.category)))
+                    .sort()
+                    .map((cat) => (
+                      <button
+                        key={cat}
+                        aria-pressed={categoryFilter.has(cat)}
+                        onClick={() => {
+                          const next = new Set(categoryFilter);
+                          if (next.has(cat)) {
+                            next.delete(cat);
+                          } else {
+                            next.add(cat);
+                          }
+                          setCategoryFilter(next);
+                        }}
+                        style={{
+                          padding: '0.25rem 0.45rem',
+                          border: categoryFilter.has(cat) ? '1.5px solid #333' : '1px solid #ccc',
+                          background: categoryFilter.has(cat) ? '#8e44ad' : '#f9f9f9',
+                          color: categoryFilter.has(cat) ? '#fff' : '#333',
+                          borderRadius: '0.2rem',
+                          cursor: 'pointer',
+                          fontSize: '0.75rem',
+                          fontWeight: categoryFilter.has(cat) ? 600 : 400,
+                        }}
+                      >
+                        {cat}
+                      </button>
+                    ))}
+                </div>
+              </div>
+
               <div style={{ maxHeight: '280px', overflowY: 'auto', border: '1px solid #eee', borderRadius: '0.25rem' }}>
                 {filteredDetailItems.length === 0 && <p style={{ padding: '0.5rem' }}>Keine Findings verfügbar.</p>}
                 {filteredDetailItems.map((item, idx) => (
