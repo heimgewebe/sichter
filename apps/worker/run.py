@@ -1023,12 +1023,36 @@ def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
   grouped = dedupe_findings(findings)
   if findings:
     log(f"{repo}: {len(findings)} Findings ({len(grouped)} dedupliziert)")
+    findings_by_file: dict[str, int] = {}
+    finding_items: list[dict] = []
+    for finding in findings:
+      if finding.file:
+        findings_by_file[finding.file] = findings_by_file.get(finding.file, 0) + 1
+      if len(finding_items) < 100:
+        finding_items.append(
+          {
+            "severity": finding.severity,
+            "category": finding.category,
+            "file": finding.file,
+            "line": finding.line,
+            "message": finding.message,
+            "rule_id": finding.rule_id,
+          }
+        )
     append_event(
       {
         "type": "findings",
         "repo": repo,
         "count": len(findings),
         "deduped": len(grouped),
+        "files": sorted(
+          (
+            {"path": path, "count": count}
+            for path, count in findings_by_file.items()
+          ),
+          key=lambda item: (-item["count"], item["path"]),
+        )[:100],
+        "items": finding_items,
       }
     )
 

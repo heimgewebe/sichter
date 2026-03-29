@@ -497,6 +497,42 @@ def repos_findings(n: int = 200) -> dict[str, list[dict]]:
   return {"repos": latest_repo_findings(records)}
 
 
+@app.get("/repos/findings/detail", dependencies=[Depends(verify_api_key)])
+def repo_findings_detail(repo: str, n: int = 500) -> dict:
+  """Return the latest detailed findings payload for one repository.
+
+  .. note::
+    **Data source**: The per-file ``files`` list and individual ``items`` are
+    sourced from the most recent ``type=findings`` *worker event*, not from the
+    metrics snapshot that backs ``/repos/findings``.  This is intentional:
+    events carry the full finding detail that is too large for the metrics JSONL.
+    The two endpoints may differ when no findings event was emitted for a clean
+    run (zero findings) — in that case this endpoint returns an empty payload
+    while ``/repos/findings`` may still show a stale non-zero count.
+    Consumers should treat the detail response as best-effort / most-recent-run.
+  """
+  events = _collect_events(max(1, min(n, 5_000)))
+  for evt in reversed(events):
+    payload = evt.get("payload") if isinstance(evt.get("payload"), dict) else {}
+    if not isinstance(payload, dict):
+      continue
+    if payload.get("type") != "findings":
+      continue
+    if str(payload.get("repo") or "") != repo:
+      continue
+    files = payload.get("files") if isinstance(payload.get("files"), list) else []
+    items = payload.get("items") if isinstance(payload.get("items"), list) else []
+    return {
+      "repo": repo,
+      "count": int(payload.get("count", 0) or 0),
+      "deduped": int(payload.get("deduped", 0) or 0),
+      "files": files,
+      "items": items,
+      "ts": evt.get("ts"),
+    }
+  return {"repo": repo, "count": 0, "deduped": 0, "files": [], "items": [], "ts": None}
+
+
 @app.post("/settings/policy", dependencies=[Depends(verify_api_key)])
 def write_policy(content: Annotated[dict, Body()]) -> dict[str, str]:
   # stores to ~/.config/sichter/policy.yml
@@ -564,6 +600,79 @@ def get_metrics_raw(n: int = 50) -> dict:
   """Return raw per-run review metrics (last ``n`` records)."""
   from lib.metrics import load_metrics
   return {"records": load_metrics(n=max(1, min(n, 1_000)))}
+
+
+@app.get("/metrics/trends", dependencies=[Depends(verify_api_key)])
+def get_metrics_trends(days: int = 30, n: int = 2000) -> dict:
+  """Return daily findings counts for trend charts.
+
+  Query params:
+    days: Number of calendar days to include (default 30).
+    n: Max metric records to load for aggregation (default 2000).
+  """
+  from lib.metrics import load_metrics, trends_over_time
+  records = load_metrics(n=max(1, min(n, 10_000)))
+  return {"trends": trends_over_time(records, days=max(1, min(days, 365)))}
+
+
+@app.get("/metrics/prometheus", dependencies=[Depends(verify_api_key)], response_class=PlainTextResponse)
+def get_metrics_prometheus(n: int = 200) -> str:
+  """Return metrics in Prometheus plain-text exposition format."""
+  from lib.metrics import aggregate_metrics, load_metrics
+  records = load_metrics(n=max(1, min(n, 10_000)))
+  agg = aggregate_metrics(records)
+  # Each metric name must have HELP/TYPE declared exactly once, followed by
+  # all its label variants.  Repeating HELP/TYPE per label is non-conformant
+  # with the Prometheus exposition format specification.
+  lines = [
+    "# HELP sichter_runs_total Total number of review runs recorded",
+    "# TYPE sichter_runs_total counter",
+    f"sichter_runs_total {agg.get('count', 0)}",
+    "# HELP sichter_findings_total Total findings across all runs",
+    "# TYPE sichter_findings_total counter",
+    f"sichter_findings_total {agg.get('total_findings', 0)}",
+    "# HELP sichter_prs_total Total PRs created",
+    "# TYPE sichter_prs_total counter",
+    f"sichter_prs_total {agg.get('total_prs', 0)}",
+    "# HELP sichter_tokens_total Total LLM tokens used",
+    "# TYPE sichter_tokens_total counter",
+    f"sichter_tokens_total {agg.get('total_tokens', 0)}",
+    "# HELP sichter_cache_hits_total Total cache hits",
+    "# TYPE sichter_cache_hits_total counter",
+    f"sichter_cache_hits_total {agg.get('total_cache_hits', 0)}",
+    "# HELP sichter_avg_duration_seconds Average run duration in seconds",
+    "# TYPE sichter_avg_duration_seconds gauge",
+    f"sichter_avg_duration_seconds {agg.get('avg_duration_seconds', 0)}",
+    # Per-severity breakdown: HELP/TYPE declared once, all label variants grouped below
+    "# HELP sichter_findings_by_severity_total Findings grouped by severity label",
+    "# TYPE sichter_findings_by_severity_total counter",
+  ]
+  for sev, cnt in sorted((agg.get("findings_by_severity") or {}).items()):
+    lines.append(f'sichter_findings_by_severity_total{{severity="{sev}"}} {cnt}')
+  return "\n".join(lines) + "\n"
+
+
+@app.get("/alerts", dependencies=[Depends(verify_api_key)])
+def get_alerts(n: int = 2000) -> dict:
+  """Return anomaly alerts for repos with sudden findings spikes."""
+  from lib.metrics import detect_anomalies, load_metrics
+  records = load_metrics(n=max(1, min(n, 10_000)))
+  alerts = detect_anomalies(records)
+  return {"alerts": alerts, "count": len(alerts)}
+
+
+@app.get("/metrics/review-quality", dependencies=[Depends(verify_api_key)])
+def get_review_quality(n: int = 500) -> dict:
+  """Return review quality statistics derived from metrics records.
+
+  Includes cache efficiency, PR yield, token efficiency, and severity distribution.
+
+  Query params:
+    n: Maximum number of records to consider (default 500).
+  """
+  from lib.metrics import load_metrics, review_quality_stats
+  records = load_metrics(n=max(1, min(n, 10_000)))
+  return review_quality_stats(records)
 
 
 # --- websocket: /events/stream ------------------------------------------------

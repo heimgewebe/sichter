@@ -12,7 +12,7 @@ from lib.cache import cache_get, cache_set, make_check_key, policy_hash
 from lib.heuristics.drift import _parse_requirements, _parse_pyproject_deps, run_drift_check
 from lib.heuristics.hotspots import run_hotspot_check
 from lib.heuristics.redundancy import run_redundancy_check
-from lib.metrics import ReviewMetrics, aggregate_metrics, latest_repo_findings, load_metrics, record_metrics
+from lib.metrics import ReviewMetrics, aggregate_metrics, detect_anomalies, latest_repo_findings, load_metrics, record_metrics, review_quality_stats, trends_over_time
 
 
 # ---------------------------------------------------------------------------
@@ -506,6 +506,156 @@ class TestMetrics(unittest.TestCase):
         self.assertEqual(len(summary), 1)
         self.assertEqual(summary[0]["name"], "r-mixed")
         self.assertEqual(summary[0]["topSeverity"], "critical")
+
+
+
+
+# ---------------------------------------------------------------------------
+# trends_over_time tests
+# ---------------------------------------------------------------------------
+
+class TestTrendsOverTime(unittest.TestCase):
+    def test_empty_records_returns_continuous_zero_series(self):
+        result = trends_over_time([], days=5)
+        self.assertEqual(len(result), 5)
+        self.assertTrue(all(r["findings"] == 0 for r in result))
+
+    def test_invalid_timestamps_are_ignored(self):
+        records = [
+            {"timestamp": "not-a-date", "findings_count": 10},
+            {"timestamp": "", "findings_count": 5},
+            {"timestamp": None, "findings_count": 3},
+        ]
+        result = trends_over_time(records, days=7)
+        self.assertEqual(len(result), 7)
+        self.assertTrue(all(r["findings"] == 0 for r in result))
+
+    def test_counts_are_aggregated_by_day(self):
+        from datetime import date, timedelta
+        today = date.today().isoformat()
+        records = [
+            {"timestamp": f"{today}T10:00:00", "findings_count": 3},
+            {"timestamp": f"{today}T14:00:00", "findings_count": 2},
+        ]
+        result = trends_over_time(records, days=7)
+        today_entry = next(r for r in result if r["date"] == today)
+        self.assertEqual(today_entry["findings"], 5)
+
+    def test_records_outside_window_are_excluded(self):
+        from datetime import date, timedelta
+        old_day = (date.today() - timedelta(days=60)).isoformat()
+        records = [{"timestamp": f"{old_day}T10:00:00", "findings_count": 99}]
+        result = trends_over_time(records, days=7)
+        self.assertTrue(all(r["findings"] == 0 for r in result))
+
+
+# ---------------------------------------------------------------------------
+# detect_anomalies tests
+# ---------------------------------------------------------------------------
+
+class TestDetectAnomalies(unittest.TestCase):
+    def _make_records(self, repo: str, day: str, count: int) -> dict:
+        return {"repo": repo, "timestamp": f"{day}T12:00:00", "findings_count": count}
+
+    def test_empty_records_returns_empty(self):
+        self.assertEqual(detect_anomalies([]), [])
+
+    def test_no_alert_when_baseline_is_absent(self):
+        # Only one day of data – no baseline window to compare against.
+        records = [self._make_records("repo-a", "2026-03-28", 100)]
+        alerts = detect_anomalies(records, window=7)
+        self.assertEqual(alerts, [])
+
+    def test_baseline_window_covers_exactly_window_days(self):
+        # latest_day = 2026-03-28 (day 0)
+        # window=3: baseline should include days -1, -2, -3 (i.e. 25,26,27)
+        # day -4 (2026-03-24) must be excluded from the baseline.
+        latest = "2026-03-28"
+        records = [
+            self._make_records("r", "2026-03-24", 1),  # outside window → excluded
+            self._make_records("r", "2026-03-25", 0),
+            self._make_records("r", "2026-03-26", 0),
+            self._make_records("r", "2026-03-27", 0),
+            self._make_records("r", latest, 1000),
+        ]
+        alerts = detect_anomalies(records, window=3, threshold_factor=2.0)
+        # With all 3 baseline days at 0, avg=0 → no alert (avg <= 0 guard).
+        # Ensure the day at -4 is not included; if it were, avg=1/4=0.25,
+        # ratio=4000 → alert would fire. So no alert confirms the exclusion.
+        self.assertEqual(alerts, [])
+
+    def test_alert_fires_on_real_spike(self):
+        records = [
+            self._make_records("r", "2026-03-25", 2),
+            self._make_records("r", "2026-03-26", 2),
+            self._make_records("r", "2026-03-27", 2),
+            self._make_records("r", "2026-03-28", 20),  # spike
+        ]
+        alerts = detect_anomalies(records, window=3, threshold_factor=2.0)
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0]["repo"], "r")
+        self.assertGreaterEqual(alerts[0]["ratio"], 2.0)
+
+    def test_no_alert_below_threshold(self):
+        records = [
+            self._make_records("r", "2026-03-25", 2),
+            self._make_records("r", "2026-03-26", 2),
+            self._make_records("r", "2026-03-27", 2),
+            self._make_records("r", "2026-03-28", 4),  # ratio = 2.0, not >= 2.5
+        ]
+        alerts = detect_anomalies(records, window=3, threshold_factor=2.5)
+        self.assertEqual(alerts, [])
+
+
+# ---------------------------------------------------------------------------
+# review_quality_stats tests
+# ---------------------------------------------------------------------------
+
+class TestReviewQualityStats(unittest.TestCase):
+    def test_empty_records_returns_zeros(self):
+        result = review_quality_stats([])
+        self.assertEqual(result["record_count"], 0)
+        self.assertEqual(result["pr_yield_rate"], 0.0)
+        self.assertEqual(result["avg_tokens_per_finding"], 0.0)
+
+    def test_zero_findings_returns_zero_rates(self):
+        records = [
+            {
+                "repo": "r1",
+                "findings_count": 0,
+                "prs_created": 3,
+                "llm_tokens_used": 500,
+                "cache_hits": 1,
+                "findings_by_severity": {},
+            }
+        ]
+        result = review_quality_stats(records)
+        self.assertEqual(result["pr_yield_rate"], 0.0)
+        self.assertEqual(result["avg_tokens_per_finding"], 0.0)
+
+    def test_nonzero_findings_divides_correctly(self):
+        records = [
+            {
+                "repo": "r1",
+                "findings_count": 4,
+                "prs_created": 2,
+                "llm_tokens_used": 200,
+                "cache_hits": 0,
+                "findings_by_severity": {"warning": 4},
+            }
+        ]
+        result = review_quality_stats(records)
+        self.assertEqual(result["pr_yield_rate"], round(2 / 4, 4))
+        self.assertEqual(result["avg_tokens_per_finding"], round(200 / 4, 1))
+
+    def test_cache_hit_rate_uses_run_count_not_findings(self):
+        records = [
+            {"repo": "r1", "findings_count": 0, "prs_created": 0, "llm_tokens_used": 0, "cache_hits": 1, "findings_by_severity": {}},
+            {"repo": "r2", "findings_count": 0, "prs_created": 0, "llm_tokens_used": 0, "cache_hits": 1, "findings_by_severity": {}},
+        ]
+        result = review_quality_stats(records)
+        self.assertEqual(result["cache_hit_rate"], 1.0)
+        self.assertEqual(result["record_count"], 2)
 
 
 if __name__ == "__main__":

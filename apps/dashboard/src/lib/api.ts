@@ -56,6 +56,41 @@ export type PolicyResponse = {
   content?: string;
 };
 
+export type TrendPoint = { date: string; findings: number };
+export type TrendsResponse = { trends: TrendPoint[] };
+
+export type AlertEntry = {
+  repo: string;
+  current_count: number;
+  baseline_avg: number;
+  ratio: number;
+  message: string;
+};
+export type AlertsResponse = { alerts: AlertEntry[]; count: number };
+
+export type RepoFileFinding = {
+  path: string;
+  count: number;
+};
+
+export type RepoFindingItem = {
+  severity: string;
+  category: string;
+  file: string;
+  line?: number;
+  message: string;
+  rule_id?: string;
+};
+
+export type RepoFindingsDetailResponse = {
+  repo: string;
+  count: number;
+  deduped: number;
+  files: RepoFileFinding[];
+  items: RepoFindingItem[];
+  ts?: string | null;
+};
+
 const API_BASE = import.meta.env.VITE_API_BASE?.replace(/\/$/, '') ?? '';
 
 export const withBase = (path: string) => {
@@ -91,6 +126,28 @@ export const fetchRepoFindings = (n = 200) =>
 
 export const fetchEvents = (limit = 200) =>
   request<{ events: EventEntry[] }>(`/api/events/recent?n=${limit}`);
+
+export const fetchTrends = (days = 30) =>
+  request<TrendsResponse>(`/api/metrics/trends?days=${days}`);
+
+export const fetchAlerts = () => request<AlertsResponse>('/api/alerts');
+
+export const fetchRepoFindingsDetail = (repo: string) =>
+  request<RepoFindingsDetailResponse>(`/api/repos/findings/detail?repo=${encodeURIComponent(repo)}`);
+
+export type ReviewQualityTopRepo = { repo: string; findings: number };
+export type ReviewQualityResponse = {
+  record_count: number;
+  cache_hit_rate: number;
+  pr_yield_rate: number;
+  avg_tokens_per_finding: number;
+  findings_by_severity: Record<string, number>;
+  severity_distribution_pct: Record<string, number>;
+  top_repos_by_findings: ReviewQualityTopRepo[];
+};
+
+export const fetchReviewQuality = (n = 500) =>
+  request<ReviewQualityResponse>(`/api/metrics/review-quality?n=${n}`);
 
 export const submitJob = (payload: Record<string, unknown>) =>
   request<{ enqueued: string }>('/api/jobs/submit', {

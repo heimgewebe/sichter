@@ -4,6 +4,7 @@ import Overview from './pages/Overview';
 import Repos from './pages/Repos';
 import Actions from './pages/Actions';
 import Settings from './pages/Settings';
+import Metrics from './pages/Metrics';
 
 const App = () => {
   return (
@@ -16,6 +17,7 @@ const App = () => {
           </NavLink>
           <NavLink to="/repos">Repos</NavLink>
           <NavLink to="/actions">Actions</NavLink>
+          <NavLink to="/metrics">Metrics</NavLink>
           <NavLink to="/settings">Settings</NavLink>
         </nav>
       </aside>
@@ -24,6 +26,7 @@ const App = () => {
           <Route path="/" element={<Overview />} />
           <Route path="/repos" element={<Repos />} />
           <Route path="/actions" element={<Actions />} />
+          <Route path="/metrics" element={<Metrics />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>

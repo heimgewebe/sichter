@@ -1,8 +1,12 @@
-"""Version-drift detection between pyproject.toml and requirements.txt.
+"""Version-drift detection across dependency and toolchain files.
 
-Drift is not an error – it's an observation that pinned dependencies in
-``requirements.txt`` diverge from the declared ranges in ``pyproject.toml``.
-These findings are category="drift" and do *not* trigger auto-fixes.
+Drift is not an error – it's an observation that pinned versions in one file
+diverge from declarations in another. Findings carry category="drift" and do
+*not* trigger auto-fixes.
+
+Supported source pairs:
+    - ``pyproject.toml`` ↔ ``requirements.txt``
+    - ``toolchain.versions.yml`` ↔ ``Dockerfile`` (ARG/ENV pinning)
 """
 from __future__ import annotations
 
@@ -141,7 +145,79 @@ def run_drift_check(
         except (OSError, UnicodeDecodeError) as exc:
             log(f"Drift-Check fehlgeschlagen: {exc}")
 
+    # toolchain.versions.yml vs Dockerfile (if both exist)
+    toolchain_file = repo_dir / "toolchain.versions.yml"
+    dockerfile = repo_dir / "Dockerfile"
+    if toolchain_file.exists() and dockerfile.exists():
+        try:
+            tc_versions = _parse_toolchain_yml(toolchain_file.read_text(encoding="utf-8"))
+            df_versions = _parse_dockerfile_args(dockerfile.read_text(encoding="utf-8"))
+            for tool, tc_ver in tc_versions.items():
+                df_ver = df_versions.get(tool)
+                if df_ver is not None and tc_ver != df_ver:
+                    findings.append(
+                        Finding(
+                            severity="warning",
+                            category="drift",
+                            file="Dockerfile",
+                            line=None,
+                            message=(
+                                f"Toolchain-Drift: {tool} – Dockerfile: "
+                                f"'{df_ver}', toolchain.versions.yml: '{tc_ver}'"
+                            ),
+                            tool="drift",
+                            rule_id="toolchain_mismatch",
+                        )
+                    )
+        except (OSError, UnicodeDecodeError) as exc:
+            log(f"Toolchain-Drift-Check fehlgeschlagen: {exc}")
+
     if findings:
         log(f"Drift-Analyse: {len(findings)} Versionsabweichung(en) gefunden")
 
     return findings
+
+
+def _parse_toolchain_yml(text: str) -> dict[str, str]:
+    """Parse ``toolchain.versions.yml`` into {tool -> version}.
+
+    Uses ``yaml.safe_load`` for correctness with comments, quoted values, and
+    other YAML features.  Only top-level scalar string/number values are
+    considered; nested structures are silently skipped.
+    """
+    import yaml as _yaml  # pyyaml is already a project dependency
+
+    try:
+        data = _yaml.safe_load(text)
+    except _yaml.YAMLError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+
+    versions: dict[str, str] = {}
+    for key, val in data.items():
+        if not isinstance(val, (str, int, float)):
+            continue  # skip nested structures, lists, etc.
+        tool = str(key).lower().strip()
+        ver = str(val).strip().lstrip("v")
+        if tool and ver:
+            versions[tool] = ver
+    return versions
+
+
+def _parse_dockerfile_args(text: str) -> dict[str, str]:
+    """Extract ARG/ENV version pins from Dockerfile-like content."""
+    versions: dict[str, str] = {}
+    pattern = re.compile(
+        r"^(?:ARG|ENV)\s+([A-Za-z0-9_]+(?:_VER(?:SION)?|VERSION|VER))[\s=](.+)$",
+        re.IGNORECASE,
+    )
+    for line in text.splitlines():
+        m = pattern.match(line.strip())
+        if not m:
+            continue
+        raw_name = m.group(1)
+        raw_ver = m.group(2).strip().strip('"\'').lstrip("v")
+        tool = re.sub(r"[_-](?:VER(?:SION)?|VERSION|VER)$", "", raw_name, flags=re.IGNORECASE)
+        versions[tool.lower()] = raw_ver
+    return versions
