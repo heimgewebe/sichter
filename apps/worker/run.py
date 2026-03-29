@@ -38,7 +38,7 @@ from lib.config import (
 )
 from lib.findings import Finding, Severity
 from lib.heuristics import run_drift_check, run_hotspot_check, run_redundancy_check
-from lib.metrics import ReviewMetrics, record_metrics
+from lib.metrics import ReviewMetrics, record_findings_snapshot, record_metrics
 
 PID_FILE = STATE / "worker.pid"
 LOG_DIR = HOME / "sichter/logs"
@@ -1021,6 +1021,7 @@ def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
     )
 
   grouped = dedupe_findings(findings)
+  record_findings_snapshot(repo, findings)
   if findings:
     log(f"{repo}: {len(findings)} Findings ({len(grouped)} dedupliziert)")
     findings_by_file: dict[str, int] = {}

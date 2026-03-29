@@ -12,6 +12,7 @@ def test_routes_are_protected():
     "/events/recent",
     "/overview",
     "/repos/findings",
+    "/repos/findings/detail",
     "/repos/status",
     "/settings/policy",
     "/events/stream",

@@ -9,10 +9,24 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from lib.cache import cache_get, cache_set, make_check_key, policy_hash
+from lib.findings import Finding
 from lib.heuristics.drift import _parse_requirements, _parse_pyproject_deps, run_drift_check
 from lib.heuristics.hotspots import run_hotspot_check
 from lib.heuristics.redundancy import run_redundancy_check
-from lib.metrics import ReviewMetrics, aggregate_metrics, detect_anomalies, latest_repo_findings, load_metrics, record_metrics, review_quality_stats, trends_over_time
+from lib.metrics import (
+    ReviewMetrics,
+    aggregate_metrics,
+    build_findings_snapshot,
+    detect_anomalies,
+    latest_findings_snapshot_for_repo,
+    latest_repo_findings,
+    load_findings_snapshots,
+    load_metrics,
+    record_findings_snapshot,
+    record_metrics,
+    review_quality_stats,
+    trends_over_time,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -506,6 +520,113 @@ class TestMetrics(unittest.TestCase):
         self.assertEqual(len(summary), 1)
         self.assertEqual(summary[0]["name"], "r-mixed")
         self.assertEqual(summary[0]["topSeverity"], "critical")
+
+    def test_build_findings_snapshot_groups_files_and_dedupes_items(self):
+        findings = [
+            Finding(
+                severity="warning",
+                category="correctness",
+                file="src/a.py",
+                line=10,
+                message="duplicate",
+                tool="ruff",
+                rule_id="F401",
+            ),
+            Finding(
+                severity="warning",
+                category="correctness",
+                file="src/a.py",
+                line=10,
+                message="duplicate",
+                tool="ruff",
+                rule_id="F401",
+            ),
+            Finding(
+                severity="error",
+                category="security",
+                file="src/b.py",
+                line=4,
+                message="latest",
+                tool="bandit",
+                rule_id="B602",
+                fix_available=True,
+            ),
+        ]
+
+        snapshot = build_findings_snapshot("heimgewebe/a", findings, timestamp="2026-03-29T10:00:00+00:00")
+
+        self.assertEqual(snapshot["repo"], "heimgewebe/a")
+        self.assertEqual(snapshot["count"], 3)
+        self.assertEqual(snapshot["deduped"], 2)
+        self.assertEqual(snapshot["files"][0]["file"], "src/a.py")
+        self.assertEqual(snapshot["files"][1]["topSeverity"], "error")
+        self.assertEqual(snapshot["items"][0]["severity"], "error")
+        self.assertTrue(snapshot["items"][0]["fixAvailable"])
+
+    def test_record_and_load_findings_snapshots(self):
+        with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as tf:
+            path = Path(tf.name)
+
+        findings = [
+            Finding(
+                severity="info",
+                category="maintainability",
+                file="src/a.py",
+                line=1,
+                message="note",
+                tool="hotspots",
+            )
+        ]
+
+        record_findings_snapshot("heimgewebe/a", findings, findings_file=path, timestamp="2026-03-29T10:00:00+00:00")
+        records = load_findings_snapshots(n=10, findings_file=path)
+
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["repo"], "heimgewebe/a")
+        self.assertEqual(records[0]["items"][0]["message"], "note")
+        path.unlink(missing_ok=True)
+
+    def test_build_findings_snapshot_ignores_empty_file_groups(self):
+        findings = [
+            Finding(
+                severity="warning",
+                category="correctness",
+                file="src/a.py",
+                line=2,
+                message="has-file",
+                tool="ruff",
+                rule_id="F401",
+            ),
+            Finding(
+                severity="info",
+                category="maintainability",
+                file="",
+                line=None,
+                message="missing-file",
+                tool="hotspots",
+            ),
+        ]
+
+        snapshot = build_findings_snapshot("heimgewebe/a", findings)
+
+        self.assertEqual(snapshot["count"], 2)
+        self.assertEqual(len(snapshot["files"]), 1)
+        self.assertEqual(snapshot["files"][0]["file"], "src/a.py")
+
+    def test_latest_findings_snapshot_for_repo_returns_empty_shape(self):
+        result = latest_findings_snapshot_for_repo("heimgewebe/missing", [])
+
+        self.assertEqual(
+            result,
+            {
+                "repo": "heimgewebe/missing",
+                "ts": None,
+                "count": 0,
+                "deduped": 0,
+                "files": [],
+                "items": [],
+            },
+        )
 
 
 

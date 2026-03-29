@@ -53,6 +53,83 @@ class TestApiRepoFindings(unittest.TestCase):
             },
         )
 
+    @patch("lib.metrics.load_findings_snapshots")
+    def test_repo_findings_detail_returns_latest_snapshot(self, mock_load_snapshots):
+        mock_load_snapshots.return_value = [
+            {
+                "repo": "heimgewebe/a",
+                "ts": "2026-03-25T10:00:00+00:00",
+                "count": 2,
+                "deduped": 1,
+                "files": [{"file": "a.py", "count": 1, "topSeverity": "warning"}],
+                "items": [{"severity": "warning", "category": "correctness", "file": "a.py", "line": 10, "message": "first"}],
+            },
+            {
+                "repo": "heimgewebe/a",
+                "ts": "2026-03-26T10:00:00+00:00",
+                "count": 3,
+                "deduped": 2,
+                "files": [{"file": "b.py", "count": 2, "topSeverity": "error"}],
+                "items": [{"severity": "error", "category": "security", "file": "b.py", "line": 4, "message": "latest"}],
+            },
+        ]
+
+        result = api_main.repo_findings_detail(repo="heimgewebe/a", n=50_000)
+
+        mock_load_snapshots.assert_called_once_with(n=10_000)
+        self.assertEqual(result["repo"], "heimgewebe/a")
+        self.assertEqual(result["count"], 3)
+        self.assertEqual(result["deduped"], 2)
+        self.assertEqual(result["files"][0]["file"], "b.py")
+        self.assertEqual(result["items"][0]["message"], "latest")
+
+    @patch("apps.api.main._collect_events", return_value=[])
+    @patch("lib.metrics.load_findings_snapshots", return_value=[])
+    def test_repo_findings_detail_returns_empty_shape_when_missing(self, mock_load_snapshots, mock_collect_events):
+        result = api_main.repo_findings_detail(repo="heimgewebe/missing")
+
+        mock_load_snapshots.assert_called_once_with(n=500)
+        mock_collect_events.assert_called_once_with(500)
+        self.assertEqual(
+            result,
+            {
+                "repo": "heimgewebe/missing",
+                "ts": None,
+                "count": 0,
+                "deduped": 0,
+                "files": [],
+                "items": [],
+            },
+        )
+
+    @patch("apps.api.main._collect_events", return_value=[])
+    @patch("lib.metrics.load_findings_snapshots")
+    def test_repo_findings_detail_returns_latest_zero_snapshot(self, mock_load_snapshots, mock_collect_events):
+        mock_load_snapshots.return_value = [
+            {
+                "repo": "heimgewebe/a",
+                "ts": "2026-03-25T10:00:00+00:00",
+                "count": 5,
+                "deduped": 4,
+                "files": [{"file": "a.py", "count": 5, "topSeverity": "error"}],
+                "items": [{"severity": "error", "category": "correctness", "file": "a.py", "line": 10, "message": "old"}],
+            },
+            {
+                "repo": "heimgewebe/a",
+                "ts": "2026-03-26T10:00:00+00:00",
+                "count": 0,
+                "deduped": 0,
+                "files": [],
+                "items": [],
+            },
+        ]
+
+        result = api_main.repo_findings_detail(repo="heimgewebe/a")
+
+        self.assertEqual(result["count"], 0)
+        self.assertEqual(result["items"], [])
+        mock_collect_events.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

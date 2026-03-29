@@ -109,6 +109,10 @@ a {
   background: rgba(59, 130, 246, 0.08);
 }
 
+.repo-row {
+  cursor: pointer;
+}
+
 .badge {
   display: inline-flex;
   align-items: center;
@@ -190,6 +194,159 @@ select {
   border: 1px solid rgba(148, 163, 184, 0.35);
   background: rgba(15, 23, 42, 0.7);
   color: rgba(226, 232, 240, 0.9);
+}
+
+.repo-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.repo-toolbar-note {
+  font-size: 0.8rem;
+  color: rgba(226, 232, 240, 0.68);
+}
+
+.heatmap-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin-top: 1rem;
+}
+
+.heatmap-tile {
+  border: none;
+  border-radius: 1rem;
+  padding: 1rem;
+  min-height: 8.5rem;
+  color: white;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: 0 18px 35px rgba(15, 23, 42, 0.28);
+}
+
+.detail-panel {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 1rem;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.detail-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.detail-header h3 {
+  margin: 0;
+}
+
+.detail-header p {
+  margin-bottom: 0;
+}
+
+.detail-columns {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
+  margin-top: 1rem;
+}
+
+.detail-card {
+  background: rgba(2, 6, 23, 0.45);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 0.9rem;
+  padding: 1rem;
+}
+
+.detail-card-wide {
+  min-width: 0;
+}
+
+.detail-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.detail-card h4 {
+  margin-top: 0;
+}
+
+.file-list,
+.finding-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.file-chip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.75rem 0.9rem;
+  border-radius: 0.8rem;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(15, 23, 42, 0.85);
+  color: rgba(226, 232, 240, 0.92);
+  cursor: pointer;
+  text-align: left;
+}
+
+.file-chip span {
+  display: inline-flex;
+  align-items: center;
+}
+
+.file-chip.active {
+  border-color: rgba(56, 189, 248, 0.8);
+  background: rgba(8, 47, 73, 0.65);
+}
+
+.finding-card {
+  padding: 0.9rem 1rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: rgba(15, 23, 42, 0.88);
+}
+
+.finding-card-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+@media (max-width: 900px) {
+  .detail-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    border-right: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .content {
+    padding: 1.25rem;
+  }
 }
 
 pre {

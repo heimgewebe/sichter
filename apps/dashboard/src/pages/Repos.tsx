@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
-  RepoFindingsDetailResponse,
+  RepoFindingDetailResponse,
   RepoFindingsEntry,
   RepoStatus,
+  fetchRepoFindingDetail,
   fetchRepoFindings,
-  fetchRepoFindingsDetail,
   fetchRepos,
 } from '../lib/api';
 
@@ -46,7 +46,7 @@ const severityDot = (sev: string) => {
 const Repos = () => {
   const [repos, setRepos] = useState<RepoStatus[]>([]);
   const [findings, setFindings] = useState<Record<string, RepoFindingsEntry>>({});
-  const [detail, setDetail] = useState<RepoFindingsDetailResponse | null>(null);
+  const [detail, setDetail] = useState<RepoFindingDetailResponse | null>(null);
   const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
   const pendingRepoRef = useRef<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
@@ -107,7 +107,7 @@ const Repos = () => {
     setDetail(null);
     pendingRepoRef.current = repoName;
     try {
-      const payload = await fetchRepoFindingsDetail(repoName);
+      const payload = await fetchRepoFindingDetail(repoName);
       if (pendingRepoRef.current === repoName) {
         setDetail(payload);
       }
@@ -230,21 +230,21 @@ const Repos = () => {
                 {(detail.files || []).length === 0 && <p style={{ padding: '0.5rem' }}>Keine Dateidaten verfügbar.</p>}
                 {(detail.files || []).map((f) => (
                   <button
-                    key={f.path}
-                    onClick={() => setSelectedFile(selectedFile === f.path ? null : f.path)}
+                    key={f.file}
+                    onClick={() => setSelectedFile(selectedFile === f.file ? null : f.file)}
                     style={{
                       display: 'flex',
                       width: '100%',
                       justifyContent: 'space-between',
                       border: 'none',
                       borderBottom: '1px solid #f1f1f1',
-                      background: selectedFile === f.path ? '#eef6ff' : '#fff',
+                      background: selectedFile === f.file ? '#eef6ff' : '#fff',
                       padding: '0.4rem 0.5rem',
                       textAlign: 'left',
                       cursor: 'pointer',
                     }}
                   >
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.path}</span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.file}</span>
                     <strong>{f.count}</strong>
                   </button>
                 ))}
@@ -259,7 +259,7 @@ const Repos = () => {
                   <div key={`${item.file}-${item.line ?? 0}-${idx}`} style={{ padding: '0.5rem', borderBottom: '1px solid #f5f5f5' }}>
                     <div style={{ fontSize: '0.8rem', color: '#666' }}>
                       {item.severity} · {item.category} · {item.file}{item.line ? `:${item.line}` : ''}
-                      {item.rule_id ? ` · ${item.rule_id}` : ''}
+                      {item.ruleId ? ` · ${item.ruleId}` : ''}
                     </div>
                     <div>{item.message}</div>
                   </div>
