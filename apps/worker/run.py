@@ -372,12 +372,13 @@ def _escape_md_cell(s: str) -> str:
 def _filter_findings_for_prs(
   findings: Iterable[Finding],
   checks_cfg: dict | None,
+  security_cfg: dict | None,
   repo: str = "",
 ) -> list[Finding]:
   """Filter findings based on policy create_pr flags.
 
   Categories can be suppressed from PR creation via policy flags:
-  - heuristics.drift.create_pr: false (default) → drift findings won't create PRs
+  - checks.drift.create_pr: false (default) → drift findings won't create PRs
   - security.suppress_pr: true → security findings won't create PRs
 
   Args:
@@ -390,24 +391,23 @@ def _filter_findings_for_prs(
   """
   result: list[Finding] = []
   checks_dict = checks_cfg or {}
-  heuristics_cfg = checks_dict.get("heuristics", {})
+  security_dict = security_cfg or {}
   suppressed_counts: dict[str, int] = {}
 
   for finding in findings:
-    # Check heuristics-specific create_pr flags
+    # Drift config follows the same checks.drift path used by run_drift_check.
     if finding.category == "drift":
-      drift_cfg = heuristics_cfg.get("drift", {})
+      drift_cfg = checks_dict.get("drift", {})
       if isinstance(drift_cfg, dict):
         create_pr = drift_cfg.get("create_pr", False)  # default: False
         if not create_pr:
           suppressed_counts["drift"] = suppressed_counts.get("drift", 0) + 1
           continue  # skip this finding for PR creation
 
-    # Security findings can be suppressed if security.suppress_pr: true
+    # Security config is loaded as top-level POLICY.security.
     if finding.category == "security":
-      security_cfg = checks_dict.get("security", {})
-      if isinstance(security_cfg, dict):
-        suppress_pr = security_cfg.get("suppress_pr", False)
+      if isinstance(security_dict, dict):
+        suppress_pr = security_dict.get("suppress_pr", False)
         if suppress_pr:
           suppressed_counts["security"] = suppressed_counts.get("security", 0) + 1
           continue  # skip this finding for PR creation
@@ -1152,11 +1152,10 @@ def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
       }
     )
 
-  review = llm_review(repo, repo_dir, findings)
-
-  # **3.2** Filter findings based on create_pr policy flags (e.g., heuristics.drift.create_pr: false)
-  # **5.4** Security findings can also be suppressed via security.suppress_pr: true
-  findings_for_prs = _filter_findings_for_prs(findings, POLICY.checks, repo)
+  # Filter policy-suppressed findings before review/PR generation so they do not
+  # leak into the LLM prompt or the resulting PR body.
+  findings_for_prs = _filter_findings_for_prs(findings, POLICY.checks, POLICY.security, repo)
+  review = llm_review(repo, repo_dir, findings_for_prs)
 
   if commit_if_changes(repo_dir):
     if findings and not findings_for_prs:

@@ -268,6 +268,7 @@ const Repos = () => {
                   {['critical', 'error', 'warning', 'info', 'question'].map((sev) => (
                     <button
                       key={sev}
+                      aria-pressed={severityFilter.has(sev)}
                       onClick={() => {
                         const next = new Set(severityFilter);
                         if (next.has(sev)) {
@@ -300,6 +301,7 @@ const Repos = () => {
                     .map((cat) => (
                       <button
                         key={cat}
+                        aria-pressed={categoryFilter.has(cat)}
                         onClick={() => {
                           const next = new Set(categoryFilter);
                           if (next.has(cat)) {

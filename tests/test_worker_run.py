@@ -805,7 +805,8 @@ class TestWorkerRun(unittest.TestCase):
 
         filtered = worker_run._filter_findings_for_prs(
             findings,
-            {"heuristics": {"drift": {"create_pr": False}}},
+            {"drift": {"create_pr": False}},
+            {},
             repo="demo-repo",
         )
 
@@ -839,7 +840,8 @@ class TestWorkerRun(unittest.TestCase):
 
         filtered = worker_run._filter_findings_for_prs(
             findings,
-            {"security": {"suppress_pr": True}},
+            {},
+            {"suppress_pr": True},
             repo="demo-repo",
         )
 
@@ -847,6 +849,65 @@ class TestWorkerRun(unittest.TestCase):
         mock_append_event.assert_any_call(
             {"type": "security_findings_suppressed", "repo": "demo-repo", "count": 1}
         )
+
+    @patch("apps.worker.run.record_metrics")
+    @patch("apps.worker.run.record_findings_snapshot")
+    @patch("apps.worker.run.dedupe_findings", return_value={"k": []})
+    @patch("apps.worker.run.run_heuristics", return_value=[])
+    @patch("apps.worker.run.create_themed_prs", return_value=1)
+    @patch("apps.worker.run.commit_if_changes", return_value=True)
+    @patch("apps.worker.run.llm_review", return_value=None)
+    @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
+    @patch("apps.worker.run.registry_run_checks")
+    @patch("apps.worker.run.fresh_branch", return_value="test-branch")
+    @patch("apps.worker.run.ensure_repo", return_value=Path("/fake/repo"))
+    @patch("apps.worker.run.append_event")
+    def test_process_repo_filters_findings_before_llm_review_and_pr_body(
+        self,
+        _mock_append_event,
+        _mock_ensure_repo,
+        _mock_fresh_branch,
+        mock_registry_run_checks,
+        _mock_registry_run_autofixes,
+        mock_llm_review,
+        _mock_commit_if_changes,
+        mock_create_themed_prs,
+        _mock_run_heuristics,
+        _mock_dedupe_findings,
+        _mock_record_snapshot,
+        _mock_record_metrics,
+    ):
+        security_finding = Finding(
+            severity="error",
+            category="security",
+            file="secret.py",
+            line=1,
+            message="Secret detected",
+            tool="bandit",
+            rule_id="B105",
+        )
+        style_finding = Finding(
+            severity="warning",
+            category="style",
+            file="style.py",
+            line=2,
+            message="Line too long",
+            tool="ruff",
+            rule_id="E501",
+        )
+        mock_registry_run_checks.return_value = [security_finding, style_finding]
+
+        with patch("apps.worker.run.POLICY.checks", {"drift": {"create_pr": False}}), \
+             patch("apps.worker.run.POLICY.security", {"suppress_pr": True}):
+            worker_run.process_repo("demo-repo", "all", True)
+
+        mock_llm_review.assert_called_once()
+        llm_findings = mock_llm_review.call_args[0][2]
+        self.assertEqual([finding.category for finding in llm_findings], ["style"])
+
+        mock_create_themed_prs.assert_called_once()
+        pr_findings = mock_create_themed_prs.call_args[0][4]
+        self.assertEqual([finding.category for finding in pr_findings], ["style"])
 
     def test_build_pr_body_includes_affected_files_table_and_verification_hints(self):
         findings = [
