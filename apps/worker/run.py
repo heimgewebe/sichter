@@ -42,6 +42,7 @@ from lib.metrics import ReviewMetrics, record_findings_snapshot, record_metrics
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 NOTIFY_SCRIPT = REPO_ROOT / "bin" / "hauski-notify"
+NOTIFY_TIMEOUT_SECONDS = 5
 PID_FILE = STATE / "worker.pid"
 LOG_DIR = HOME / "sichter/logs"
 REVIEW_DIR = STATE / "reviews"
@@ -82,8 +83,9 @@ def append_event(event: dict) -> None:
 
 
 def notify_internal(message: str) -> None:
-  """Send an internal notification via the existing notify helper if available."""
+  """Best-effort internal notification that must never block worker progress."""
   if not NOTIFY_SCRIPT.exists():
+    log(f"Interne Benachrichtigung übersprungen: Script fehlt ({NOTIFY_SCRIPT})")
     return
 
   try:
@@ -93,14 +95,24 @@ def notify_internal(message: str) -> None:
       text=True,
       capture_output=True,
       check=False,
+      timeout=NOTIFY_TIMEOUT_SECONDS,
     )
+  except subprocess.TimeoutExpired:
+    log(
+      "Interne Benachrichtigung abgebrochen: "
+      f"Timeout nach {NOTIFY_TIMEOUT_SECONDS}s"
+    )
+    return
   except OSError as exc:
-    log(f"Interne Benachrichtigung fehlgeschlagen: {exc}")
+    log(f"Interne Benachrichtigung fehlgeschlagen (OSError): {exc}")
     return
 
   if result.returncode != 0:
     stderr = (result.stderr or "").strip()
-    log(f"Interne Benachrichtigung fehlgeschlagen (exit={result.returncode}): {stderr}")
+    log(
+      "Interne Benachrichtigung fehlgeschlagen "
+      f"(exit={result.returncode}): {stderr}"
+    )
 
 
 def is_process_alive(pid: int) -> bool:
