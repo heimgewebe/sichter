@@ -369,6 +369,62 @@ def _escape_md_cell(s: str) -> str:
   return str(s).replace("|", "\\|").replace("\n", " ")
 
 
+def _filter_findings_for_prs(
+  findings: Iterable[Finding],
+  checks_cfg: dict | None,
+  repo: str = "",
+) -> list[Finding]:
+  """Filter findings based on policy create_pr flags.
+
+  Categories can be suppressed from PR creation via policy flags:
+  - heuristics.drift.create_pr: false (default) → drift findings won't create PRs
+  - security.suppress_pr: true → security findings won't create PRs
+
+  Args:
+    findings: All findings to filter.
+    checks_cfg: Policy checks structure.
+    repo: Repository name (for logging).
+
+  Returns:
+    Filtered findings that should be considered for PR creation.
+  """
+  result: list[Finding] = []
+  checks_dict = checks_cfg or {}
+  heuristics_cfg = checks_dict.get("heuristics", {})
+  suppressed_counts: dict[str, int] = {}
+
+  for finding in findings:
+    # Check heuristics-specific create_pr flags
+    if finding.category == "drift":
+      drift_cfg = heuristics_cfg.get("drift", {})
+      if isinstance(drift_cfg, dict):
+        create_pr = drift_cfg.get("create_pr", False)  # default: False
+        if not create_pr:
+          suppressed_counts["drift"] = suppressed_counts.get("drift", 0) + 1
+          continue  # skip this finding for PR creation
+
+    # Security findings can be suppressed if security.suppress_pr: true
+    if finding.category == "security":
+      security_cfg = checks_dict.get("security", {})
+      if isinstance(security_cfg, dict):
+        suppress_pr = security_cfg.get("suppress_pr", False)
+        if suppress_pr:
+          suppressed_counts["security"] = suppressed_counts.get("security", 0) + 1
+          continue  # skip this finding for PR creation
+
+    result.append(finding)
+
+  # Log suppression events
+  for category, count in suppressed_counts.items():
+    append_event({
+      "type": f"{category}_findings_suppressed",
+      "repo": repo,
+      "count": count,
+    })
+
+  return result
+
+
 def add_inline_pr_comments(repo: str, repo_dir: Path, branch: str, findings: Iterable[Finding]) -> None:
   """Post a compact review comment with line-addressable findings."""
   inline_candidates = [finding for finding in findings if finding.file and finding.line is not None][:10]
@@ -611,7 +667,7 @@ def build_pr_body(
   findings: Iterable[Finding] | None = None,
   review: ReviewResult | None = None,
 ) -> str:
-  """Build a concise PR body with finding summary and optional LLM review."""
+  """Build a concise PR body with finding summary, affected files, verification hints, and optional LLM review."""
   findings_list = list(findings or [])
   if not findings_list:
     lines: list[str] = [
@@ -650,6 +706,45 @@ def build_pr_body(
     location = f"{first.file}:{first.line}" if first.line is not None else first.file
     rule = f" ({first.rule_id})" if first.rule_id else ""
     lines.append(f"- [{first.severity}] {first.message}{rule} in {location}")
+
+  # **5.2** Betroffene Dateien mit Zählern (Top 10)
+  lines.extend(["", "### Betroffene Dateien", ""])
+  file_stats: dict[str, tuple[int, Severity]] = {}
+  for finding in findings_list:
+    if not finding.file:
+      continue
+    count, max_sev = file_stats.get(finding.file, (0, "info"))
+    severity_order_map = {sev: idx for idx, sev in enumerate(severity_order)}
+    sev_idx = severity_order_map.get(finding.severity, 999)
+    max_sev_idx = severity_order_map.get(max_sev, -1)
+    new_max_sev = finding.severity if sev_idx < max_sev_idx else max_sev
+    file_stats[finding.file] = (count + 1, cast(Severity, new_max_sev))
+
+  if file_stats:
+    sorted_files = sorted(file_stats.items(), key=lambda x: (-x[1][0], severity_order.index(x[1][1]) if x[1][1] in severity_order else 999))[:10]
+    lines.append("| Datei | Findings | Top-Severity |")
+    lines.append("| --- | --- | --- |")
+    for file_name, (count, max_sev) in sorted_files:
+      lines.append(f"| {_escape_md_cell(file_name)} | {count} | {max_sev} |")
+
+  # **5.2** Verifikationshinweise pro Category
+  categories_in_findings = set(finding.category for finding in findings_list if finding.category)
+  if categories_in_findings:
+    lines.extend(["", "### Verifikationshinweise", ""])
+    
+    verification_hints: dict[str, str] = {
+      "style": "✓ Formatierung prüfen (Code-Style, imports, naming-conventions)",
+      "correctness": "✓ Logik und Semantik des Diff überprüfen, besonders Grenzfälle",
+      "security": "✓ Keine Credentials, Secrets oder sensitiven Daten in Code prüfen",
+      "maintainability": "✓ Leserbarkeit, Duplikationen, Dokumentation überprüfen",
+      "question": "✓ Manuell-geprüfte Punkte — Kontext erforderlich",
+      "error": "✓ Kritische Fehler — vor dem Merge lösen",
+      "performance": "✓ Performance-Auswirkungen auf Latenz und Speicher prüfen",
+    }
+    
+    for category in sorted(categories_in_findings):
+      hint = verification_hints.get(category, f"✓ {category}: überprüfen")
+      lines.append(f"- **{category}**: {hint}")
 
   if review is not None:
     lines.extend(["", review.to_pr_section()])
@@ -1059,8 +1154,12 @@ def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
 
   review = llm_review(repo, repo_dir, findings)
 
+  # **3.2** Filter findings based on create_pr policy flags (e.g., heuristics.drift.create_pr: false)
+  # **5.4** Security findings can also be suppressed via security.suppress_pr: true
+  findings_for_prs = _filter_findings_for_prs(findings, POLICY.checks, repo)
+
   if commit_if_changes(repo_dir):
-    prs_created = create_themed_prs(repo, repo_dir, branch, auto_pr, findings, review)
+    prs_created = create_themed_prs(repo, repo_dir, branch, auto_pr, findings_for_prs, review)
   else:
     log(f"Keine Änderungen für {repo}")
     append_event({"type": "noop", "repo": repo, "branch": branch})
