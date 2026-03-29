@@ -158,7 +158,9 @@ def build_findings_snapshot(
 
     files: dict[str, list[dict[str, object]]] = {}
     for item in items:
-        file_name = str(item.get("file") or "")
+        file_name = str(item.get("file") or "").strip()
+        if not file_name:
+            continue
         files.setdefault(file_name, []).append(item)
 
     file_entries = []

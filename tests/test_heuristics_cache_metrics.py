@@ -586,6 +586,33 @@ class TestMetrics(unittest.TestCase):
         self.assertEqual(records[0]["items"][0]["message"], "note")
         path.unlink(missing_ok=True)
 
+    def test_build_findings_snapshot_ignores_empty_file_groups(self):
+        findings = [
+            Finding(
+                severity="warning",
+                category="correctness",
+                file="src/a.py",
+                line=2,
+                message="has-file",
+                tool="ruff",
+                rule_id="F401",
+            ),
+            Finding(
+                severity="info",
+                category="maintainability",
+                file="",
+                line=None,
+                message="missing-file",
+                tool="hotspots",
+            ),
+        ]
+
+        snapshot = build_findings_snapshot("heimgewebe/a", findings)
+
+        self.assertEqual(snapshot["count"], 2)
+        self.assertEqual(len(snapshot["files"]), 1)
+        self.assertEqual(snapshot["files"][0]["file"], "src/a.py")
+
     def test_latest_findings_snapshot_for_repo_returns_empty_shape(self):
         result = latest_findings_snapshot_for_repo("heimgewebe/missing", [])
 

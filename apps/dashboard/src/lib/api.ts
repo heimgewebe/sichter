@@ -97,29 +97,6 @@ export type AlertEntry = {
 };
 export type AlertsResponse = { alerts: AlertEntry[]; count: number };
 
-export type RepoFileFinding = {
-  path: string;
-  count: number;
-};
-
-export type RepoFindingItem = {
-  severity: string;
-  category: string;
-  file: string;
-  line?: number;
-  message: string;
-  rule_id?: string;
-};
-
-export type RepoFindingsDetailResponse = {
-  repo: string;
-  count: number;
-  deduped: number;
-  files: RepoFileFinding[];
-  items: RepoFindingItem[];
-  ts?: string | null;
-};
-
 const API_BASE = import.meta.env.VITE_API_BASE?.replace(/\/$/, '') ?? '';
 
 export const withBase = (path: string) => {
@@ -165,9 +142,6 @@ export const fetchTrends = (days = 30) =>
   request<TrendsResponse>(`/api/metrics/trends?days=${days}`);
 
 export const fetchAlerts = () => request<AlertsResponse>('/api/alerts');
-
-export const fetchRepoFindingsDetail = (repo: string) =>
-  request<RepoFindingsDetailResponse>(`/api/repos/findings/detail?repo=${encodeURIComponent(repo)}`);
 
 export type ReviewQualityTopRepo = { repo: string; findings: number };
 export type ReviewQualityResponse = {
