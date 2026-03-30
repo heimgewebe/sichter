@@ -208,7 +208,7 @@
   - [x] `gh pr review --comment` an betroffenen Zeilen
   - [x] Nur bei Findings mit konkretem `file` + `line`
   - [x] Limit: Max 10 Inline-Kommentare pro PR
-- [ ] **5.4** Security-Findings nur intern
+- [x] **5.4** Security-Findings nur intern
   - [x] Policy-Flag: `security.findings_public: false`
   - [x] Bei `false`: Security-PRs als Draft erstellen
   - [x] Security-PRs vollständig unterdrücken via `security.suppress_pr: true`
