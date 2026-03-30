@@ -129,14 +129,14 @@
 - [x] **2.7** Supply-Chain-Security (trivy)
   - [x] `lib/checks/trivy.py` — FS-Scan, JSON-Output
   - [x] Streng policy-gated, default deaktiviert
-- [ ] **2.8** Auto-Fix-Pipeline verdrahten
+- [x] **2.8** Auto-Fix-Pipeline verdrahten
   - [x] Worker: Nach Linter-Run → `autofix()` aufrufen → geänderte Dateien committen
   - [x] `fix_available`-Findings tatsächlich applizieren
   - [x] Themen-PRs: Style-Fixes ≠ Security-Fixes ≠ Correctness-Fixes (`create_themed_prs`)
-- [ ] **2.9** Tests
+- [x] **2.9** Tests
   - [x] Pro Linter-Modul: Parser-Test mit Sample-Output
   - [x] Integration: Check-Registry mit Policy-Steuerung
-  - [ ] Auto-Fix: Patch anwendbar, kein Dirty-State nach Revert
+  - [x] Auto-Fix: Patch anwendbar, kein Dirty-State nach Revert
 
 ---
 
