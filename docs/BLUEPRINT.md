@@ -171,7 +171,7 @@
 
 ### Meilenstein 4 — Caching & Performance
 
-> Aktuell: 🟡 Ergebnis-Cache, Parallelisierung und GitHub-Backoff sind da; Priorisierung bleibt offen.
+> Aktuell: 🟡 Ergebnis-Cache, Parallelisierung, GitHub-Backoff und Queue-Priorisierung sind da.
 
 - [x] **4.1** Ergebnis-Cache
   - [x] `lib/cache.py` — Cache-Key: `repo + commit_hash + check_name + policy_hash`
@@ -184,9 +184,9 @@
 - [x] **4.3** GitHub-Rate-Limit-Handling
   - [x] Exponential Backoff bei erkannten Rate-Limit-Fehlern von `gh` CLI
   - [x] Rate-Limit-Status loggen
-- [ ] **4.4** Queue-Priorisierung
-  - [ ] Jobs mit `priority: high` vorziehen (z.B. Security-Findings)
-  - [ ] FIFO als Default beibehalten
+- [x] **4.4** Queue-Priorisierung
+  - [x] Jobs mit `priority: high` vorziehen (z.B. Security-Findings)
+  - [x] FIFO als Default beibehalten
 
 ---
 
@@ -198,7 +198,7 @@
   - [x] Ein Branch + PR pro Finding-Category (style, correctness, security, ...)
   - [x] Branch-Naming: `sichter/<category>/<date>-<shortsha>`
   - [x] Existierende PRs updaten statt neue erstellen
-- [ ] **5.2** PR-Beschreibung mit Review-Summary
+- [x] **5.2** PR-Beschreibung mit Review-Summary
   - [x] Risiko-Badge (🟢 Low / 🟡 Medium / 🔴 High)
   - [x] Zusammenfassung (2–6 Sätze)
   - [x] Vorschläge als nummerierte Liste mit Risiko
@@ -208,7 +208,7 @@
   - [x] `gh pr review --comment` an betroffenen Zeilen
   - [x] Nur bei Findings mit konkretem `file` + `line`
   - [x] Limit: Max 10 Inline-Kommentare pro PR
-- [ ] **5.4** Security-Findings nur intern
+- [x] **5.4** Security-Findings nur intern
   - [x] Policy-Flag: `security.findings_public: false`
   - [x] Bei `false`: Security-PRs als Draft erstellen
   - [x] Security-PRs vollständig unterdrücken via `security.suppress_pr: true`

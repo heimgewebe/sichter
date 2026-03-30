@@ -79,3 +79,51 @@ def test_routes_are_protected():
   missing_routes = sensitive_routes - found_routes
   assert not missing_routes, f"Could not find all expected routes in apps/api/main.py: {missing_routes}. Found: {found_routes}"
   assert not unprotected_routes, f"Found unprotected routes in apps/api/main.py: {unprotected_routes}"
+
+
+def test_job_model_supports_priority_field():
+  tree = ast.parse(Path("apps/api/main.py").read_text())
+
+  job_class = None
+  for node in tree.body:
+    if isinstance(node, ast.ClassDef) and node.name == "Job":
+      job_class = node
+      break
+
+  assert job_class is not None, "Class Job not found in apps/api/main.py"
+
+  priority_field = None
+  for node in job_class.body:
+    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == "priority":
+      priority_field = node
+      break
+
+  assert priority_field is not None, "Job.priority field is missing"
+  assert isinstance(priority_field.value, ast.Constant) and priority_field.value.value == "normal", (
+    "Job.priority default must be 'normal'"
+  )
+
+
+def test_queue_state_exposes_priority():
+  tree = ast.parse(Path("apps/api/main.py").read_text())
+
+  queue_state_fn = None
+  for node in tree.body:
+    if isinstance(node, ast.FunctionDef) and node.name == "_queue_state":
+      queue_state_fn = node
+      break
+
+  assert queue_state_fn is not None, "Function _queue_state not found in apps/api/main.py"
+
+  priority_key_found = False
+  for node in ast.walk(queue_state_fn):
+    if not isinstance(node, ast.Dict):
+      continue
+    for key in node.keys:
+      if isinstance(key, ast.Constant) and key.value == "priority":
+        priority_key_found = True
+        break
+    if priority_key_found:
+      break
+
+  assert priority_key_found, "_queue_state() must include 'priority' in returned queue items"
