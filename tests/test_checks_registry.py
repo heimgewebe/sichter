@@ -1,3 +1,4 @@
+import os
 import shutil
 import subprocess
 import tempfile
@@ -148,6 +149,7 @@ class TestChecksRegistry(unittest.TestCase):
                 check=False,
                 capture_output=True,
                 text=True,
+                env={**os.environ, "RUFF_NO_CACHE": "1"},
             )
             if check and completed.returncode != 0:
                 raise subprocess.CalledProcessError(
