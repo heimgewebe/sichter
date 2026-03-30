@@ -1152,6 +1152,9 @@ def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
       log,
     )
     if cache_allowed:
+      # The cache key is anchored to the starting HEAD commit. Keep the cached
+      # payload bound to that commit's raw findings; post-autofix re-scan results
+      # belong to a dirty worktree (and later a different commit after commit_if_changes).
       cache_set(findings_key, {"findings": serialize_findings(findings)})
 
   autofix_tools, target_files_by_tool = _select_autofix_targets(findings)
@@ -1183,6 +1186,9 @@ def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
     )
 
   if autofix_applied:
+    # Re-scan for downstream artefacts (snapshot, LLM review, PR body) so they
+    # reflect the post-fix working tree. Do not overwrite the commit-based cache
+    # with this state because it no longer corresponds to findings_key.
     findings = registry_run_checks(
       repo_dir,
       changed_files,

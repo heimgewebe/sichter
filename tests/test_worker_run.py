@@ -1557,6 +1557,72 @@ class TestWorkerRun(unittest.TestCase):
         # cache_set called because cache_get returned None (miss) and git repo exists
         mock_cache_set.assert_called_once()
 
+    @patch("apps.worker.run.record_metrics")
+    @patch("apps.worker.run.record_findings_snapshot")
+    @patch("apps.worker.run.dedupe_findings", return_value={})
+    @patch("apps.worker.run.run_heuristics", return_value=[])
+    @patch("apps.worker.run.commit_if_changes", return_value=False)
+    @patch("apps.worker.run.llm_review", return_value=None)
+    @patch("apps.worker.run.registry_run_autofixes", return_value={"ruff": 1, "eslint": 0, "shfmt": 0})
+    @patch("apps.worker.run.registry_run_checks")
+    @patch("apps.worker.run.fresh_branch", return_value="b")
+    @patch("apps.worker.run.ensure_repo")
+    @patch("apps.worker.run.current_commit", return_value="abc123")
+    @patch("apps.worker.run.cache_set")
+    @patch("apps.worker.run.cache_get", return_value=None)
+    def test_process_repo_keeps_cache_bound_to_pre_autofix_commit_state(
+        self,
+        mock_cache_get,
+        mock_cache_set,
+        _mock_current_commit,
+        mock_ensure_repo,
+        _fresh_branch,
+        mock_registry_run_checks,
+        _autofixes,
+        _llm,
+        _commit,
+        _heuristics,
+        _dedupe,
+        _record_snapshot,
+        _record_metrics,
+    ):
+        """Post-autofix re-scan must not overwrite the commit-keyed pre-fix cache entry."""
+        before_fix = Finding(
+            severity="warning",
+            category="correctness",
+            file="src/app.py",
+            line=1,
+            message="Import unused",
+            tool="ruff",
+            rule_id="F401",
+            fix_available=True,
+        )
+        after_fix = Finding(
+            severity="warning",
+            category="maintainability",
+            file="README.md",
+            line=1,
+            message="Residual note",
+            tool="docs",
+            rule_id="DOC1",
+        )
+        mock_registry_run_checks.side_effect = [[before_fix], [after_fix]]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_dir = Path(tmpdir)
+            (repo_dir / ".git").mkdir()
+            mock_ensure_repo.return_value = repo_dir
+
+            worker_run.process_repo("test_repo", "all", False)
+
+        mock_cache_get.assert_called_once()
+        mock_cache_set.assert_called_once()
+        self.assertEqual(
+            mock_cache_set.call_args.args[1],
+            {"findings": worker_run.serialize_findings([before_fix])},
+        )
+        self.assertEqual(mock_registry_run_checks.call_count, 2)
+
     # ------------------------------------------------------------------
     # Repo deduplication before parallel dispatch
     # ------------------------------------------------------------------
