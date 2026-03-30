@@ -8,6 +8,45 @@ from lib.findings import Finding
 
 
 class TestWorkerRun(unittest.TestCase):
+    def test_notify_internal_skips_and_logs_when_script_missing(self):
+        class _MissingScript:
+            def exists(self):
+                return False
+
+            def __str__(self):
+                return "/fake/hauski-notify"
+
+        with patch("apps.worker.run.NOTIFY_SCRIPT", _MissingScript()), \
+             patch("apps.worker.run.subprocess.run") as mock_run, \
+             patch("apps.worker.run.log") as mock_log:
+            worker_run.notify_internal("hello")
+
+        mock_run.assert_not_called()
+        self.assertTrue(mock_log.called)
+        self.assertIn("Script fehlt", mock_log.call_args[0][0])
+
+    def test_notify_internal_success_returncode_zero_is_non_blocking(self):
+        class _FakeScript:
+            def exists(self):
+                return True
+
+            def __str__(self):
+                return "/fake/hauski-notify"
+
+        result = subprocess.CompletedProcess(
+            args=["/fake/hauski-notify", "hello"],
+            returncode=0,
+            stdout="ok",
+            stderr="",
+        )
+        with patch("apps.worker.run.NOTIFY_SCRIPT", _FakeScript()), \
+             patch("apps.worker.run.subprocess.run", return_value=result) as mock_run, \
+             patch("apps.worker.run.log") as mock_log:
+            worker_run.notify_internal("hello")
+
+        self.assertEqual(mock_run.call_args.kwargs["timeout"], worker_run.NOTIFY_TIMEOUT_SECONDS)
+        mock_log.assert_not_called()
+
     def test_notify_internal_timeout_is_logged_and_non_blocking(self):
         class _FakeScript:
             def exists(self):
