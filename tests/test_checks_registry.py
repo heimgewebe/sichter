@@ -1,9 +1,14 @@
+import os
+import shutil
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from lib.findings import Finding
 from lib.checks.registry import run_autofixes, run_checks
+from lib.checks.ruff import run_ruff_autofix
 
 
 class TestChecksRegistry(unittest.TestCase):
@@ -131,6 +136,92 @@ class TestChecksRegistry(unittest.TestCase):
         )
 
         self.assertEqual(mock_ruff_autofix.call_args.args[1], [absolute_target])
+
+    @unittest.skipIf(
+        shutil.which("ruff") is None or shutil.which("git") is None,
+        "SKIP: requires ruff and git for live autofix patch/revert test",
+    )
+    def test_run_ruff_autofix_patch_is_revertible_and_leaves_clean_tree(self):
+        def run_cmd(cmd, repo_dir, check=False):
+            completed = subprocess.run(
+                cmd,
+                cwd=repo_dir,
+                check=False,
+                capture_output=True,
+                text=True,
+                env={**os.environ, "RUFF_NO_CACHE": "1"},
+            )
+            if check and completed.returncode != 0:
+                raise subprocess.CalledProcessError(
+                    completed.returncode,
+                    cmd,
+                    output=completed.stdout,
+                    stderr=completed.stderr,
+                )
+            return completed
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_dir = Path(tmp)
+            target = repo_dir / "demo.py"
+
+            subprocess.run(["git", "init", "-q"], cwd=repo_dir, check=True)
+            subprocess.run(["git", "config", "user.email", "tests@example.invalid"], cwd=repo_dir, check=True)
+            subprocess.run(["git", "config", "user.name", "Sichter Tests"], cwd=repo_dir, check=True)
+
+            original = "import os\n\nprint('ok')\n"
+            target.write_text(original, encoding="utf-8")
+            subprocess.run(["git", "add", "demo.py"], cwd=repo_dir, check=True)
+            subprocess.run(["git", "commit", "-qm", "baseline"], cwd=repo_dir, check=True)
+
+            changed = run_ruff_autofix(
+                repo_dir,
+                [target],
+                [],
+                {"ruff": {"enabled": True, "autofix": True}},
+                run_cmd,
+                lambda _msg: None,
+            )
+
+            self.assertEqual(changed, 1)
+
+            diff = subprocess.run(
+                ["git", "diff", "--binary", "--", "demo.py"],
+                cwd=repo_dir,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
+            self.assertTrue(diff.strip(), "Expected an autofix patch in git diff output")
+
+            reverse_check = subprocess.run(
+                ["git", "apply", "--check", "-R"],
+                cwd=repo_dir,
+                check=False,
+                input=diff,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(reverse_check.returncode, 0, reverse_check.stderr)
+
+            reverse_apply = subprocess.run(
+                ["git", "apply", "-R"],
+                cwd=repo_dir,
+                check=False,
+                input=diff,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(reverse_apply.returncode, 0, reverse_apply.stderr)
+
+            self.assertEqual(target.read_text(encoding="utf-8"), original)
+            status = subprocess.run(
+                ["git", "status", "--short"],
+                cwd=repo_dir,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            self.assertEqual(status, "")
 
 
 if __name__ == "__main__":
