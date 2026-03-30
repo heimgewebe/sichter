@@ -285,7 +285,6 @@ def filter_and_sort_items(
         result.sort(
             key=lambda i: (
                 str(i.get("category") or ""),
-                -_severity_rank(str(i.get("severity") or "ok")),
                 str(i.get("file") or ""),
                 int(i.get("line") or 0),
             ),
@@ -296,15 +295,15 @@ def filter_and_sort_items(
             key=lambda i: (
                 str(i.get("file") or ""),
                 int(i.get("line") or 0),
-                -_severity_rank(str(i.get("severity") or "ok")),
             ),
             reverse=reverse,
         )
     else:
-        # Default: sort by severity (most severe first when desc)
+        # Default: sort by severity.
+        # Higher _severity_rank = more severe. desc = most severe first.
         result.sort(
             key=lambda i: (
-                -_severity_rank(str(i.get("severity") or "ok")),
+                _severity_rank(str(i.get("severity") or "ok")),
                 str(i.get("file") or ""),
                 int(i.get("line") or 0),
                 str(i.get("message") or ""),
