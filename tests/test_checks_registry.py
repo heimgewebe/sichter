@@ -81,6 +81,7 @@ class TestChecksRegistry(unittest.TestCase):
         mock_shfmt,
     ):
         target_files = [Path("src/demo.py")]
+        expected_ruff_files = [Path("/fake/repo/src/demo.py")]
 
         result = run_autofixes(
             repo_dir=Path("/fake/repo"),
@@ -98,7 +99,7 @@ class TestChecksRegistry(unittest.TestCase):
         self.assertEqual(result.get("shfmt"), 1)
         mock_ruff_autofix.assert_called_once_with(
             Path("/fake/repo"),
-            target_files,
+            expected_ruff_files,
             [],
             {"ruff": {"enabled": True, "autofix": True}, "eslint": {"enabled": True, "autofix": True}, "shfmt_fix": True},
             unittest.mock.ANY,
@@ -106,6 +107,30 @@ class TestChecksRegistry(unittest.TestCase):
         )
         mock_eslint_autofix.assert_not_called()
         mock_shfmt.assert_called_once()
+
+    @patch("lib.checks.registry.run_shfmt", return_value=0)
+    @patch("lib.checks.registry.run_eslint_autofix", return_value=0)
+    @patch("lib.checks.registry.run_ruff_autofix", return_value=1)
+    def test_run_autofixes_keeps_absolute_targets_unchanged(
+        self,
+        mock_ruff_autofix,
+        _mock_eslint_autofix,
+        _mock_shfmt,
+    ):
+        absolute_target = Path("/tmp/demo.py")
+
+        run_autofixes(
+            repo_dir=Path("/fake/repo"),
+            files=None,
+            checks_cfg={"ruff": {"enabled": True, "autofix": True}},
+            excludes=[],
+            run_cmd=lambda *args, **kwargs: None,
+            log=lambda _msg: None,
+            only_tools={"ruff"},
+            target_files_by_tool={"ruff": [absolute_target]},
+        )
+
+        self.assertEqual(mock_ruff_autofix.call_args.args[1], [absolute_target])
 
 
 if __name__ == "__main__":

@@ -48,6 +48,8 @@ def run_autofixes(
 
   When ``only_tools`` is provided, targeted autofixers only run for the named
   tools. ``target_files_by_tool`` may further narrow each autofixer to the files
+  and may contain relative or absolute paths; relative paths are normalized
+  against ``repo_dir`` before dispatch.
   that produced ``fix_available`` findings. ``shfmt`` intentionally remains a
   separate policy-driven formatting pass because it does not emit structured
   ``fix_available`` findings in the same way Ruff/ESLint do.
@@ -56,10 +58,21 @@ def run_autofixes(
   targets = target_files_by_tool or {}
   default_files = list(files) if files is not None else None
 
+  def normalize_tool_targets(tool_files: list[Path] | None) -> list[Path] | None:
+    if tool_files is None:
+      return None
+    normalized: list[Path] = []
+    for path in tool_files:
+      normalized.append(path if path.is_absolute() else (repo_dir / path))
+    return normalized
+
   def resolve_files(tool_name: str) -> list[Path] | None:
     if selected_tools is not None and tool_name not in selected_tools:
       return []
-    return targets.get(tool_name, default_files)
+    explicit_targets = targets.get(tool_name)
+    if explicit_targets is not None:
+      return normalize_tool_targets(explicit_targets)
+    return default_files
 
   ruff_files = resolve_files("ruff")
   eslint_files = resolve_files("eslint")
