@@ -1,5 +1,7 @@
 import unittest
+import json
 import subprocess
+import tempfile
 from pathlib import Path
 from unittest.mock import call, patch
 
@@ -8,6 +10,65 @@ from lib.findings import Finding
 
 
 class TestWorkerRun(unittest.TestCase):
+    def test_get_sorted_jobs_prioritizes_high_then_fifo_within_priority(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            queue_dir = Path(tmp)
+            (queue_dir / "1700000003-low.json").write_text(
+                json.dumps({"priority": "low"}),
+                encoding="utf-8",
+            )
+            (queue_dir / "1700000001-normal.json").write_text(
+                json.dumps({"priority": "normal"}),
+                encoding="utf-8",
+            )
+            (queue_dir / "1700000000-high.json").write_text(
+                json.dumps({"priority": "high"}),
+                encoding="utf-8",
+            )
+            (queue_dir / "1700000002-high.json").write_text(
+                json.dumps({"priority": "high"}),
+                encoding="utf-8",
+            )
+
+            ordered = worker_run.get_sorted_jobs(queue_dir)
+
+        self.assertEqual(
+            [path.name for path in ordered],
+            [
+                "1700000000-high.json",
+                "1700000002-high.json",
+                "1700000001-normal.json",
+                "1700000003-low.json",
+            ],
+        )
+
+    def test_get_sorted_jobs_defaults_invalid_or_missing_priority_to_normal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            queue_dir = Path(tmp)
+            (queue_dir / "1700000000-normal.json").write_text(
+                json.dumps({"priority": "normal"}),
+                encoding="utf-8",
+            )
+            (queue_dir / "1700000001-missing.json").write_text(
+                json.dumps({}),
+                encoding="utf-8",
+            )
+            (queue_dir / "1700000002-invalid.json").write_text(
+                json.dumps({"priority": "urgent"}),
+                encoding="utf-8",
+            )
+
+            ordered = worker_run.get_sorted_jobs(queue_dir)
+
+        self.assertEqual(
+            [path.name for path in ordered],
+            [
+                "1700000000-normal.json",
+                "1700000001-missing.json",
+                "1700000002-invalid.json",
+            ],
+        )
+
     def test_notify_internal_timeout_is_logged_and_non_blocking(self):
         class _FakeScript:
             def exists(self):
