@@ -54,8 +54,9 @@ class TestChecksRegistry(unittest.TestCase):
         self.assertEqual(findings[1].tool, "ruff")
 
     @patch("lib.checks.registry.run_shfmt", return_value=1)
+    @patch("lib.checks.registry.run_eslint_autofix", return_value=0)
     @patch("lib.checks.registry.run_ruff_autofix", return_value=2)
-    def test_run_autofixes_returns_tool_map(self, mock_ruff_autofix, mock_shfmt):
+    def test_run_autofixes_returns_tool_map(self, mock_ruff_autofix, mock_eslint_autofix, mock_shfmt):
         result = run_autofixes(
             repo_dir=Path("/fake/repo"),
             files=None,
@@ -66,7 +67,45 @@ class TestChecksRegistry(unittest.TestCase):
         )
 
         self.assertEqual(result.get("ruff"), 2)
+        self.assertEqual(result.get("eslint"), 0)
         self.assertEqual(result.get("shfmt"), 1)
+        mock_eslint_autofix.assert_called_once()
+
+    @patch("lib.checks.registry.run_shfmt", return_value=1)
+    @patch("lib.checks.registry.run_eslint_autofix", return_value=3)
+    @patch("lib.checks.registry.run_ruff_autofix", return_value=2)
+    def test_run_autofixes_targets_only_fixable_tools_and_files(
+        self,
+        mock_ruff_autofix,
+        mock_eslint_autofix,
+        mock_shfmt,
+    ):
+        target_files = [Path("src/demo.py")]
+
+        result = run_autofixes(
+            repo_dir=Path("/fake/repo"),
+            files=[Path("src/demo.py"), Path("src/unused.ts")],
+            checks_cfg={"ruff": {"enabled": True, "autofix": True}, "eslint": {"enabled": True, "autofix": True}, "shfmt_fix": True},
+            excludes=[],
+            run_cmd=lambda *args, **kwargs: None,
+            log=lambda _msg: None,
+            only_tools={"ruff"},
+            target_files_by_tool={"ruff": target_files},
+        )
+
+        self.assertEqual(result.get("ruff"), 2)
+        self.assertEqual(result.get("eslint"), 0)
+        self.assertEqual(result.get("shfmt"), 1)
+        mock_ruff_autofix.assert_called_once_with(
+            Path("/fake/repo"),
+            target_files,
+            [],
+            {"ruff": {"enabled": True, "autofix": True}, "eslint": {"enabled": True, "autofix": True}, "shfmt_fix": True},
+            unittest.mock.ANY,
+            unittest.mock.ANY,
+        )
+        mock_eslint_autofix.assert_not_called()
+        mock_shfmt.assert_called_once()
 
 
 if __name__ == "__main__":

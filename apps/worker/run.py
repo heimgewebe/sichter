@@ -388,6 +388,31 @@ def deserialize_findings(items: Iterable[dict]) -> list[Finding]:
   return findings
 
 
+def _select_autofix_targets(findings: Iterable[Finding]) -> tuple[set[str], dict[str, list[Path]]]:
+  """Select autofix-capable tools and affected files from current findings."""
+  autofix_tools: set[str] = set()
+  target_files_by_tool: dict[str, list[Path]] = {}
+
+  for finding in findings:
+    if not finding.fix_available:
+      continue
+
+    tool_name = (finding.tool or "").strip().lower()
+    if tool_name not in {"ruff", "eslint"}:
+      continue
+
+    autofix_tools.add(tool_name)
+    if not finding.file:
+      continue
+
+    file_path = Path(finding.file)
+    targets = target_files_by_tool.setdefault(tool_name, [])
+    if file_path not in targets:
+      targets.append(file_path)
+
+  return autofix_tools, target_files_by_tool
+
+
 def run_heuristics(repo_dir: Path, changed_files: list[Path] | None) -> list[Finding]:
   if not isinstance(repo_dir, Path):
     return []
@@ -1129,10 +1154,7 @@ def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
     if cache_allowed:
       cache_set(findings_key, {"findings": serialize_findings(findings)})
 
-  heuristic_findings = run_heuristics(repo_dir, changed_files)
-  if heuristic_findings:
-    append_event({"type": "heuristics", "repo": repo, "count": len(heuristic_findings)})
-  findings = findings + heuristic_findings
+  autofix_tools, target_files_by_tool = _select_autofix_targets(findings)
 
   autofix = registry_run_autofixes(
     repo_dir,
@@ -1141,11 +1163,15 @@ def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
     POLICY.excludes,
     run_cmd,
     log,
+    only_tools=autofix_tools,
+    target_files_by_tool=target_files_by_tool,
   )
+  autofix_applied = False
   for tool_name, changed in autofix.items():
     changed_int = int(changed)
     if changed_int <= 0:
       continue
+    autofix_applied = True
     log(f"{repo}: {tool_name} hat {changed_int} Datei(en) angepasst")
     append_event(
       {
@@ -1155,6 +1181,21 @@ def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
         "changed": changed_int,
       }
     )
+
+  if autofix_applied:
+    findings = registry_run_checks(
+      repo_dir,
+      changed_files,
+      POLICY.checks,
+      POLICY.excludes,
+      run_cmd,
+      log,
+    )
+
+  heuristic_findings = run_heuristics(repo_dir, changed_files)
+  if heuristic_findings:
+    append_event({"type": "heuristics", "repo": repo, "count": len(heuristic_findings)})
+  findings = findings + heuristic_findings
 
   grouped = dedupe_findings(findings)
   record_findings_snapshot(repo, findings)

@@ -746,6 +746,55 @@ class TestWorkerRun(unittest.TestCase):
         mock_drift.assert_called_once()
         mock_redundancy.assert_called_once()
 
+    def test_select_autofix_targets_uses_fix_available_findings(self):
+        tools, target_files = worker_run._select_autofix_targets(
+            [
+                Finding(
+                    severity="error",
+                    category="correctness",
+                    file="src/app.py",
+                    line=1,
+                    message="Undefined name",
+                    tool="ruff",
+                    rule_id="F821",
+                    fix_available=True,
+                ),
+                Finding(
+                    severity="warning",
+                    category="correctness",
+                    file="src/app.py",
+                    line=2,
+                    message="Import unused",
+                    tool="ruff",
+                    rule_id="F401",
+                    fix_available=True,
+                ),
+                Finding(
+                    severity="warning",
+                    category="correctness",
+                    file="web/app.ts",
+                    line=3,
+                    message="Prefer const",
+                    tool="eslint",
+                    rule_id="prefer-const",
+                    fix_available=True,
+                ),
+                Finding(
+                    severity="error",
+                    category="security",
+                    file="secret.py",
+                    line=4,
+                    message="Potential secret",
+                    tool="bandit",
+                    rule_id="B105",
+                    fix_available=True,
+                ),
+            ]
+        )
+
+        self.assertEqual(tools, {"ruff", "eslint"})
+        self.assertEqual(target_files, {"ruff": [Path("src/app.py")], "eslint": [Path("web/app.ts")]})
+
     @patch("apps.worker.run.record_metrics")
     @patch("apps.worker.run.run_heuristics", return_value=[])
     @patch("apps.worker.run.commit_if_changes", return_value=False)
@@ -770,6 +819,68 @@ class TestWorkerRun(unittest.TestCase):
             worker_run.process_repo("test_repo", "all", True)
 
         mock_run_heuristics.assert_called_once_with(Path("/fake/repo"), None)
+
+    @patch("apps.worker.run.record_metrics")
+    @patch("apps.worker.run.append_event")
+    @patch("apps.worker.run.record_findings_snapshot")
+    @patch("apps.worker.run.dedupe_findings", return_value={})
+    @patch("apps.worker.run.run_heuristics", return_value=[])
+    @patch("apps.worker.run.create_themed_prs", return_value=1)
+    @patch("apps.worker.run.commit_if_changes", return_value=True)
+    @patch("apps.worker.run.llm_review", return_value=None)
+    @patch("apps.worker.run.registry_run_autofixes", return_value={"ruff": 1, "eslint": 0, "shfmt": 0})
+    @patch("apps.worker.run.registry_run_checks")
+    @patch("apps.worker.run.fresh_branch", return_value="test-branch")
+    @patch("apps.worker.run.ensure_repo", return_value=Path("/fake/repo"))
+    def test_process_repo_reruns_checks_after_autofix_changes(
+        self,
+        _mock_ensure_repo,
+        _mock_fresh_branch,
+        mock_registry_run_checks,
+        mock_registry_run_autofixes,
+        _mock_llm_review,
+        _mock_commit_if_changes,
+        _mock_create_themed_prs,
+        mock_run_heuristics,
+        _mock_dedupe_findings,
+        mock_record_snapshot,
+        _mock_append_event,
+        _mock_record_metrics,
+    ):
+        before_fix = Finding(
+            severity="warning",
+            category="correctness",
+            file="src/app.py",
+            line=1,
+            message="Import unused",
+            tool="ruff",
+            rule_id="F401",
+            fix_available=True,
+        )
+        after_fix = Finding(
+            severity="warning",
+            category="maintainability",
+            file="README.md",
+            line=1,
+            message="Residual note",
+            tool="docs",
+            rule_id="DOC1",
+        )
+        mock_registry_run_checks.side_effect = [[before_fix], [after_fix]]
+
+        worker_run.process_repo("demo-repo", "all", True)
+
+        self.assertEqual(mock_registry_run_checks.call_count, 2)
+        self.assertEqual(mock_run_heuristics.call_count, 1)
+        self.assertEqual(
+            mock_registry_run_autofixes.call_args.kwargs["only_tools"],
+            {"ruff"},
+        )
+        self.assertEqual(
+            mock_registry_run_autofixes.call_args.kwargs["target_files_by_tool"],
+            {"ruff": [Path("src/app.py")]},
+        )
+        mock_record_snapshot.assert_called_once_with("demo-repo", [after_fix])
 
     @patch("apps.worker.run.record_metrics")
     @patch("apps.worker.run.append_event")

@@ -131,7 +131,7 @@
   - [x] Streng policy-gated, default deaktiviert
 - [ ] **2.8** Auto-Fix-Pipeline verdrahten
   - [x] Worker: Nach Linter-Run → `autofix()` aufrufen → geänderte Dateien committen
-  - [ ] `fix_available`-Findings tatsächlich applizieren
+  - [x] `fix_available`-Findings tatsächlich applizieren
   - [x] Themen-PRs: Style-Fixes ≠ Security-Fixes ≠ Correctness-Fixes (`create_themed_prs`)
 - [ ] **2.9** Tests
   - [x] Pro Linter-Modul: Parser-Test mit Sample-Output
