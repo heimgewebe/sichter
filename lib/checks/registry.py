@@ -48,11 +48,12 @@ def run_autofixes(
 
   When ``only_tools`` is provided, targeted autofixers only run for the named
   tools. ``target_files_by_tool`` may further narrow each autofixer to the files
-  and may contain relative or absolute paths; relative paths are normalized
-  against ``repo_dir`` before dispatch.
-  that produced ``fix_available`` findings. ``shfmt`` intentionally remains a
-  separate policy-driven formatting pass because it does not emit structured
-  ``fix_available`` findings in the same way Ruff/ESLint do.
+  that produced ``fix_available`` findings and may contain relative or absolute
+  paths; relative paths are normalized against ``repo_dir`` before dispatch.
+
+  ``shfmt`` intentionally remains a separate policy-driven formatting pass
+  because it does not emit structured ``fix_available`` findings in the same way
+  Ruff/ESLint do.
   """
   selected_tools = {tool.strip().lower() for tool in only_tools} if only_tools is not None else None
   targets = target_files_by_tool or {}
