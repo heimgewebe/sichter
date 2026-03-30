@@ -249,6 +249,72 @@ def latest_findings_snapshot_for_repo(
     }
 
 
+def filter_and_sort_items(
+    items: list[dict[str, object]],
+    *,
+    severity: list[str] | None = None,
+    category: list[str] | None = None,
+    sort: str = "severity",
+    sort_dir: str = "desc",
+) -> list[dict[str, object]]:
+    """Filter and sort finding items.
+
+    Args:
+        items: List of finding item dicts.
+        severity: If given, only include items whose severity is in this list.
+        category: If given, only include items whose category is in this list.
+        sort: Field to sort by (``severity``, ``category``, ``file``).
+        sort_dir: ``asc`` or ``desc``.
+
+    Returns:
+        Filtered and sorted copy of *items*.
+    """
+    result = list(items)
+
+    if severity:
+        allowed = {s.lower() for s in severity}
+        result = [i for i in result if str(i.get("severity") or "").lower() in allowed]
+
+    if category:
+        allowed = {c.lower() for c in category}
+        result = [i for i in result if str(i.get("category") or "").lower() in allowed]
+
+    reverse = sort_dir.lower() != "asc"
+
+    if sort == "category":
+        result.sort(
+            key=lambda i: (
+                str(i.get("category") or ""),
+                -_severity_rank(str(i.get("severity") or "ok")),
+                str(i.get("file") or ""),
+                int(i.get("line") or 0),
+            ),
+            reverse=reverse,
+        )
+    elif sort == "file":
+        result.sort(
+            key=lambda i: (
+                str(i.get("file") or ""),
+                int(i.get("line") or 0),
+                -_severity_rank(str(i.get("severity") or "ok")),
+            ),
+            reverse=reverse,
+        )
+    else:
+        # Default: sort by severity (most severe first when desc)
+        result.sort(
+            key=lambda i: (
+                -_severity_rank(str(i.get("severity") or "ok")),
+                str(i.get("file") or ""),
+                int(i.get("line") or 0),
+                str(i.get("message") or ""),
+            ),
+            reverse=reverse,
+        )
+
+    return result
+
+
 def aggregate_metrics(records: list[dict]) -> dict:
     """Aggregate a list of metrics records into summary statistics.
 

@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 import {
+  FindingDetailParams,
   RepoFindingDetailResponse,
   RepoFindingsEntry,
   RepoStatus,
@@ -44,19 +46,49 @@ const severityDot = (sev: string) => {
 };
 
 const Repos = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [repos, setRepos] = useState<RepoStatus[]>([]);
   const [findings, setFindings] = useState<Record<string, RepoFindingsEntry>>({});
   const [detail, setDetail] = useState<RepoFindingDetailResponse | null>(null);
-  const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
+  const [selectedRepo, setSelectedRepo] = useState<string | null>(searchParams.get('repo'));
   const pendingRepoRef = useRef<string | null>(null);
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<string | null>(searchParams.get('file'));
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<'table' | 'heatmap'>('table');
-  const [query, setQuery] = useState('');
-  const [sortBy, setSortBy] = useState<'name' | 'findings' | 'severity'>('name');
-  const [sortAsc, setSortAsc] = useState(true);
-  const [severityFilter, setSeverityFilter] = useState<Set<string>>(new Set());
-  const [categoryFilter, setCategoryFilter] = useState<Set<string>>(new Set());
+  const [query, setQuery] = useState(searchParams.get('q') ?? '');
+  const [sortBy, setSortBy] = useState<'name' | 'findings' | 'severity'>(
+    (searchParams.get('sortBy') as 'name' | 'findings' | 'severity') || 'name',
+  );
+  const [sortAsc, setSortAsc] = useState(searchParams.get('sortAsc') !== 'false');
+
+  // Detail-level filters (persisted in URL)
+  const [severityFilter, setSeverityFilter] = useState<Set<string>>(() => {
+    const raw = searchParams.get('severity');
+    return raw ? new Set(raw.split(',').filter(Boolean)) : new Set<string>();
+  });
+  const [categoryFilter, setCategoryFilter] = useState<Set<string>>(() => {
+    const raw = searchParams.get('category');
+    return raw ? new Set(raw.split(',').filter(Boolean)) : new Set<string>();
+  });
+  const [detailSort, setDetailSort] = useState<string>(searchParams.get('detailSort') ?? 'severity');
+  const [detailSortDir, setDetailSortDir] = useState<'asc' | 'desc'>(
+    (searchParams.get('detailSortDir') as 'asc' | 'desc') || 'desc',
+  );
+
+  // Sync filter state to URL search params
+  useEffect(() => {
+    const params: Record<string, string> = {};
+    if (query) params.q = query;
+    if (sortBy !== 'name') params.sortBy = sortBy;
+    if (!sortAsc) params.sortAsc = 'false';
+    if (selectedRepo) params.repo = selectedRepo;
+    if (selectedFile) params.file = selectedFile;
+    if (severityFilter.size > 0) params.severity = Array.from(severityFilter).join(',');
+    if (categoryFilter.size > 0) params.category = Array.from(categoryFilter).join(',');
+    if (detailSort !== 'severity') params.detailSort = detailSort;
+    if (detailSortDir !== 'desc') params.detailSortDir = detailSortDir;
+    setSearchParams(params, { replace: true });
+  }, [query, sortBy, sortAsc, selectedRepo, selectedFile, severityFilter, categoryFilter, detailSort, detailSortDir, setSearchParams]);
 
   useEffect(() => {
     fetchRepos()
@@ -74,6 +106,14 @@ const Repos = () => {
           .catch(() => {});
       })
       .catch((err) => setError((err as Error).message));
+
+    // Restore detail view from URL on initial load
+    const repoParam = searchParams.get('repo');
+    if (repoParam) {
+      const params = buildFilterParams();
+      loadRepoDetail(repoParam, params);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const toggleSort = (next: 'name' | 'findings' | 'severity') => {
@@ -103,15 +143,22 @@ const Repos = () => {
       });
   }, [repos, findings, query, sortBy, sortAsc]);
 
-  const loadRepoDetail = async (repoName: string) => {
+  const buildFilterParams = useCallback((): FindingDetailParams => {
+    const params: FindingDetailParams = {};
+    if (severityFilter.size > 0) params.severity = Array.from(severityFilter);
+    if (categoryFilter.size > 0) params.category = Array.from(categoryFilter);
+    if (detailSort) params.sort = detailSort;
+    if (detailSortDir) params.sortDir = detailSortDir;
+    return params;
+  }, [severityFilter, categoryFilter, detailSort, detailSortDir]);
+
+  const loadRepoDetail = async (repoName: string, filterParams?: FindingDetailParams) => {
     setSelectedRepo(repoName);
     setSelectedFile(null);
-    setSeverityFilter(new Set());
-    setCategoryFilter(new Set());
     setDetail(null);
     pendingRepoRef.current = repoName;
     try {
-      const payload = await fetchRepoFindingDetail(repoName);
+      const payload = await fetchRepoFindingDetail(repoName, 500, filterParams);
       if (pendingRepoRef.current === repoName) {
         setDetail(payload);
       }
@@ -122,11 +169,26 @@ const Repos = () => {
     }
   };
 
+  const selectRepo = (repoName: string) => {
+    setSeverityFilter(new Set());
+    setCategoryFilter(new Set());
+    setDetailSort('severity');
+    setDetailSortDir('desc');
+    loadRepoDetail(repoName);
+  };
+
+  // Re-fetch detail when filters change (API-side filtering)
+  useEffect(() => {
+    if (!selectedRepo) return;
+    const params = buildFilterParams();
+    loadRepoDetail(selectedRepo, params);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [severityFilter, categoryFilter, detailSort, detailSortDir]);
+
+  // File filtering stays client-side (file drill-down is a UI-only concern);
+  // severity and category filtering is handled server-side via API query params.
   const filteredDetailItems = (detail?.items ?? []).filter((item) => {
-    const byFile = selectedFile ? item.file === selectedFile : true;
-    const bySeverity = severityFilter.size === 0 || severityFilter.has(item.severity);
-    const byCategory = categoryFilter.size === 0 || categoryFilter.has(item.category);
-    return byFile && bySeverity && byCategory;
+    return selectedFile ? item.file === selectedFile : true;
   });
 
   return (
@@ -165,7 +227,7 @@ const Repos = () => {
             return (
               <button
                 key={repo.name}
-                onClick={() => loadRepoDetail(repo.name)}
+                onClick={() => selectRepo(repo.name)}
                 title={`${repo.name}: ${f?.findingsCount ?? 0} Findings`}
                 style={{
                   border: 'none',
@@ -199,7 +261,7 @@ const Repos = () => {
             {rows.map((repo) => {
               const f = findings[repo.name];
               return (
-                <tr key={repo.name} onClick={() => loadRepoDetail(repo.name)} style={{ cursor: 'pointer' }}>
+                <tr key={repo.name} onClick={() => selectRepo(repo.name)} style={{ cursor: 'pointer' }}>
                   <td>{repo.name}</td>
                   <td>{f ? f.findingsCount : '–'}</td>
                   <td>
@@ -261,7 +323,7 @@ const Repos = () => {
             <div>
               <h4>Findings {selectedFile ? `in ${selectedFile}` : ''}</h4>
               
-              {/* **6.3** Severity & Category Filter */}
+              {/* **6.3** Severity & Category Filter + Sort */}
               <div style={{ marginBottom: '0.75rem', fontSize: '0.85rem', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', alignItems: 'center' }}>
                   <strong>Severity:</strong>
@@ -325,6 +387,35 @@ const Repos = () => {
                         {cat}
                       </button>
                     ))}
+                </div>
+
+                <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <strong>Sort:</strong>
+                  {(['severity', 'category', 'file'] as const).map((field) => (
+                    <button
+                      key={field}
+                      onClick={() => {
+                        if (detailSort === field) {
+                          setDetailSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
+                        } else {
+                          setDetailSort(field);
+                          setDetailSortDir('desc');
+                        }
+                      }}
+                      style={{
+                        padding: '0.25rem 0.45rem',
+                        border: detailSort === field ? '1.5px solid #333' : '1px solid #ccc',
+                        background: detailSort === field ? '#2c3e50' : '#f9f9f9',
+                        color: detailSort === field ? '#fff' : '#333',
+                        borderRadius: '0.2rem',
+                        cursor: 'pointer',
+                        fontSize: '0.75rem',
+                        fontWeight: detailSort === field ? 600 : 400,
+                      }}
+                    >
+                      {field} {detailSort === field ? (detailSortDir === 'asc' ? '↑' : '↓') : ''}
+                    </button>
+                  ))}
                 </div>
               </div>
 

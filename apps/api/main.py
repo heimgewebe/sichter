@@ -509,15 +509,43 @@ def repos_findings(n: int = 200) -> dict[str, list[dict]]:
 
 
 @app.get("/repos/findings/detail", dependencies=[Depends(verify_api_key)])
-def repo_findings_detail(repo: str, n: int = 500) -> dict[str, object]:
-  """Return the latest detailed findings snapshot for a repository."""
-  from lib.metrics import latest_findings_snapshot_for_repo, load_findings_snapshots
+def repo_findings_detail(
+  repo: str,
+  n: int = 500,
+  severity: str | None = None,
+  category: str | None = None,
+  sort: str = "severity",
+  sort_dir: str = "desc",
+) -> dict[str, object]:
+  """Return the latest detailed findings snapshot for a repository.
+
+  Supports server-side filtering and sorting via query parameters:
+
+  - ``severity`` – comma-separated list of severity values to include.
+  - ``category`` – comma-separated list of category values to include.
+  - ``sort``     – field to sort by (``severity``, ``category``, ``file``).
+  - ``sort_dir`` – ``asc`` or ``desc`` (default ``desc``).
+  """
+  from lib.metrics import (
+    filter_and_sort_items,
+    latest_findings_snapshot_for_repo,
+    load_findings_snapshots,
+  )
+
+  sev_list = [s.strip() for s in severity.split(",") if s.strip()] if severity else None
+  cat_list = [c.strip() for c in category.split(",") if c.strip()] if category else None
+  sort_field = sort if sort in ("severity", "category", "file") else "severity"
+  direction = sort_dir if sort_dir in ("asc", "desc") else "desc"
 
   records = load_findings_snapshots(n=max(1, min(n, 10_000)))
   snapshot = latest_findings_snapshot_for_repo(repo, records)
 
   if snapshot.get("ts"):
-    return snapshot
+    raw_items = list(snapshot.get("items") or [])
+    filtered = filter_and_sort_items(
+      raw_items, severity=sev_list, category=cat_list, sort=sort_field, sort_dir=direction,
+    )
+    return {**snapshot, "items": filtered}
 
   # Backward-compatible fallback to the latest findings event payload.
   events = _collect_events(max(1, min(n, 5_000)))
@@ -564,12 +592,16 @@ def repo_findings_detail(repo: str, n: int = 500) -> dict[str, object]:
         }
       )
 
+    filtered = filter_and_sort_items(
+      items, severity=sev_list, category=cat_list, sort=sort_field, sort_dir=direction,
+    )
+
     return {
       "repo": repo,
       "count": int(payload.get("count", 0) or 0),
       "deduped": int(payload.get("deduped", 0) or 0),
       "files": files,
-      "items": items,
+      "items": filtered,
       "ts": evt.get("ts"),
     }
 

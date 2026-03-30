@@ -130,10 +130,27 @@ export const fetchRepos = () => request<ReposResponse>('/api/repos/status');
 export const fetchRepoFindings = (n = 200) =>
   request<RepoFindingsResponse>(`/api/repos/findings?n=${n}`);
 
-export const fetchRepoFindingDetail = (repo: string, n = 500) =>
-  request<RepoFindingDetailResponse>(
-    `/api/repos/findings/detail?repo=${encodeURIComponent(repo)}&n=${n}`,
-  );
+export type FindingDetailParams = {
+  severity?: string[];
+  category?: string[];
+  sort?: string;
+  sortDir?: 'asc' | 'desc';
+};
+
+export const fetchRepoFindingDetail = (
+  repo: string,
+  n = 500,
+  params?: FindingDetailParams,
+) => {
+  const qs = new URLSearchParams();
+  qs.set('repo', repo);
+  qs.set('n', String(n));
+  if (params?.severity?.length) qs.set('severity', params.severity.join(','));
+  if (params?.category?.length) qs.set('category', params.category.join(','));
+  if (params?.sort) qs.set('sort', params.sort);
+  if (params?.sortDir) qs.set('sort_dir', params.sortDir);
+  return request<RepoFindingDetailResponse>(`/api/repos/findings/detail?${qs.toString()}`);
+};
 
 export const fetchEvents = (limit = 200) =>
   request<{ events: EventEntry[] }>(`/api/events/recent?n=${limit}`);
