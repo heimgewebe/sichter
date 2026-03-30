@@ -184,6 +184,15 @@ def _read_queue_item_cached(path_str: str, mtime_ns: int, size: int) -> dict:
     return {}
 
 
+def _normalize_priority(value) -> str:
+  """Normalize a raw priority value to the API contract: high | normal | low.
+
+  Any value not in the canonical set, as well as None, falls back to 'normal'.
+  """
+  normalized = str(value).lower() if value is not None else "normal"
+  return normalized if normalized in {"high", "normal", "low"} else "normal"
+
+
 def _cache_bucket(ttl_seconds: float = 2.0) -> int:
   """Return a time bucket for cache invalidation."""
   return int(time.monotonic() // ttl_seconds)
@@ -299,7 +308,7 @@ def _queue_state(limit: int = 10) -> dict[str, int | list[dict]]:
         "type": payload.get("type"),
         "mode": payload.get("mode"),
         "repo": payload.get("repo"),
-        "priority": str(payload.get("priority", "normal")).lower(),
+        "priority": _normalize_priority(payload.get("priority")),
         "enqueuedAt": datetime.fromtimestamp(mtime_ns / 1e9, tz=timezone.utc).isoformat(),
       }
     )

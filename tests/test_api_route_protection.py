@@ -127,3 +127,41 @@ def test_queue_state_exposes_priority():
       break
 
   assert priority_key_found, "_queue_state() must include 'priority' in returned queue items"
+
+
+def _extract_normalize_priority():
+  """Extract and exec _normalize_priority from apps/api/main.py.
+
+  Uses ast.unparse so the function runs standalone without any fastapi/pydantic
+  imports — the function body is pure Python with no external dependencies.
+  """
+  import ast as _ast
+
+  tree = _ast.parse(Path("apps/api/main.py").read_text())
+  fn_node = next(
+    (n for n in tree.body if isinstance(n, _ast.FunctionDef) and n.name == "_normalize_priority"),
+    None,
+  )
+  assert fn_node is not None, "_normalize_priority not found in apps/api/main.py"
+  ns: dict = {}
+  exec(_ast.unparse(fn_node), ns)  # noqa: S102
+  return ns["_normalize_priority"]
+
+
+def test_normalize_priority_valid_values_pass_through():
+  """_normalize_priority: high/normal/low — and their uppercase variants — are returned as canonical lowercase."""
+  normalize = _extract_normalize_priority()
+  assert normalize("high") == "high"
+  assert normalize("normal") == "normal"
+  assert normalize("low") == "low"
+  assert normalize("HIGH") == "high"
+  assert normalize("Normal") == "normal"
+
+
+def test_normalize_priority_invalid_and_none_become_normal():
+  """_normalize_priority: unknown string, None, non-string, empty string → 'normal'."""
+  normalize = _extract_normalize_priority()
+  assert normalize("urgent") == "normal"
+  assert normalize(None) == "normal"
+  assert normalize(7) == "normal"
+  assert normalize("") == "normal"
