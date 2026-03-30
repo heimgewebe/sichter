@@ -165,3 +165,63 @@ def test_normalize_priority_invalid_and_none_become_normal():
   assert normalize(None) == "normal"
   assert normalize(7) == "normal"
   assert normalize("") == "normal"
+
+
+def test_queue_state_normalizes_priority_at_runtime():
+  """Runtime: _queue_state() reads a real queue file with priority='urgent' → returns 'normal'.
+
+  Proof that the API read-path calls _normalize_priority() on the actual payload,
+  not just that the helper works in isolation.  Uses the same AST+exec pattern as
+  _extract_normalize_priority() to stay within the minimal test-venv dependencies.
+  """
+  import ast as _ast
+  import functools as _functools
+  import json as _json
+  import logging as _logging
+  import os as _os
+  import tempfile
+  import time as _time
+  from datetime import datetime as _datetime
+  from datetime import timezone as _timezone
+
+  source = Path("apps/api/main.py").read_text()
+  tree = _ast.parse(source)
+
+  needed = {"_normalize_priority", "_read_queue_item_cached", "_queue_state"}
+  fn_nodes = {
+    node.name: node
+    for node in tree.body
+    if isinstance(node, _ast.FunctionDef) and node.name in needed
+  }
+  assert needed == fn_nodes.keys(), f"Missing functions in apps/api/main.py: {needed - fn_nodes.keys()}"
+
+  with tempfile.TemporaryDirectory() as tmp:
+    queue_dir = Path(tmp)
+    (queue_dir / "1700000000-runtime-test.json").write_text(
+      _json.dumps({"type": "ScanAll", "mode": "changed", "priority": "urgent"}),
+      encoding="utf-8",
+    )
+
+    ns: dict = {
+      "os": _os,
+      "json": _json,
+      "functools": _functools,
+      "logging": _logging,
+      "time": _time,
+      "datetime": _datetime,
+      "timezone": _timezone,
+      "Path": Path,
+      "QUEUE": queue_dir,
+      "logger": _logging.getLogger("test._queue_state"),
+    }
+    for name in ("_normalize_priority", "_read_queue_item_cached", "_queue_state"):
+      exec(_ast.unparse(fn_nodes[name]), ns)  # noqa: S102
+
+    state = ns["_queue_state"]()
+
+  assert state["size"] == 1, f"Expected 1 queue item, got {state['size']}"
+  assert len(state["items"]) == 1
+  assert state["items"][0]["priority"] == "normal", (
+    f"Expected 'normal' but got {state['items'][0]['priority']!r}: "
+    "_queue_state() must normalise 'urgent' via _normalize_priority()"
+  )
