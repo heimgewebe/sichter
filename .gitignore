@@ -28,3 +28,4 @@ apps/dashboard/dist/
 secrets.env
 .env
 .smoke-logs/
+apps/dashboard/tsconfig.tsbuildinfo
