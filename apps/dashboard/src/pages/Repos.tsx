@@ -177,11 +177,15 @@ const Repos = () => {
     loadRepoDetail(repoName);
   };
 
-  // Re-fetch detail when filters change (API-side filtering)
+  // Re-fetch detail when filters change (API-side filtering).
+  // Debounce to avoid excessive API calls on rapid filter toggles.
   useEffect(() => {
     if (!selectedRepo) return;
-    const params = buildFilterParams();
-    loadRepoDetail(selectedRepo, params);
+    const timer = setTimeout(() => {
+      const params = buildFilterParams();
+      loadRepoDetail(selectedRepo, params);
+    }, 250);
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [severityFilter, categoryFilter, detailSort, detailSortDir]);
 
