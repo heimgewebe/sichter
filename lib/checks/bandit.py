@@ -27,14 +27,14 @@ def run_bandit(
     log("bandit nicht gefunden - ueberspringe")
     return []
 
-  excludes_list = list(excludes)
-
   if files is None:
+    excludes_list = list(excludes)
     cmd = ["bandit", "-f", "json", "-r", "."]
   else:
-    candidates = iter_matching_files(repo_dir, files, {".py"}, excludes_list)
+    candidates = iter_matching_files(repo_dir, files, {".py"}, excludes)
     if not candidates:
       return []
+    excludes_list = []
     cmd = ["bandit", "-f", "json", *[str(path) for path in candidates]]
 
   result = run_cmd(cmd, repo_dir, check=False)

@@ -397,8 +397,8 @@ def _collect_events(limit: int = 200) -> list[dict[str, str | dict]]:
       data = json.loads(raw)
       if isinstance(data, dict):
         entry["payload"] = data
-        inner = data.get("payload")
-        entry["ts"] = data.get("ts") or (inner.get("ts") if isinstance(inner, dict) else None)
+        nested_payload = data.get("payload")
+        entry["ts"] = data.get("ts") or (nested_payload.get("ts") if isinstance(nested_payload, dict) else None)
         entry["kind"] = data.get("event") or data.get("kind")
     except json.JSONDecodeError:
       pass
