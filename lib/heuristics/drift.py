@@ -27,8 +27,8 @@ def _parse_requirements(text: str) -> dict[str, str]:
         line = line.strip()
         if not line or line.startswith(("#", "-")):
             continue
-        # Strip extras, env markers
-        line = re.split(r"[;# ]", line)[0].strip()
+        # Strip environment markers (after ;) and inline comments (after #)
+        line = re.split(r"[;#]", line)[0].strip()
         # Strip extras (e.g. requests[security]) before matching version spec
         line = re.sub(r"\[.*?\]", "", line)
         match = re.match(r"^([A-Za-z0-9_.-]+)\s*([><=!~^,\s\d.*]+)?", line)
