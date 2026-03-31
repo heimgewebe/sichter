@@ -25,12 +25,12 @@ class Finding:
     if not self.dedupe_key:
       tool = (self.tool or "unknown").strip().lower()
       rule = (self.rule_id or "").strip().lower()
-      line = self.line if self.line is not None else 0
-      location = f"{self.file}:{line}"
 
       if rule:
         self.dedupe_key = f"{tool}:{rule}:{self.file}"
         return
 
+      line = self.line if self.line is not None else 0
+      location = f"{self.file}:{line}"
       normalized_message = " ".join(self.message.strip().lower().split())[:80]
       self.dedupe_key = f"{tool}:{self.category}:{location}:{normalized_message}"
