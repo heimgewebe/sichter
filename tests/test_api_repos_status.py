@@ -4,11 +4,25 @@ _build_repos_status() is a pure helper extracted from repos_status() so it can
 be tested without a fastapi dependency.
 """
 import sys
+import types
 import unittest
 from unittest.mock import MagicMock
 
-# Stub third-party dependencies before importing apps.api.main so the module
-# loads successfully in the test environment where fastapi/pydantic are absent.
+# ---------------------------------------------------------------------------
+# Minimal module stubs so apps.api.main imports cleanly without fastapi/pydantic.
+#
+# pydantic: must NOT be a plain MagicMock because apps.api.main defines several
+# classes that inherit from BaseModel (e.g. class Job(BaseModel): ...).
+# Python resolves the metaclass from the base class at class-definition time, so
+# BaseModel MUST be a real type — a MagicMock attribute would cause a TypeError
+# on environments where pydantic is absent.
+# ---------------------------------------------------------------------------
+_pydantic_stub = types.ModuleType("pydantic")
+_pydantic_stub.BaseModel = type("BaseModel", (), {})  # real dummy base class
+_pydantic_stub.Field = lambda *args, **kwargs: None
+_pydantic_stub.ValidationError = type("ValidationError", (Exception,), {})
+sys.modules.setdefault("pydantic", _pydantic_stub)
+
 for _mod in (
     "fastapi",
     "fastapi.security",
@@ -16,7 +30,6 @@ for _mod in (
     "fastapi.middleware.cors",
     "fastapi.responses",
     "fastapi.staticfiles",
-    "pydantic",
 ):
     sys.modules.setdefault(_mod, MagicMock())
 
