@@ -397,7 +397,8 @@ def _collect_events(limit: int = 200) -> list[dict[str, str | dict]]:
       data = json.loads(raw)
       if isinstance(data, dict):
         entry["payload"] = data
-        entry["ts"] = data.get("ts") or data.get("payload", {}).get("ts")
+        nested_payload = data.get("payload")
+        entry["ts"] = data.get("ts") or (nested_payload.get("ts") if isinstance(nested_payload, dict) else None)
         entry["kind"] = data.get("event") or data.get("kind")
     except json.JSONDecodeError:
       pass
@@ -483,20 +484,29 @@ def overview() -> dict:
   }
 
 
-@app.get("/repos/status", dependencies=[Depends(verify_api_key)])
-def repos_status() -> dict[str, list[dict]]:
-  repos = _resolve_repos()
-  events = _collect_events(200)
+def _build_repos_status(repos: list[str], events: list[dict]) -> dict[str, list[dict]]:
+  """Pure helper: match the most-recent event for each repo.
+
+  append_event() always stores "repo" as a top-level field in the JSON record,
+  which _collect_events() surfaces as evt["payload"].  Exact equality check is
+  therefore the canonical way to look up per-repo events — no substring search.
+  """
   results: list[dict] = []
   for repo in repos:
-    latest = next((evt for evt in reversed(events) if repo in json.dumps(evt, ensure_ascii=False)), None)
-    results.append(
-      {
-        "name": repo,
-        "lastEvent": latest,
-      }
+    latest = next(
+      (
+        evt for evt in reversed(events)
+        if isinstance(evt.get("payload"), dict) and evt["payload"].get("repo") == repo
+      ),
+      None,
     )
+    results.append({"name": repo, "lastEvent": latest})
   return {"repos": results}
+
+
+@app.get("/repos/status", dependencies=[Depends(verify_api_key)])
+def repos_status() -> dict[str, list[dict]]:
+  return _build_repos_status(_resolve_repos(), _collect_events(200))
 
 
 @app.get("/repos/findings", dependencies=[Depends(verify_api_key)])
@@ -599,22 +609,14 @@ def write_policy(content: Annotated[dict, Body()]) -> dict[str, str]:
     os.rename(tmp_path, str(target))
   except OSError as e:
     logger.error(f"Failed to write policy: {e}")
-    if tmp_path and os.path.exists(tmp_path):
-      os.unlink(tmp_path)
     raise
   finally:
-    # Normally cleanup is handled, but if rename failed and we caught it, we handled it.
-    # If rename succeeded, tmp_path is gone.
-    # If os.fdopen failed, tmp_path exists and needs cleanup.
+    # Clean up temp file if rename did not consume it (e.g. os.fdopen or rename failed).
     if tmp_path and os.path.exists(tmp_path):
-       # This might happen if os.rename fails and we raised exception,
-       # or if we are in the 'finally' block after a success but 'rename' works atomically?
-       # Actually os.rename removes the source.
-       # So this is for the case where something failed BEFORE rename.
-       try:
-         os.unlink(tmp_path)
-       except OSError:
-         pass
+      try:
+        os.unlink(tmp_path)
+      except OSError:
+        pass
 
   return {"written": str(target)}
 
@@ -727,12 +729,7 @@ def _jsonl_files() -> list[Path]:
 
 
 def _read_last_lines(path: Path, n: int) -> list[str]:
-  try:
-    # Use our optimized _tail_file here too!
-    return _tail_file(path, n)
-  except OSError as e:
-    logger.error(f"Failed to read last lines of {path}: {e}")
-    return []
+  return _tail_file(path, n)
 
 
 def _read_chunk(path: Path, offset: int, expected_inode: int | None = None, max_bytes: int = 1024 * 1024) -> tuple[str, int, int | None]:
@@ -829,7 +826,6 @@ async def events_stream(ws: WebSocket, api_key: str = Depends(verify_api_key)):
       except OSError as e:
         # Datei evtl. rotiert oder noch nicht lesbar - ignoriere einmal
         logger.debug(f"Transient error reading {current}: {e}")
-        pass
 
       # Heartbeat senden
       if time.time() - last_heartbeat >= heartbeat_sec:

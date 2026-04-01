@@ -183,6 +183,44 @@ dependencies = [
         self.assertIn("boto3", result)
         self.assertEqual(result["boto3"], ">=1.20")
 
+    def test_parses_requirements_spaces_around_operator(self):
+        """Version specs with spaces like 'requests >= 2.28' must be preserved."""
+        text = "requests >= 2.28\n"
+        result = _parse_requirements(text)
+        self.assertIn("requests", result)
+        self.assertIn("2.28", result["requests"])
+
+    def test_parses_requirements_extras_with_spaces_around_operator(self):
+        """requests[security] >= 2.28 — extras and spaces combined."""
+        text = "requests[security] >= 2.28\n"
+        result = _parse_requirements(text)
+        self.assertIn("requests", result)
+        self.assertIn("2.28", result["requests"])
+
+    def test_parses_requirements_environment_marker_stripped(self):
+        """Environment markers after ; must be stripped; package is still parsed."""
+        text = 'requests>=2.28; python_version < "3.12"\n'
+        result = _parse_requirements(text)
+        self.assertIn("requests", result)
+        self.assertIn("2.28", result["requests"])
+        # Marker must not bleed into the version spec
+        self.assertNotIn("python_version", result["requests"])
+
+    def test_parses_requirements_inline_comment_stripped(self):
+        """Inline comment after # must be stripped; package is still parsed."""
+        text = "requests>=2.28  # pinned for compat\n"
+        result = _parse_requirements(text)
+        self.assertIn("requests", result)
+        self.assertIn("2.28", result["requests"])
+        self.assertNotIn("pinned", result["requests"])
+
+    def test_parses_requirements_comment_only_line_ignored(self):
+        """Pure comment lines must not produce entries."""
+        text = "# this is a comment\nrequests==2.0\n"
+        result = _parse_requirements(text)
+        self.assertNotIn("", result)
+        self.assertIn("requests", result)
+
     def test_detects_drift_for_package_with_extras(self):
         """Drift detection must work correctly when requirements.txt uses extras."""
         with tempfile.TemporaryDirectory() as tmp:
@@ -203,6 +241,7 @@ dependencies = [
             any("requests" in f.message for f in findings),
             f"Expected drift finding for 'requests', got: {[f.message for f in findings]}",
         )
+
 
 # ---------------------------------------------------------------------------
 # Redundancy tests

@@ -9,6 +9,8 @@ from lib.findings import Finding
 
 from .base import build_uncertainty, iter_matching_files, policy_check_enabled
 
+from fnmatch import fnmatch
+
 
 def run_bandit(
   repo_dir: Path,
@@ -25,14 +27,15 @@ def run_bandit(
     log("bandit nicht gefunden - ueberspringe")
     return []
 
-  candidates = iter_matching_files(repo_dir, files, {".py"}, excludes)
-  cmd = ["bandit", "-f", "json"]
   if files is None:
-    cmd.extend(["-r", "."])
-  elif candidates:
-    cmd.extend([str(path) for path in candidates])
+    excludes_list = list(excludes)
+    cmd = ["bandit", "-f", "json", "-r", "."]
   else:
-    return []
+    candidates = iter_matching_files(repo_dir, files, {".py"}, excludes)
+    if not candidates:
+      return []
+    excludes_list = []
+    cmd = ["bandit", "-f", "json", *[str(path) for path in candidates]]
 
   result = run_cmd(cmd, repo_dir, check=False)
   output = (result.stdout or result.stderr or "").strip()
@@ -69,9 +72,16 @@ def run_bandit(
       if fp.is_absolute():
         file_rel = str(fp.relative_to(repo_dir))
       else:
-        file_rel = filename
+        # Normalize to strip any leading "./" that bandit may emit
+        file_rel = str(fp)
     except (ValueError, OSError):
       file_rel = filename
+
+    # In all-files mode, apply policy excludes to results since bandit -r .
+    # does its own file discovery and bypasses iter_matching_files filtering.
+    if files is None and excludes_list:
+      if any(fnmatch(file_rel, pattern) for pattern in excludes_list):
+        continue
 
     findings.append(
       Finding(
