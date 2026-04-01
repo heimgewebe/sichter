@@ -484,10 +484,13 @@ def overview() -> dict:
   }
 
 
-@app.get("/repos/status", dependencies=[Depends(verify_api_key)])
-def repos_status() -> dict[str, list[dict]]:
-  repos = _resolve_repos()
-  events = _collect_events(200)
+def _build_repos_status(repos: list[str], events: list[dict]) -> dict[str, list[dict]]:
+  """Pure helper: match the most-recent event for each repo.
+
+  append_event() always stores "repo" as a top-level field in the JSON record,
+  which _collect_events() surfaces as evt["payload"].  Exact equality check is
+  therefore the canonical way to look up per-repo events — no substring search.
+  """
   results: list[dict] = []
   for repo in repos:
     latest = next(
@@ -497,13 +500,13 @@ def repos_status() -> dict[str, list[dict]]:
       ),
       None,
     )
-    results.append(
-      {
-        "name": repo,
-        "lastEvent": latest,
-      }
-    )
+    results.append({"name": repo, "lastEvent": latest})
   return {"repos": results}
+
+
+@app.get("/repos/status", dependencies=[Depends(verify_api_key)])
+def repos_status() -> dict[str, list[dict]]:
+  return _build_repos_status(_resolve_repos(), _collect_events(200))
 
 
 @app.get("/repos/findings", dependencies=[Depends(verify_api_key)])

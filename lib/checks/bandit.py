@@ -72,7 +72,8 @@ def run_bandit(
       if fp.is_absolute():
         file_rel = str(fp.relative_to(repo_dir))
       else:
-        file_rel = filename
+        # Normalize to strip any leading "./" that bandit may emit
+        file_rel = str(fp)
     except (ValueError, OSError):
       file_rel = filename
 

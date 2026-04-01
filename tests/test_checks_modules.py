@@ -116,6 +116,85 @@ class TestCheckModules(unittest.TestCase):
         self.assertEqual(findings[0].category, "security")
         self.assertEqual(findings[0].severity, "critical")
 
+    def _bandit_output(self, filename: str) -> str:
+        return json.dumps({
+            "results": [
+                {
+                    "filename": filename,
+                    "line_number": 5,
+                    "issue_text": "Use of exec detected.",
+                    "test_id": "B102",
+                    "issue_severity": "HIGH",
+                    "more_info": "https://bandit.readthedocs.io/",
+                }
+            ]
+        })
+
+    def test_bandit_all_files_mode_excludes_matched_pattern(self):
+        """In all-files mode, a file matching an exclude pattern is filtered out."""
+        output = self._bandit_output("venv/lib/helper.py")
+
+        with patch("shutil.which", return_value="/usr/bin/bandit"):
+            findings = run_bandit(
+                repo_dir=Path("/repo"),
+                files=None,
+                excludes=["venv/*"],
+                checks_cfg={"bandit": True},
+                run_cmd=lambda *_args, **_kwargs: _Result(stdout=output),
+                log=lambda _msg: None,
+            )
+
+        self.assertEqual(findings, [])
+
+    def test_bandit_all_files_mode_includes_unmatched_file(self):
+        """In all-files mode, a file that does not match any exclude is kept."""
+        output = self._bandit_output("src/app.py")
+
+        with patch("shutil.which", return_value="/usr/bin/bandit"):
+            findings = run_bandit(
+                repo_dir=Path("/repo"),
+                files=None,
+                excludes=["venv/*"],
+                checks_cfg={"bandit": True},
+                run_cmd=lambda *_args, **_kwargs: _Result(stdout=output),
+                log=lambda _msg: None,
+            )
+
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].file, "src/app.py")
+
+    def test_bandit_normalizes_dotslash_prefix_before_exclude_matching(self):
+        """Filenames like './venv/lib/helper.py' from bandit -r . are normalized."""
+        output = self._bandit_output("./venv/lib/helper.py")
+
+        with patch("shutil.which", return_value="/usr/bin/bandit"):
+            findings = run_bandit(
+                repo_dir=Path("/repo"),
+                files=None,
+                excludes=["venv/*"],
+                checks_cfg={"bandit": True},
+                run_cmd=lambda *_args, **_kwargs: _Result(stdout=output),
+                log=lambda _msg: None,
+            )
+
+        self.assertEqual(findings, [])
+
+    def test_bandit_no_excludes_in_all_files_mode_returns_all(self):
+        """With an empty exclude list, all findings are returned regardless."""
+        output = self._bandit_output("venv/lib/helper.py")
+
+        with patch("shutil.which", return_value="/usr/bin/bandit"):
+            findings = run_bandit(
+                repo_dir=Path("/repo"),
+                files=None,
+                excludes=[],
+                checks_cfg={"bandit": True},
+                run_cmd=lambda *_args, **_kwargs: _Result(stdout=output),
+                log=lambda _msg: None,
+            )
+
+        self.assertEqual(len(findings), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
