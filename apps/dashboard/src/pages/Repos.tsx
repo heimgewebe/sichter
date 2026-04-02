@@ -52,6 +52,11 @@ const Repos = () => {
   const [detail, setDetail] = useState<RepoFindingDetailResponse | null>(null);
   const [selectedRepo, setSelectedRepo] = useState<string | null>(searchParams.get('repo'));
   const pendingRepoRef = useRef<string | null>(null);
+  // When the mount-time URL restore or a selectRepo() call already fires a
+  // loadRepoDetail(), the filter-change effect must not fire a second fetch
+  // for the same repo.  This ref is set to true immediately before any such
+  // "primary" load so the filter-change effect can skip its own re-fetch.
+  const skipNextFilterEffectRef = useRef(false);
   const [selectedFile, setSelectedFile] = useState<string | null>(searchParams.get('file'));
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<'table' | 'heatmap'>('table');
@@ -114,6 +119,9 @@ const Repos = () => {
     if (repoParam) {
       const fileParam = searchParams.get('file');
       const params = buildFilterParams();
+      // Suppress the filter-change effect that fires on every mount — the
+      // load below is already the authoritative initial fetch.
+      skipNextFilterEffectRef.current = true;
       loadRepoDetail(repoParam, params, fileParam);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -199,6 +207,9 @@ const Repos = () => {
     setCategoryFilter(new Set());
     setDetailSort('severity');
     setDetailSortDir('desc');
+    // The state-setter calls above will retrigger the filter-change effect.
+    // Suppress it — the direct loadRepoDetail call below is the fetch we want.
+    skipNextFilterEffectRef.current = true;
     // fileToRestore=undefined → resets selectedFile (intentional on repo switch)
     loadRepoDetail(repoName);
   };
@@ -208,6 +219,13 @@ const Repos = () => {
   // Preserve & validate the current file selection.
   useEffect(() => {
     if (!selectedRepo) return;
+    // Skip if a primary load (URL-restore or selectRepo) already issued the
+    // fetch — avoids the double-request that would otherwise fire on mount and
+    // on every repo switch.
+    if (skipNextFilterEffectRef.current) {
+      skipNextFilterEffectRef.current = false;
+      return;
+    }
     const timer = setTimeout(() => {
       const params = buildFilterParams();
       // Pass current selectedFile from ref so stale selections get cleared
