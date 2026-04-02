@@ -249,6 +249,38 @@ def latest_findings_snapshot_for_repo(
     }
 
 
+def summarize_files_for_items(
+    items: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Build a ``files`` summary from a list of finding items.
+
+    Groups items by file and computes a per-file count and ``topSeverity``.
+    The result is sorted alphabetically by file name and mirrors the shape
+    used in ``build_findings_snapshot``.
+
+    Args:
+        items: Filtered (and optionally sorted) finding item dicts.
+
+    Returns:
+        List of ``{"file": str, "count": int, "topSeverity": str}`` dicts.
+    """
+    grouped: dict[str, list[dict[str, object]]] = {}
+    for item in items:
+        file_name = str(item.get("file") or "").strip()
+        if not file_name:
+            continue
+        grouped.setdefault(file_name, []).append(item)
+
+    return [
+        {
+            "file": file_name,
+            "count": len(file_items),
+            "topSeverity": _top_severity_for_items(file_items),
+        }
+        for file_name, file_items in sorted(grouped.items())
+    ]
+
+
 def filter_and_sort_items(
     items: list[dict[str, object]],
     *,

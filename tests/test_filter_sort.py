@@ -1,10 +1,10 @@
-"""Tests for filter_and_sort_items (lib/metrics) and the API filter/sort
-query parameters on /repos/findings/detail (Milestone 6.3)."""
+"""Tests for filter_and_sort_items, summarize_files_for_items (lib/metrics)
+and the API filter/sort query parameters on /repos/findings/detail (Milestone 6.3)."""
 
 import unittest
 from unittest.mock import patch
 
-from lib.metrics import filter_and_sort_items
+from lib.metrics import filter_and_sort_items, summarize_files_for_items
 
 
 # ---------------------------------------------------------------------------
@@ -269,6 +269,164 @@ class TestApiFilterSort(unittest.TestCase):
         result = api_main.repo_findings_detail(repo="heimgewebe/missing")
         self.assertEqual(result["items"], [])
         self.assertEqual(result["count"], 0)
+
+
+# ---------------------------------------------------------------------------
+# Tests for summarize_files_for_items helper
+# ---------------------------------------------------------------------------
+class TestSummarizeFilesForItems(unittest.TestCase):
+    """Unit tests for ``summarize_files_for_items``."""
+
+    def test_groups_items_by_file(self):
+        items = [
+            {"file": "a.py", "severity": "error"},
+            {"file": "a.py", "severity": "warning"},
+            {"file": "b.py", "severity": "critical"},
+        ]
+        result = summarize_files_for_items(items)
+        self.assertEqual(len(result), 2)
+        files = {e["file"]: e for e in result}
+        self.assertEqual(files["a.py"]["count"], 2)
+        self.assertEqual(files["b.py"]["count"], 1)
+
+    def test_top_severity_per_file(self):
+        items = [
+            {"file": "a.py", "severity": "warning"},
+            {"file": "a.py", "severity": "error"},
+            {"file": "b.py", "severity": "info"},
+        ]
+        result = summarize_files_for_items(items)
+        files = {e["file"]: e for e in result}
+        self.assertEqual(files["a.py"]["topSeverity"], "error")
+        self.assertEqual(files["b.py"]["topSeverity"], "info")
+
+    def test_sorted_alphabetically(self):
+        items = [
+            {"file": "z.py", "severity": "info"},
+            {"file": "a.py", "severity": "warning"},
+            {"file": "m.py", "severity": "error"},
+        ]
+        result = summarize_files_for_items(items)
+        self.assertEqual([e["file"] for e in result], ["a.py", "m.py", "z.py"])
+
+    def test_items_without_file_are_skipped(self):
+        items = [
+            {"severity": "error"},
+            {"file": "", "severity": "warning"},
+            {"file": "real.py", "severity": "critical"},
+        ]
+        result = summarize_files_for_items(items)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["file"], "real.py")
+
+    def test_empty_items_returns_empty(self):
+        self.assertEqual(summarize_files_for_items([]), [])
+
+
+# ---------------------------------------------------------------------------
+# Tests for consistent API view (files/count/deduped match filtered items)
+# ---------------------------------------------------------------------------
+class TestApiConsistentFilteredView(unittest.TestCase):
+    """Verify that files, count, and deduped are always consistent with
+    the filtered items returned by /repos/findings/detail."""
+
+    # Snapshot with 5 items across 4 files; raw count/deduped deliberately
+    # differ to confirm they are NOT passed through unchanged.
+    SNAPSHOT = {
+        "repo": "heimgewebe/demo",
+        "ts": "2026-03-30T10:00:00+00:00",
+        "count": 99,   # intentionally does not match len(items)
+        "deduped": 88, # intentionally does not match len(items)
+        "files": [
+            {"file": "a.py", "count": 2, "topSeverity": "error"},
+            {"file": "b.py", "count": 1, "topSeverity": "critical"},
+            {"file": "c.py", "count": 1, "topSeverity": "info"},
+            {"file": "d.py", "count": 1, "topSeverity": "warning"},
+        ],
+        "items": [
+            {"severity": "warning", "category": "style",          "file": "a.py", "line": 1,  "message": "trailing space"},
+            {"severity": "error",   "category": "security",       "file": "b.py", "line": 5,  "message": "sql injection"},
+            {"severity": "critical","category": "correctness",    "file": "c.py", "line": 10, "message": "null deref"},
+            {"severity": "info",    "category": "maintainability","file": "d.py", "line": 2,  "message": "unused import"},
+            {"severity": "error",   "category": "style",          "file": "a.py", "line": 20, "message": "long line"},
+        ],
+    }
+
+    @patch("lib.metrics.load_findings_snapshots")
+    def test_no_filter_files_rebuilt_from_items(self, mock_load):
+        from apps.api import main as api_main
+
+        mock_load.return_value = [self.SNAPSHOT]
+        result = api_main.repo_findings_detail(repo="heimgewebe/demo")
+        # files is rebuilt from items, not copied from snapshot verbatim
+        returned_files = {e["file"] for e in result["files"]}
+        self.assertEqual(returned_files, {"a.py", "b.py", "c.py", "d.py"})
+
+    @patch("lib.metrics.load_findings_snapshots")
+    def test_no_filter_count_deduped_match_items_length(self, mock_load):
+        from apps.api import main as api_main
+
+        mock_load.return_value = [self.SNAPSHOT]
+        result = api_main.repo_findings_detail(repo="heimgewebe/demo")
+        self.assertEqual(result["count"], len(result["items"]))
+        self.assertEqual(result["deduped"], len(result["items"]))
+
+    @patch("lib.metrics.load_findings_snapshots")
+    def test_filter_files_only_contain_matched_files(self, mock_load):
+        from apps.api import main as api_main
+
+        mock_load.return_value = [self.SNAPSHOT]
+        result = api_main.repo_findings_detail(repo="heimgewebe/demo", severity="error")
+        # Only a.py and b.py have error-severity items
+        returned_files = {e["file"] for e in result["files"]}
+        self.assertEqual(returned_files, {"a.py", "b.py"})
+        # c.py (critical) and d.py (info) must be absent
+        self.assertNotIn("c.py", returned_files)
+        self.assertNotIn("d.py", returned_files)
+
+    @patch("lib.metrics.load_findings_snapshots")
+    def test_filter_count_deduped_match_filtered_items(self, mock_load):
+        from apps.api import main as api_main
+
+        mock_load.return_value = [self.SNAPSHOT]
+        result = api_main.repo_findings_detail(repo="heimgewebe/demo", severity="error")
+        self.assertEqual(len(result["items"]), 2)
+        self.assertEqual(result["count"], 2)
+        self.assertEqual(result["deduped"], 2)
+
+    @patch("lib.metrics.load_findings_snapshots")
+    def test_filter_no_match_gives_empty_consistent_payload(self, mock_load):
+        from apps.api import main as api_main
+
+        mock_load.return_value = [self.SNAPSHOT]
+        result = api_main.repo_findings_detail(repo="heimgewebe/demo", severity="nonexistent")
+        self.assertEqual(result["items"], [])
+        self.assertEqual(result["files"], [])
+        self.assertEqual(result["count"], 0)
+        self.assertEqual(result["deduped"], 0)
+
+    @patch("lib.metrics.load_findings_snapshots")
+    def test_filter_file_count_matches_filtered_items(self, mock_load):
+        from apps.api import main as api_main
+
+        mock_load.return_value = [self.SNAPSHOT]
+        # a.py has 2 error items (warning + error), but only 1 is actually "error"
+        result = api_main.repo_findings_detail(repo="heimgewebe/demo", severity="error")
+        files = {e["file"]: e for e in result["files"]}
+        # a.py: 1 error item ("long line"), b.py: 1 error item ("sql injection")
+        self.assertEqual(files["a.py"]["count"], 1)
+        self.assertEqual(files["b.py"]["count"], 1)
+
+    @patch("lib.metrics.load_findings_snapshots")
+    def test_filter_top_severity_per_file_recalculated(self, mock_load):
+        from apps.api import main as api_main
+
+        mock_load.return_value = [self.SNAPSHOT]
+        # Filter to only "warning": a.py gets warning, rest disappear
+        result = api_main.repo_findings_detail(repo="heimgewebe/demo", severity="warning")
+        self.assertEqual(len(result["files"]), 1)
+        self.assertEqual(result["files"][0]["file"], "a.py")
+        self.assertEqual(result["files"][0]["topSeverity"], "warning")
 
 
 if __name__ == "__main__":

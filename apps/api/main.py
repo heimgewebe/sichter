@@ -525,11 +525,16 @@ def repo_findings_detail(
   - ``category`` – comma-separated list of category values to include.
   - ``sort``     – field to sort by (``severity``, ``category``, ``file``).
   - ``sort_dir`` – ``asc`` or ``desc`` (default ``desc``).
+
+  When filters are active the returned payload is a consistent filtered view:
+  ``items``, ``files``, ``count`` and ``deduped`` all reflect the same
+  filtered set of findings.
   """
   from lib.metrics import (
     filter_and_sort_items,
     latest_findings_snapshot_for_repo,
     load_findings_snapshots,
+    summarize_files_for_items,
   )
 
   sev_list = [s.strip() for s in severity.split(",") if s.strip()] if severity else None
@@ -545,7 +550,14 @@ def repo_findings_detail(
     filtered = filter_and_sort_items(
       raw_items, severity=sev_list, category=cat_list, sort=sort_field, sort_dir=direction,
     )
-    return {**snapshot, "items": filtered}
+    filtered_files = summarize_files_for_items(filtered)
+    return {
+      **snapshot,
+      "items": filtered,
+      "files": filtered_files,
+      "count": len(filtered),
+      "deduped": len(filtered),
+    }
 
   # Backward-compatible fallback to the latest findings event payload.
   events = _collect_events(max(1, min(n, 5_000)))
@@ -558,23 +570,7 @@ def repo_findings_detail(
     if str(payload.get("repo") or "") != repo:
       continue
 
-    files_in = payload.get("files") if isinstance(payload.get("files"), list) else []
     items_in = payload.get("items") if isinstance(payload.get("items"), list) else []
-
-    files: list[dict[str, object]] = []
-    for entry in files_in:
-      if not isinstance(entry, dict):
-        continue
-      path = str(entry.get("file") or entry.get("path") or "")
-      if not path:
-        continue
-      files.append(
-        {
-          "file": path,
-          "count": int(entry.get("count", 0) or 0),
-          "topSeverity": str(entry.get("topSeverity") or "unknown"),
-        }
-      )
 
     items: list[dict[str, object]] = []
     for entry in items_in:
@@ -595,12 +591,13 @@ def repo_findings_detail(
     filtered = filter_and_sort_items(
       items, severity=sev_list, category=cat_list, sort=sort_field, sort_dir=direction,
     )
+    filtered_files = summarize_files_for_items(filtered)
 
     return {
       "repo": repo,
-      "count": int(payload.get("count", 0) or 0),
-      "deduped": int(payload.get("deduped", 0) or 0),
-      "files": files,
+      "count": len(filtered),
+      "deduped": len(filtered),
+      "files": filtered_files,
       "items": filtered,
       "ts": evt.get("ts"),
     }

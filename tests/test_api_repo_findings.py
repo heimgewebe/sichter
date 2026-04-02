@@ -78,8 +78,10 @@ class TestApiRepoFindings(unittest.TestCase):
 
         mock_load_snapshots.assert_called_once_with(n=10_000)
         self.assertEqual(result["repo"], "heimgewebe/a")
-        self.assertEqual(result["count"], 3)
-        self.assertEqual(result["deduped"], 2)
+        # count and deduped now reflect the number of returned items (consistent view)
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(result["deduped"], 1)
+        # files is rebuilt from items, not taken verbatim from the snapshot
         self.assertEqual(result["files"][0]["file"], "b.py")
         self.assertEqual(result["items"][0]["message"], "latest")
 

@@ -107,11 +107,14 @@ const Repos = () => {
       })
       .catch((err) => setError((err as Error).message));
 
-    // Restore detail view from URL on initial load
+    // Restore detail view from URL on initial load.
+    // Pass fileParam so the file selection is preserved and validated against
+    // the loaded payload (instead of being reset by loadRepoDetail).
     const repoParam = searchParams.get('repo');
     if (repoParam) {
+      const fileParam = searchParams.get('file');
       const params = buildFilterParams();
-      loadRepoDetail(repoParam, params);
+      loadRepoDetail(repoParam, params, fileParam);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -143,6 +146,13 @@ const Repos = () => {
       });
   }, [repos, findings, query, sortBy, sortAsc]);
 
+  // Track selectedFile in a ref so the filter-change effect can read the
+  // current value without adding it to the dependency array.
+  const selectedFileRef = useRef<string | null>(selectedFile);
+  useEffect(() => {
+    selectedFileRef.current = selectedFile;
+  }, [selectedFile]);
+
   const buildFilterParams = useCallback((): FindingDetailParams => {
     const params: FindingDetailParams = {};
     if (severityFilter.size > 0) params.severity = Array.from(severityFilter);
@@ -152,19 +162,34 @@ const Repos = () => {
     return params;
   }, [severityFilter, categoryFilter, detailSort, detailSortDir]);
 
-  const loadRepoDetail = async (repoName: string, filterParams?: FindingDetailParams) => {
+  // fileToRestore: undefined = reset selectedFile (new repo chosen by user);
+  //               string|null = preserve & validate after load (URL-restore or filter-change).
+  const loadRepoDetail = async (
+    repoName: string,
+    filterParams?: FindingDetailParams,
+    fileToRestore?: string | null,
+  ) => {
     setSelectedRepo(repoName);
-    setSelectedFile(null);
+    if (fileToRestore === undefined) {
+      setSelectedFile(null);
+    }
     setDetail(null);
     pendingRepoRef.current = repoName;
     try {
       const payload = await fetchRepoFindingDetail(repoName, 500, filterParams);
       if (pendingRepoRef.current === repoName) {
         setDetail(payload);
+        // Validate restored/preserved file: clear it if it no longer appears
+        // in the returned files (e.g. filtered away).
+        if (fileToRestore !== undefined) {
+          const fileStillPresent = fileToRestore != null && payload.files.some((f) => f.file === fileToRestore);
+          setSelectedFile(fileStillPresent ? fileToRestore : null);
+        }
       }
     } catch {
       if (pendingRepoRef.current === repoName) {
         setDetail({ repo: repoName, count: 0, deduped: 0, files: [], items: [], ts: null });
+        if (fileToRestore !== undefined) setSelectedFile(null);
       }
     }
   };
@@ -174,16 +199,20 @@ const Repos = () => {
     setCategoryFilter(new Set());
     setDetailSort('severity');
     setDetailSortDir('desc');
+    // fileToRestore=undefined → resets selectedFile (intentional on repo switch)
     loadRepoDetail(repoName);
   };
 
   // Re-fetch detail when filters change (API-side filtering).
   // Debounce to avoid excessive API calls on rapid filter toggles.
+  // Preserve & validate the current file selection.
   useEffect(() => {
     if (!selectedRepo) return;
     const timer = setTimeout(() => {
       const params = buildFilterParams();
-      loadRepoDetail(selectedRepo, params);
+      // Pass current selectedFile from ref so stale selections get cleared
+      // automatically if the filter removes their parent file.
+      loadRepoDetail(selectedRepo, params, selectedFileRef.current);
     }, 250);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
