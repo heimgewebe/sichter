@@ -519,15 +519,56 @@ def repos_findings(n: int = 200) -> dict[str, list[dict]]:
 
 
 @app.get("/repos/findings/detail", dependencies=[Depends(verify_api_key)])
-def repo_findings_detail(repo: str, n: int = 500) -> dict[str, object]:
-  """Return the latest detailed findings snapshot for a repository."""
-  from lib.metrics import latest_findings_snapshot_for_repo, load_findings_snapshots
+def repo_findings_detail(
+  repo: str,
+  n: int = 500,
+  severity: str | None = None,
+  category: str | None = None,
+  sort: str = "severity",
+  sort_dir: str = "desc",
+) -> dict[str, object]:
+  """Return the latest detailed findings snapshot for a repository.
+
+  Supports server-side filtering and sorting via query parameters:
+
+  - ``severity`` – comma-separated list of severity values to include.
+  - ``category`` – comma-separated list of category values to include.
+  - ``sort``     – field to sort by (``severity``, ``category``, ``file``).
+  - ``sort_dir`` – ``asc`` or ``desc`` (default ``desc``).
+
+  The returned payload is always a consistent view of the (optionally
+  filtered) findings: ``items``, ``files``, ``count``, and ``deduped``
+  all reflect the same set.  ``count`` and ``deduped`` are always equal
+  because deduplication is performed at snapshot-write time, not here.
+  """
+  from lib.metrics import (
+    filter_and_sort_items,
+    latest_findings_snapshot_for_repo,
+    load_findings_snapshots,
+    summarize_files_for_items,
+  )
+
+  sev_list = [s.strip() for s in severity.split(",") if s.strip()] if severity else None
+  cat_list = [c.strip() for c in category.split(",") if c.strip()] if category else None
+  sort_field = sort if sort in ("severity", "category", "file") else "severity"
+  direction = sort_dir if sort_dir in ("asc", "desc") else "desc"
 
   records = load_findings_snapshots(n=max(1, min(n, 10_000)))
   snapshot = latest_findings_snapshot_for_repo(repo, records)
 
   if snapshot.get("ts"):
-    return snapshot
+    raw_items = list(snapshot.get("items") or [])
+    filtered = filter_and_sort_items(
+      raw_items, severity=sev_list, category=cat_list, sort=sort_field, sort_dir=direction,
+    )
+    filtered_files = summarize_files_for_items(filtered)
+    return {
+      **snapshot,
+      "items": filtered,
+      "files": filtered_files,
+      "count": len(filtered),
+      "deduped": len(filtered),
+    }
 
   # Backward-compatible fallback to the latest findings event payload.
   events = _collect_events(max(1, min(n, 5_000)))
@@ -540,23 +581,7 @@ def repo_findings_detail(repo: str, n: int = 500) -> dict[str, object]:
     if str(payload.get("repo") or "") != repo:
       continue
 
-    files_in = payload.get("files") if isinstance(payload.get("files"), list) else []
     items_in = payload.get("items") if isinstance(payload.get("items"), list) else []
-
-    files: list[dict[str, object]] = []
-    for entry in files_in:
-      if not isinstance(entry, dict):
-        continue
-      path = str(entry.get("file") or entry.get("path") or "")
-      if not path:
-        continue
-      files.append(
-        {
-          "file": path,
-          "count": int(entry.get("count", 0) or 0),
-          "topSeverity": str(entry.get("topSeverity") or "unknown"),
-        }
-      )
 
     items: list[dict[str, object]] = []
     for entry in items_in:
@@ -574,12 +599,17 @@ def repo_findings_detail(repo: str, n: int = 500) -> dict[str, object]:
         }
       )
 
+    filtered = filter_and_sort_items(
+      items, severity=sev_list, category=cat_list, sort=sort_field, sort_dir=direction,
+    )
+    filtered_files = summarize_files_for_items(filtered)
+
     return {
       "repo": repo,
-      "count": int(payload.get("count", 0) or 0),
-      "deduped": int(payload.get("deduped", 0) or 0),
-      "files": files,
-      "items": items,
+      "count": len(filtered),
+      "deduped": len(filtered),
+      "files": filtered_files,
+      "items": filtered,
       "ts": evt.get("ts"),
     }
 
