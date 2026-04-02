@@ -526,9 +526,10 @@ def repo_findings_detail(
   - ``sort``     – field to sort by (``severity``, ``category``, ``file``).
   - ``sort_dir`` – ``asc`` or ``desc`` (default ``desc``).
 
-  When filters are active the returned payload is a consistent filtered view:
-  ``items``, ``files``, ``count`` and ``deduped`` all reflect the same
-  filtered set of findings.
+  The returned payload is always a consistent view of the (optionally
+  filtered) findings: ``items``, ``files``, ``count``, and ``deduped``
+  all reflect the same set.  ``count`` and ``deduped`` are always equal
+  because deduplication is performed at snapshot-write time, not here.
   """
   from lib.metrics import (
     filter_and_sort_items,
