@@ -38,9 +38,13 @@ if not os.environ.get("SICHTER_API_KEY"):
   logger.warning("SICHTER_API_KEY is not set. Sensitive endpoints will return 503 (fail-closed).")
 
 # CORS für Dashboard (Vite etc.)
+allowed_origins = ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:4173"]
+if extra_origins := os.environ.get("SICHTER_ALLOWED_ORIGINS"):
+  allowed_origins.extend([o.strip() for o in extra_origins.split(",") if o.strip()])
+
 app.add_middleware(
   CORSMiddleware,
-  allow_origins=["*"],
+  allow_origins=allowed_origins,
   allow_credentials=True,
   allow_methods=["*"],
   allow_headers=["*"],
