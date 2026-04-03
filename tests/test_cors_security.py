@@ -1,12 +1,24 @@
 import ast
+import os
 from pathlib import Path
 
-def test_cors_policy_restricted():
+# Helper function to parse _build_allowed_origins logic directly from the file
+# for testing without importing (to avoid dependency issues with PyYAML/FastAPI).
+def get_build_allowed_origins_logic_node():
+    api_main = Path("apps/api/main.py")
+    tree = ast.parse(api_main.read_text())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_build_allowed_origins":
+            return node
+    return None
+
+def test_routes_are_protected_by_middleware_static():
+    """Verify via AST that the middleware is correctly applied in the code."""
     api_main = Path("apps/api/main.py")
     tree = ast.parse(api_main.read_text())
 
     found_middleware = False
-    allow_origins_val = None
+    allow_origins_expr = None
     allow_credentials_val = None
 
     for node in ast.walk(tree):
@@ -17,35 +29,53 @@ def test_cors_policy_restricted():
                     found_middleware = True
                     for kw in node.keywords:
                         if kw.arg == "allow_origins":
-                            if isinstance(kw.value, ast.Name):
-                                allow_origins_val = kw.value.id
-                            elif isinstance(kw.value, ast.List):
-                                allow_origins_val = [elt.value for elt in kw.value.elts if isinstance(elt, ast.Constant)]
+                            # It should now be calling _build_allowed_origins()
+                            if isinstance(kw.value, ast.Call) and isinstance(kw.value.func, ast.Name):
+                                allow_origins_expr = kw.value.func.id
                         if kw.arg == "allow_credentials":
                             if isinstance(kw.value, ast.Constant):
                                 allow_credentials_val = kw.value.value
 
     assert found_middleware, "CORSMiddleware not found in apps/api/main.py"
-    assert allow_origins_val != ["*"], "CORSMiddleware still allows all origins ['*']"
-    assert allow_origins_val == "allowed_origins", f"Expected allow_origins=allowed_origins, found {allow_origins_val}"
+    assert allow_origins_expr == "_build_allowed_origins", f"Expected allow_origins=_build_allowed_origins(), found {allow_origins_expr}"
     assert allow_credentials_val is True, "allow_credentials should be True"
 
-def test_allowed_origins_definition():
-    api_main = Path("apps/api/main.py")
-    tree = ast.parse(api_main.read_text())
+def test_build_allowed_origins_logic_execution():
+    """Extract and execute the _build_allowed_origins function logic to verify its behavior."""
+    node = get_build_allowed_origins_logic_node()
+    assert node is not None, "_build_allowed_origins function not found"
 
-    found_definition = False
-    default_origins = []
+    # We compile and execute the function definition in an isolated namespace
+    # to avoid dependency issues with the rest of apps/api/main.py
+    code = compile(ast.Module(body=[node], type_ignores=[]), "<string>", "exec")
 
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name) and target.id == "allowed_origins":
-                    found_definition = True
-                    if isinstance(node.value, ast.List):
-                        default_origins = [elt.value for elt in node.value.elts if isinstance(elt, ast.Constant)]
+    # Mock 'os' for the function to use
+    class MockOs:
+        environ = {}
+        @staticmethod
+        def get(key, default=None):
+            return MockOs.environ.get(key, default)
 
-    assert found_definition, "Variable 'allowed_origins' not found in apps/api/main.py"
-    assert "http://localhost:5173" in default_origins
-    assert "http://127.0.0.1:5173" in default_origins
-    assert "http://localhost:4173" in default_origins
+    namespace = {"os": MockOs}
+    exec(code, namespace)
+    _func = namespace["_build_allowed_origins"]
+
+    # 1. Test defaults
+    defaults = _func(None)
+    assert "http://localhost:5173" in defaults
+    assert "http://127.0.0.1:4173" in defaults
+    assert len(defaults) == 4
+
+    # 2. Test environment overrides with normalization
+    raw = " https://dashboard.io/ , http://prod.local, *, invalid-protocol, http://dup.com, http://dup.com/ "
+    origins = _func(raw)
+
+    assert "https://dashboard.io" in origins  # Trimmed and trailing slash removed
+    assert "http://prod.local" in origins
+    assert "*" not in origins                 # Security: wildcard rejected
+    assert "invalid-protocol" not in origins  # Security: protocol enforced
+    assert origins.count("http://dup.com") == 1 # Deduplication
+
+    # 3. Test empty inputs
+    assert len(_func("")) == 4
+    assert len(_func(" , , ")) == 4
