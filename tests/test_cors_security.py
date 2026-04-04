@@ -54,36 +54,48 @@ def test_build_allowed_origins_logic():
     """Verify logic behavior with various parameter inputs, ensuring env independence."""
     _func = extract_build_allowed_origins()
 
+    # Standard defaults used for comparison
+    expected_defaults = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
+    ]
+
     with patch.dict(os.environ, {}, clear=True):
         # 1. Defaults
-        defaults = _func(None)
-        assert len(defaults) == 4
-        assert "http://localhost:5173" in defaults
-        assert "http://127.0.0.1:4173" in defaults
+        assert _func(None) == expected_defaults
 
         # 2. Parameter-based overrides (normalization + security)
         # Input: path, query, wildcard, non-http, duplicate, empty
         raw = " https://dashboard.io/path?query , http://api.local, *, invalid-protocol, http://api.local "
         origins = _func(raw)
 
-        assert "https://dashboard.io" in origins  # Stripped path and query
-        assert "http://api.local" in origins      # Included
-        assert origins.count("http://api.local") == 1  # Deduplicated
-        assert "*" not in origins                 # Security: wildcard rejected
-        assert "invalid-protocol" not in origins  # Security: protocol enforced
+        # Security: We verify exact list equality to avoid CodeQL substring sanitization false positives.
+        # Logic: 4 defaults + 2 additions (https://dashboard.io, http://api.local)
+        assert origins == expected_defaults + [
+            "https://dashboard.io",
+            "http://api.local",
+        ]
 
         # 3. Empty/Malformed inputs
-        assert len(_func("")) == 4
-        assert len(_func(" , , ")) == 4
-        assert len(_func(None)) == 4
+        assert _func("") == expected_defaults
+        assert _func(" , , ") == expected_defaults
+        assert _func(None) == expected_defaults
 
 def test_build_allowed_origins_env_fallback():
     """Verify the real environment variable fallback path."""
     _func = extract_build_allowed_origins()
 
+    # Standard defaults used for comparison
+    expected_defaults = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
+    ]
+
     with patch.dict(os.environ, {"SICHTER_ALLOWED_ORIGINS": "https://env.io"}, clear=True):
-        # Passing None triggers the env lookup path in the function
-        origins_env = _func(None)
-        assert "https://env.io" in origins_env
-        assert "http://localhost:5173" in origins_env
-        assert len(origins_env) == 5
+        # Passing None triggers the env lookup path in the function.
+        # We verify exact list equality to be scanner-friendly.
+        assert _func(None) == expected_defaults + ["https://env.io"]
