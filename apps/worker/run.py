@@ -13,7 +13,7 @@ from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from fnmatch import fnmatch
+from lib.checks.base import compile_excludes, is_excluded
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -228,9 +228,10 @@ def iter_paths(repo_dir: Path, pattern: str, excludes: Iterable[str]) -> Iterabl
   Yields:
     Matching file paths
   """
+  compiled_re = compile_excludes(tuple(excludes))
   for path in repo_dir.rglob(pattern):
     rel = path.relative_to(repo_dir)
-    if any(fnmatch(str(rel), ex) for ex in excludes):
+    if is_excluded(str(rel), compiled_re):
       continue
     yield path
 
@@ -266,6 +267,7 @@ def get_changed_files(
 
   files: list[Path] = []
   skipped_outside: list[str] = []
+  compiled_re = compile_excludes(tuple(excludes))
 
   for raw in result.stdout.splitlines():
     rel_path_str = raw.strip()
@@ -289,7 +291,7 @@ def get_changed_files(
     except ValueError:
       continue
 
-    if any(fnmatch(str(rel), ex) for ex in excludes):
+    if is_excluded(str(rel), compiled_re):
       continue
 
     files.append(path)
