@@ -62,11 +62,11 @@ def test_build_allowed_origins_logic():
         assert "http://127.0.0.1:4173" in defaults
 
         # 2. Parameter-based overrides (normalization + security)
-        # Input: trailing slash, wildcard, non-http, duplicate, empty
-        raw = " https://dashboard.io/ , http://api.local, *, invalid-protocol, http://api.local "
+        # Input: path, query, wildcard, non-http, duplicate, empty
+        raw = " https://dashboard.io/path?query , http://api.local, *, invalid-protocol, http://api.local "
         origins = _func(raw)
 
-        assert "https://dashboard.io" in origins  # Stripped trailing slash
+        assert "https://dashboard.io" in origins  # Stripped path and query
         assert "http://api.local" in origins      # Included
         assert origins.count("http://api.local") == 1  # Deduplicated
         assert "*" not in origins                 # Security: wildcard rejected

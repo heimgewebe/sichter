@@ -58,12 +58,15 @@ def _build_allowed_origins(raw: str | None = None) -> list[str]:
     raw = os.environ.get("SICHTER_ALLOWED_ORIGINS")
 
   if raw:
+    from urllib.parse import urlsplit
     for part in raw.split(","):
-      origin = part.strip().rstrip("/")
-      # Security hardening: reject wildcards and only allow http/https
-      if not origin or origin == "*" or not (origin.startswith("http://") or origin.startswith("https://")):
+      part = part.strip()
+      if not part or part == "*":
         continue
-      extra.append(origin)
+      parsed = urlsplit(part)
+      # Security hardening: enforce http/https and ensure we only use the origin part
+      if parsed.scheme in ("http", "https") and parsed.netloc:
+        extra.append(f"{parsed.scheme}://{parsed.netloc}")
 
   # Deduplicate while preserving order
   seen = set()
