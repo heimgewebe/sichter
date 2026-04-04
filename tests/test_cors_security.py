@@ -4,16 +4,15 @@ from pathlib import Path
 from unittest.mock import patch
 
 # --- Logic Extraction for Isolated Testing ------------------------------------
-# We extract the _build_allowed_origins function to test its behavior without
-# triggering side-effects from the rest of the apps/api/main.py module
-# (which might fail due to missing dependencies like PyYAML).
+# We extract _build_allowed_origins to test its behavior without triggering
+# side-effects from the rest of apps/api/main.py (e.g. missing dependencies).
 
-def get_logic_function():
+def extract_build_allowed_origins():
     api_main = Path("apps/api/main.py")
     tree = ast.parse(api_main.read_text())
     node = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_build_allowed_origins")
 
-    # We compile in a namespace that includes 'os' to simulate the real environment
+    # Compile in a namespace that includes 'os' for env access
     namespace = {"os": os}
     code = compile(ast.Module(body=[node], type_ignores=[]), "<string>", "exec")
     exec(code, namespace)
@@ -21,7 +20,7 @@ def get_logic_function():
 
 # --- Tests ------------------------------------
 
-def test_middleware_is_configured_correctly_static():
+def test_middleware_uses_build_allowed_origins_static():
     """Verify via AST that the middleware uses our helper and has credentials enabled."""
     api_main = Path("apps/api/main.py")
     tree = ast.parse(api_main.read_text())
@@ -48,14 +47,15 @@ def test_middleware_is_configured_correctly_static():
     assert allow_credentials_val is True
 
 def test_build_allowed_origins_behavior():
-    """Verify the logic of _build_allowed_origins with various inputs."""
-    _func = get_logic_function()
+    """Verify logic behavior with various inputs, ensuring environment independence."""
+    _func = extract_build_allowed_origins()
 
-    # 1. Defaults
-    defaults = _func(None)
-    assert len(defaults) == 4
-    assert "http://localhost:5173" in defaults
-    assert "http://127.0.0.1:4173" in defaults
+    # 1. Defaults (ensure it's not affected by global env vars)
+    with patch.dict(os.environ, {}, clear=True):
+        defaults = _func(None)
+        assert len(defaults) == 4
+        assert "http://localhost:5173" in defaults
+        assert "http://127.0.0.1:4173" in defaults
 
     # 2. Parameter-based overrides (normalization + security)
     # Input: trailing slash, wildcard, non-http, duplicate, empty
@@ -69,13 +69,14 @@ def test_build_allowed_origins_behavior():
     assert "invalid-protocol" not in origins  # Security: protocol enforced
 
     # 3. Environment-based overrides (true fallback path)
-    with patch.dict(os.environ, {"SICHTER_ALLOWED_ORIGINS": "https://env.io"}, clear=False):
+    with patch.dict(os.environ, {"SICHTER_ALLOWED_ORIGINS": "https://env.io"}, clear=True):
         # We pass None to trigger the env lookup
         origins_env = _func(None)
         assert "https://env.io" in origins_env
         assert "http://localhost:5173" in origins_env
 
-    # 4. Empty/Malformed inputs
-    assert len(_func("")) == 4
-    assert len(_func(" , , ")) == 4
-    assert len(_func(None)) == 4
+    # 4. Empty/Malformed inputs (env-independent)
+    with patch.dict(os.environ, {}, clear=True):
+        assert len(_func("")) == 4
+        assert len(_func(" , , ")) == 4
+        assert len(_func(None)) == 4
