@@ -13,7 +13,6 @@ from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from fnmatch import fnmatch
 from lib.checks.base import compile_excludes, is_excluded
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
