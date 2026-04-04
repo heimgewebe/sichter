@@ -1,8 +1,5 @@
 import json
-import time
 import os
-import sys
-from pathlib import Path
 from datetime import datetime, timezone
 import pytest
 from chronik.app import main
