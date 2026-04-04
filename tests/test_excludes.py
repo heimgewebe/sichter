@@ -1,4 +1,3 @@
-import re
 from fnmatch import fnmatch
 from pathlib import Path
 
@@ -27,7 +26,7 @@ class TestExcludesFunctions:
             ("test.py", ("*.js",), False),
             ("test.py", ("*.js", "*.py"), True),
             ("src/foo/bar.py", ("src/*",), True),
-            ("src/foo/bar.py", ("src/**/*.py",), True),  # Basic fnmatch doesn't strictly support globstars, but translate does a basic translation. Let's test standard fnmatch equivalence.
+            ("src/foo/bar.py", ("src/**/*.py",), True),  # Verify globstar pattern matching parity
             ("src/foo/bar.py", ("*/bar.py",), True),
             ("src/foo/baz.py", ("*/bar.py",), False),
         ]
@@ -79,8 +78,6 @@ class TestGetChangedFiles:
     def test_get_changed_files_filters_excludes(self, tmp_path, monkeypatch):
         repo_dir = tmp_path
 
-        # Mock subprocess.run to return predictable git output
-        import subprocess
         class MockCompletedProcess:
             def __init__(self, stdout):
                 self.stdout = stdout
@@ -88,27 +85,18 @@ class TestGetChangedFiles:
                 self.stderr = ""
 
         def mock_run(cmd, *args, **kwargs):
-            # Simulated git diff output
-            output = "keep.py\nignored.py\noutside/path.py\n"
+            # Simulate git diff output with an excluded file, a kept file, and an outside relative path
+            output = "keep.py\nignored.py\n../outside/path.py\n"
             return MockCompletedProcess(output)
 
-        monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr("apps.worker.run.subprocess.run", mock_run)
 
-        # Create the files so they exist (get_changed_files might check existence)
         (repo_dir / "keep.py").write_text("")
         (repo_dir / "ignored.py").write_text("")
-
-        # Mock Path.resolve to handle the outside path
-        original_resolve = Path.resolve
-        def mock_resolve(self, *args, **kwargs):
-            if "outside" in str(self):
-                return Path("/tmp/outside/path.py")
-            return original_resolve(self, *args, **kwargs)
-        monkeypatch.setattr(Path, "resolve", mock_resolve)
 
         result = get_changed_files(repo_dir, excludes=("ignored.py",))
 
         result_names = {p.name for p in result}
-        assert "ignored.py" not in result_names
         assert "keep.py" in result_names
-        assert "path.py" not in result_names # Outside path should be skipped
+        assert "ignored.py" not in result_names
+        assert "path.py" not in result_names
