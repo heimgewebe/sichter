@@ -4,10 +4,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 # --- Logic Extraction for Isolated Testing ------------------------------------
-# We extract _build_allowed_origins to test its behavior without triggering
-# side-effects from the rest of apps/api/main.py (e.g. missing dependencies).
 
 def extract_build_allowed_origins():
+    """Extracts _build_allowed_origins from apps/api/main.py via AST.
+
+    This technique allows testing the core logic in isolation without triggering
+    unrelated module side-effects or requiring external dependencies (FastAPI, PyYAML)
+    in the test environment.
+    """
     api_main = Path("apps/api/main.py")
     tree = ast.parse(api_main.read_text())
     node = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_build_allowed_origins")
@@ -46,37 +50,40 @@ def test_middleware_uses_build_allowed_origins_static():
     assert allow_origins_expr == "_build_allowed_origins"
     assert allow_credentials_val is True
 
-def test_build_allowed_origins_behavior():
-    """Verify logic behavior with various inputs, ensuring environment independence."""
+def test_build_allowed_origins_logic():
+    """Verify logic behavior with various parameter inputs, ensuring env independence."""
     _func = extract_build_allowed_origins()
 
-    # 1. Defaults (ensure it's not affected by global env vars)
     with patch.dict(os.environ, {}, clear=True):
+        # 1. Defaults
         defaults = _func(None)
         assert len(defaults) == 4
         assert "http://localhost:5173" in defaults
         assert "http://127.0.0.1:4173" in defaults
 
-    # 2. Parameter-based overrides (normalization + security)
-    # Input: trailing slash, wildcard, non-http, duplicate, empty
-    raw = " https://dashboard.io/ , http://api.local, *, invalid-protocol, http://api.local "
-    origins = _func(raw)
+        # 2. Parameter-based overrides (normalization + security)
+        # Input: trailing slash, wildcard, non-http, duplicate, empty
+        raw = " https://dashboard.io/ , http://api.local, *, invalid-protocol, http://api.local "
+        origins = _func(raw)
 
-    assert "https://dashboard.io" in origins  # Stripped trailing slash
-    assert "http://api.local" in origins      # Included
-    assert origins.count("http://api.local") == 1  # Deduplicated
-    assert "*" not in origins                 # Security: wildcard rejected
-    assert "invalid-protocol" not in origins  # Security: protocol enforced
+        assert "https://dashboard.io" in origins  # Stripped trailing slash
+        assert "http://api.local" in origins      # Included
+        assert origins.count("http://api.local") == 1  # Deduplicated
+        assert "*" not in origins                 # Security: wildcard rejected
+        assert "invalid-protocol" not in origins  # Security: protocol enforced
 
-    # 3. Environment-based overrides (true fallback path)
-    with patch.dict(os.environ, {"SICHTER_ALLOWED_ORIGINS": "https://env.io"}, clear=True):
-        # We pass None to trigger the env lookup
-        origins_env = _func(None)
-        assert "https://env.io" in origins_env
-        assert "http://localhost:5173" in origins_env
-
-    # 4. Empty/Malformed inputs (env-independent)
-    with patch.dict(os.environ, {}, clear=True):
+        # 3. Empty/Malformed inputs
         assert len(_func("")) == 4
         assert len(_func(" , , ")) == 4
         assert len(_func(None)) == 4
+
+def test_build_allowed_origins_env_fallback():
+    """Verify the real environment variable fallback path."""
+    _func = extract_build_allowed_origins()
+
+    with patch.dict(os.environ, {"SICHTER_ALLOWED_ORIGINS": "https://env.io"}, clear=True):
+        # Passing None triggers the env lookup path in the function
+        origins_env = _func(None)
+        assert "https://env.io" in origins_env
+        assert "http://localhost:5173" in origins_env
+        assert len(origins_env) == 5
