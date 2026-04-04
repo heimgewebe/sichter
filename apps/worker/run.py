@@ -3,15 +3,17 @@ from __future__ import annotations
 import atexit
 import json
 import os
+import re
 import select
 import shutil
 import subprocess
 import sys
 import time
 from collections.abc import Iterable
+from functools import lru_cache
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from fnmatch import fnmatch
+from fnmatch import fnmatch, translate
 from pathlib import Path
 from typing import cast
 
@@ -157,6 +159,45 @@ class Policy:
 POLICY = Policy.load()
 
 
+@lru_cache(maxsize=16)
+def _compile_excludes(excludes: tuple[str, ...]) -> re.Pattern | None:
+  """Compile glob patterns into a single regular expression.
+
+  Args:
+    excludes: Tuple of glob patterns
+
+  Returns:
+    Compiled regular expression or None if excludes is empty
+  """
+  if not excludes:
+    return None
+  # fnmatch.translate produces a regex string. We wrap each in a non-capturing group.
+  regex_str = "|".join(f"(?:{translate(ex)})" for ex in excludes)
+  return re.compile(regex_str)
+
+
+def _is_excluded(path_str: str, excludes: Iterable[str] | re.Pattern | None) -> bool:
+  """Check if path matches any exclusion pattern using compiled regex.
+
+  Args:
+    path_str: Path string to check
+    excludes: Iterable of exclusion glob patterns or a pre-compiled regex
+
+  Returns:
+    True if path matches any exclusion pattern, False otherwise
+  """
+  if isinstance(excludes, re.Pattern):
+    return bool(excludes.match(path_str))
+  if excludes is None:
+    return False
+
+  excludes_tuple = tuple(excludes)
+  compiled_re = _compile_excludes(excludes_tuple)
+  if compiled_re is None:
+    return False
+  return bool(compiled_re.match(path_str))
+
+
 def iter_paths(repo_dir: Path, pattern: str, excludes: Iterable[str]) -> Iterable[Path]:
   """Iterate over files matching pattern, excluding specified patterns.
 
@@ -168,9 +209,10 @@ def iter_paths(repo_dir: Path, pattern: str, excludes: Iterable[str]) -> Iterabl
   Yields:
     Matching file paths
   """
+  compiled = _compile_excludes(tuple(excludes))
   for path in repo_dir.rglob(pattern):
     rel = path.relative_to(repo_dir)
-    if any(fnmatch(str(rel), ex) for ex in excludes):
+    if _is_excluded(str(rel), compiled):
       continue
     yield path
 
@@ -206,6 +248,7 @@ def get_changed_files(
 
   files: list[Path] = []
   skipped_outside: list[str] = []
+  compiled = _compile_excludes(tuple(excludes))
 
   for raw in result.stdout.splitlines():
     rel_path_str = raw.strip()
@@ -229,7 +272,7 @@ def get_changed_files(
     except ValueError:
       continue
 
-    if any(fnmatch(str(rel), ex) for ex in excludes):
+    if _is_excluded(str(rel), compiled):
       continue
 
     files.append(path)
@@ -291,6 +334,7 @@ def run_shellcheck(repo_dir: Path, files: Iterable[Path] | None = None) -> list[
     candidates = iter_paths(repo_dir, "*.sh", POLICY.excludes)
   else:
     # Apply suffix and excludes filter when files are provided
+    compiled = _compile_excludes(tuple(POLICY.excludes))
     candidates = []
     for script in files:
       if script.suffix != ".sh":
@@ -300,7 +344,7 @@ def run_shellcheck(repo_dir: Path, files: Iterable[Path] | None = None) -> list[
       except ValueError:
         # Skip files not under repo_dir (path prefix check); symlink-escape protection is handled in get_changed_files.
         continue
-      if any(fnmatch(str(rel), ex) for ex in POLICY.excludes):
+      if _is_excluded(str(rel), compiled):
         continue
       candidates.append(script)
 
@@ -393,6 +437,7 @@ def run_yamllint(repo_dir: Path, files: Iterable[Path] | None = None) -> list[Fi
     candidates.extend(iter_paths(repo_dir, "*.yaml", POLICY.excludes))
   else:
     # Apply suffix and excludes filter when files are provided
+    compiled = _compile_excludes(tuple(POLICY.excludes))
     candidates = []
     for p in files:
       if p.suffix not in {".yml", ".yaml"}:
@@ -402,7 +447,7 @@ def run_yamllint(repo_dir: Path, files: Iterable[Path] | None = None) -> list[Fi
       except ValueError:
         # Skip files not under repo_dir (path prefix check); symlink-escape protection is handled in get_changed_files.
         continue
-      if any(fnmatch(str(rel), ex) for ex in POLICY.excludes):
+      if _is_excluded(str(rel), compiled):
         continue
       candidates.append(p)
 
