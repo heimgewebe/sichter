@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Iterable
-from fnmatch import fnmatch, translate
+from fnmatch import translate
 from functools import lru_cache
 from pathlib import Path
 from typing import Protocol, cast
@@ -65,7 +65,7 @@ def normalize_severity(severity: str) -> Severity:
 
 
 @lru_cache(maxsize=16)
-def _compile_excludes(excludes: tuple[str, ...]) -> re.Pattern | None:
+def compile_excludes(excludes: tuple[str, ...]) -> re.Pattern | None:
   """Compile glob patterns into a single regular expression.
 
   Args:
@@ -81,7 +81,7 @@ def _compile_excludes(excludes: tuple[str, ...]) -> re.Pattern | None:
   return re.compile(regex_str)
 
 
-def _is_excluded(path_str: str, excludes: Iterable[str] | re.Pattern | None) -> bool:
+def is_excluded(path_str: str, excludes: Iterable[str] | re.Pattern | None) -> bool:
   """Check if path matches any exclusion pattern using compiled regex.
 
   Args:
@@ -97,7 +97,7 @@ def _is_excluded(path_str: str, excludes: Iterable[str] | re.Pattern | None) -> 
     return False
 
   excludes_tuple = tuple(excludes)
-  compiled_re = _compile_excludes(excludes_tuple)
+  compiled_re = compile_excludes(excludes_tuple)
   if compiled_re is None:
     return False
   return bool(compiled_re.match(path_str))
@@ -141,7 +141,7 @@ def iter_matching_files(
     candidates = list(files)
 
   selected: list[Path] = []
-  compiled_re = _compile_excludes(tuple(excludes))
+  compiled_re = compile_excludes(tuple(excludes))
   for candidate in candidates:
     if candidate.suffix not in suffixes:
       continue
@@ -149,7 +149,7 @@ def iter_matching_files(
       rel = candidate.relative_to(repo_dir)
     except ValueError:
       continue
-    if _is_excluded(str(rel), compiled_re):
+    if is_excluded(str(rel), compiled_re):
       continue
     selected.append(candidate)
 
