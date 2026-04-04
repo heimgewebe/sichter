@@ -37,10 +37,52 @@ app = FastAPI(title="Sichter API", version="0.1.1")
 if not os.environ.get("SICHTER_API_KEY"):
   logger.warning("SICHTER_API_KEY is not set. Sensitive endpoints will return 503 (fail-closed).")
 
+def _build_allowed_origins(raw: str | None = None) -> list[str]:
+  """Construct a hardened whitelist of allowed CORS origins.
+
+  Includes defaults for local Vite/React development and optional
+  overrides via the SICHTER_ALLOWED_ORIGINS environment variable (comma-separated).
+  Security hardening: rejects wildcards ('*'), enforces http/https schemes,
+  and normalizes origins (trimming, stripping trailing slashes).
+  """
+  defaults = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
+  ]
+
+  # Process environment overrides
+  extra = []
+  if raw is None:
+    raw = os.environ.get("SICHTER_ALLOWED_ORIGINS")
+
+  if raw:
+    from urllib.parse import urlsplit
+    for part in raw.split(","):
+      part = part.strip()
+      if not part or part == "*":
+        continue
+      parsed = urlsplit(part)
+      # Security hardening: enforce http/https and ensure we only use the origin part
+      if parsed.scheme in ("http", "https") and parsed.netloc:
+        extra.append(f"{parsed.scheme}://{parsed.netloc}")
+
+  # Deduplicate while preserving order
+  seen = set()
+  result = []
+  for o in defaults + extra:
+    if o not in seen:
+      result.append(o)
+      seen.add(o)
+
+  return result
+
+
 # CORS für Dashboard (Vite etc.)
 app.add_middleware(
   CORSMiddleware,
-  allow_origins=["*"],
+  allow_origins=_build_allowed_origins(),
   allow_credentials=True,
   allow_methods=["*"],
   allow_headers=["*"],
