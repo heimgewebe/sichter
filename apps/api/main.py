@@ -40,8 +40,10 @@ if not os.environ.get("SICHTER_API_KEY"):
 def _build_allowed_origins(raw: str | None = None) -> list[str]:
   """Construct a hardened whitelist of allowed CORS origins.
 
-  Includes defaults for local Vite/React development and production
-  overrides via SICHTER_ALLOWED_ORIGINS environment variable.
+  Includes defaults for local Vite/React development and optional
+  overrides via the SICHTER_ALLOWED_ORIGINS environment variable (comma-separated).
+  Security hardening: rejects wildcards ('*'), enforces http/https schemes,
+  and normalizes origins (trimming, stripping trailing slashes).
   """
   defaults = [
     "http://localhost:5173",
