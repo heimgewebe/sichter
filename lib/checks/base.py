@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Callable, Iterable
 from fnmatch import translate
@@ -76,8 +77,8 @@ def compile_excludes(excludes: tuple[str, ...]) -> re.Pattern | None:
   """
   if not excludes:
     return None
-  # fnmatch.translate produces a regex string. We wrap each in a non-capturing group.
-  regex_str = "|".join(f"(?:{translate(ex)})" for ex in excludes)
+  # Use os.path.normcase to ensure consistent case and path separators (like fnmatch does)
+  regex_str = "|".join(f"(?:{translate(os.path.normcase(ex))})" for ex in excludes)
   return re.compile(regex_str)
 
 
@@ -91,8 +92,11 @@ def is_excluded(path_str: str, excludes: Iterable[str] | re.Pattern | None) -> b
   Returns:
     True if path matches any exclusion pattern, False otherwise
   """
+  # Normalize the path for matching, identical to how patterns are normalized
+  normalized_path = os.path.normcase(path_str)
+
   if isinstance(excludes, re.Pattern):
-    return bool(excludes.match(path_str))
+    return bool(excludes.match(normalized_path))
   if excludes is None:
     return False
 
@@ -100,7 +104,7 @@ def is_excluded(path_str: str, excludes: Iterable[str] | re.Pattern | None) -> b
   compiled_re = compile_excludes(excludes_tuple)
   if compiled_re is None:
     return False
-  return bool(compiled_re.match(path_str))
+  return bool(compiled_re.match(normalized_path))
 
 
 def build_uncertainty(tool: str, line: int | None, rule_id: str | None) -> dict:

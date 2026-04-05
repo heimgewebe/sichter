@@ -1,27 +1,28 @@
+import os
+import tempfile
+import unittest
 from fnmatch import fnmatch
 from pathlib import Path
-
-import pytest
+from unittest.mock import patch
 
 from lib.checks.base import compile_excludes, is_excluded, iter_matching_files
 from apps.worker.run import iter_paths, get_changed_files
 
-class TestExcludesFunctions:
+class TestExcludesFunctions(unittest.TestCase):
     def test_compile_excludes_empty(self):
-        assert compile_excludes(()) is None
+        self.assertIsNone(compile_excludes(()))
 
     def test_compile_excludes_caching(self):
-        assert compile_excludes(("*.py",)) is compile_excludes(("*.py",))
-        assert compile_excludes(("*.py",)) is not compile_excludes(("*.js",))
+        self.assertIs(compile_excludes(("*.py",)), compile_excludes(("*.py",)))
+        self.assertIsNot(compile_excludes(("*.py",)), compile_excludes(("*.js",)))
 
     def test_is_excluded_none_or_empty(self):
-        assert not is_excluded("test.py", None)
-        assert not is_excluded("test.py", ())
-        assert not is_excluded("test.py", [])
+        self.assertFalse(is_excluded("test.py", None))
+        self.assertFalse(is_excluded("test.py", ()))
+        self.assertFalse(is_excluded("test.py", []))
 
-    @pytest.mark.parametrize(
-        "path,excludes,expected",
-        [
+    def test_is_excluded_scenarios(self):
+        scenarios = [
             ("test.py", ("*.py",), True),
             ("test.py", ("*.js",), False),
             ("test.py", ("*.js", "*.py"), True),
@@ -29,74 +30,86 @@ class TestExcludesFunctions:
             ("src/foo/bar.py", ("src/**/*.py",), True),  # Verify globstar pattern matching parity
             ("src/foo/bar.py", ("*/bar.py",), True),
             ("src/foo/baz.py", ("*/bar.py",), False),
+            # Testing Windows-style path vs slashes
+            ("src\\\\foo\\\\bar.py", ("src/*",), True) if os.name == "nt" else ("src\\\\foo\\\\bar.py", ("src/*",), False),
+            ("SRC/foo/bar.py", ("src/*",), True) if os.name == "nt" else ("SRC/foo/bar.py", ("src/*",), False),
         ]
-    )
-    def test_is_excluded_scenarios(self, path, excludes, expected):
-        assert is_excluded(path, excludes) == expected
 
-        # Test equivalence with standard fnmatch list comprehension
-        expected_fnmatch = any(fnmatch(path, ex) for ex in excludes)
-        assert is_excluded(path, excludes) == expected_fnmatch
+        for path, excludes, expected in scenarios:
+            with self.subTest(path=path, excludes=excludes):
+                self.assertEqual(is_excluded(path, excludes), expected)
+
+                # Test equivalence with standard fnmatch list comprehension
+                expected_fnmatch = any(fnmatch(path, ex) for ex in excludes)
+                self.assertEqual(is_excluded(path, excludes), expected_fnmatch)
 
     def test_is_excluded_compiled_re(self):
         compiled = compile_excludes(("*.py",))
-        assert is_excluded("test.py", compiled) is True
-        assert is_excluded("test.js", compiled) is False
+        self.assertTrue(is_excluded("test.py", compiled))
+        self.assertFalse(is_excluded("test.js", compiled))
 
-class TestIterMatchingFiles:
-    def test_iter_matching_files_filters_excludes(self, tmp_path):
-        repo_dir = tmp_path
-        (repo_dir / "test.py").write_text("")
-        (repo_dir / "test.js").write_text("")
-        (repo_dir / "ignored.py").write_text("")
 
-        files = None # Simulate all files
-        suffixes = {".py", ".js"}
-        excludes = ("ignored.py",)
+class TestIterMatchingFiles(unittest.TestCase):
+    def test_iter_matching_files_filters_excludes(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_dir = Path(tmp_dir)
+            (repo_dir / "test.py").write_text("")
+            (repo_dir / "test.js").write_text("")
+            (repo_dir / "ignored.py").write_text("")
 
-        result = iter_matching_files(repo_dir, files, suffixes, excludes)
+            files = None # Simulate all files
+            suffixes = {".py", ".js"}
+            excludes = ("ignored.py",)
 
-        result_names = {p.name for p in result}
-        assert result_names == {"test.py", "test.js"}
-        assert "ignored.py" not in result_names
+            result = iter_matching_files(repo_dir, files, suffixes, excludes)
 
-class TestIterPaths:
-    def test_iter_paths_filters_excludes(self, tmp_path):
-        repo_dir = tmp_path
-        (repo_dir / "test.py").write_text("")
-        (repo_dir / "test.js").write_text("")
-        (repo_dir / "ignored.py").write_text("")
+            result_names = {p.name for p in result}
+            self.assertEqual(result_names, {"test.py", "test.js"})
+            self.assertNotIn("ignored.py", result_names)
 
-        result = list(iter_paths(repo_dir, "*", ["ignored.py"]))
 
-        result_names = {p.name for p in result}
-        assert "ignored.py" not in result_names
-        assert "test.py" in result_names
-        assert "test.js" in result_names
+class TestIterPaths(unittest.TestCase):
+    def test_iter_paths_filters_excludes(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_dir = Path(tmp_dir)
+            (repo_dir / "test.py").write_text("")
+            (repo_dir / "test.js").write_text("")
+            (repo_dir / "ignored.py").write_text("")
 
-class TestGetChangedFiles:
-    def test_get_changed_files_filters_excludes(self, tmp_path, monkeypatch):
-        repo_dir = tmp_path
+            result = list(iter_paths(repo_dir, "*", ["ignored.py"]))
 
-        class MockCompletedProcess:
-            def __init__(self, stdout):
-                self.stdout = stdout
-                self.returncode = 0
-                self.stderr = ""
+            result_names = {p.name for p in result}
+            self.assertNotIn("ignored.py", result_names)
+            self.assertIn("test.py", result_names)
+            self.assertIn("test.js", result_names)
 
-        def mock_run(cmd, *args, **kwargs):
-            # Simulate git diff output with an excluded file, a kept file, and an outside relative path
-            output = "keep.py\nignored.py\n../outside/path.py\n"
-            return MockCompletedProcess(output)
 
-        monkeypatch.setattr("apps.worker.run.subprocess.run", mock_run)
+class TestGetChangedFiles(unittest.TestCase):
+    def test_get_changed_files_filters_excludes(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_dir = Path(tmp_dir)
 
-        (repo_dir / "keep.py").write_text("")
-        (repo_dir / "ignored.py").write_text("")
+            class MockCompletedProcess:
+                def __init__(self, stdout):
+                    self.stdout = stdout
+                    self.returncode = 0
+                    self.stderr = ""
 
-        result = get_changed_files(repo_dir, excludes=("ignored.py",))
+            def mock_run(cmd, *args, **kwargs):
+                # Simulate git diff output with an excluded file, a kept file, and an outside relative path
+                output = "keep.py\nignored.py\n../outside/path.py\n"
+                return MockCompletedProcess(output)
 
-        result_names = {p.name for p in result}
-        assert "keep.py" in result_names
-        assert "ignored.py" not in result_names
-        assert "path.py" not in result_names
+            with patch("apps.worker.run.run_cmd", side_effect=mock_run):
+                (repo_dir / "keep.py").write_text("")
+                (repo_dir / "ignored.py").write_text("")
+
+                result = get_changed_files(repo_dir, excludes=("ignored.py",))
+
+                result_names = {p.name for p in result}
+                self.assertIn("keep.py", result_names)
+                self.assertNotIn("ignored.py", result_names)
+                self.assertNotIn("path.py", result_names)
+
+if __name__ == "__main__":
+    unittest.main()
