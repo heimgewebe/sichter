@@ -57,7 +57,7 @@ class TestIterMatchingFiles(unittest.TestCase):
             (repo_dir / "test.js").write_text("")
             (repo_dir / "ignored.py").write_text("")
 
-            files = None # Simulate all files
+            files = None  # Simulate all files
             suffixes = {".py", ".js"}
             excludes = ("ignored.py",)
 
