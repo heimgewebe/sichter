@@ -7,9 +7,8 @@ from pathlib import Path
 
 from lib.findings import Finding
 
-from .base import build_uncertainty, iter_matching_files, policy_check_enabled
+from .base import build_uncertainty, compile_excludes, is_excluded, iter_matching_files, policy_check_enabled
 
-from fnmatch import fnmatch
 
 
 def run_bandit(
@@ -28,13 +27,12 @@ def run_bandit(
     return []
 
   if files is None:
-    excludes_list = list(excludes)
+    compiled_re = compile_excludes(tuple(excludes))
     cmd = ["bandit", "-f", "json", "-r", "."]
   else:
     candidates = iter_matching_files(repo_dir, files, {".py"}, excludes)
     if not candidates:
       return []
-    excludes_list = []
     cmd = ["bandit", "-f", "json", *[str(path) for path in candidates]]
 
   result = run_cmd(cmd, repo_dir, check=False)
@@ -79,8 +77,8 @@ def run_bandit(
 
     # In all-files mode, apply policy excludes to results since bandit -r .
     # does its own file discovery and bypasses iter_matching_files filtering.
-    if files is None and excludes_list:
-      if any(fnmatch(file_rel, pattern) for pattern in excludes_list):
+    if files is None and excludes:
+      if is_excluded(file_rel, compiled_re):
         continue
 
     findings.append(

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import os
+import re
 from collections.abc import Callable, Iterable
-from fnmatch import fnmatch
+from fnmatch import translate
+from functools import lru_cache
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -61,6 +64,49 @@ def normalize_severity(severity: str) -> Severity:
   return "warning"
 
 
+
+@lru_cache(maxsize=16)
+def compile_excludes(excludes: tuple[str, ...]) -> re.Pattern | None:
+  """Compile glob patterns into a single regular expression.
+
+  Args:
+    excludes: Tuple of glob patterns
+
+  Returns:
+    Compiled regular expression or None if excludes is empty
+  """
+  if not excludes:
+    return None
+  # Use os.path.normcase to ensure consistent case and path separators (like fnmatch does)
+  regex_str = "|".join(f"(?:{translate(os.path.normcase(ex))})" for ex in excludes)
+  return re.compile(regex_str)
+
+
+def is_excluded(path_str: str, excludes: Iterable[str] | re.Pattern | None) -> bool:
+  """Check if path matches any exclusion pattern using compiled regex.
+
+  Args:
+    path_str: Path string to check
+    excludes: Iterable of exclusion glob patterns or a pre-compiled regex
+
+  Returns:
+    True if path matches any exclusion pattern, False otherwise
+  """
+  # Normalize the path for matching, identical to how patterns are normalized
+  normalized_path = os.path.normcase(path_str)
+
+  if isinstance(excludes, re.Pattern):
+    return bool(excludes.match(normalized_path))
+  if excludes is None:
+    return False
+
+  excludes_tuple = tuple(excludes)
+  compiled_re = compile_excludes(excludes_tuple)
+  if compiled_re is None:
+    return False
+  return bool(compiled_re.match(normalized_path))
+
+
 def build_uncertainty(tool: str, line: int | None, rule_id: str | None) -> dict:
   """Build a lightweight uncertainty payload for static findings."""
   level = 0.15
@@ -99,6 +145,7 @@ def iter_matching_files(
     candidates = list(files)
 
   selected: list[Path] = []
+  compiled_re = compile_excludes(tuple(excludes))
   for candidate in candidates:
     if candidate.suffix not in suffixes:
       continue
@@ -106,7 +153,7 @@ def iter_matching_files(
       rel = candidate.relative_to(repo_dir)
     except ValueError:
       continue
-    if any(fnmatch(str(rel), pattern) for pattern in excludes):
+    if is_excluded(str(rel), compiled_re):
       continue
     selected.append(candidate)
 
