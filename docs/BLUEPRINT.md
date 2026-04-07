@@ -153,7 +153,7 @@
   - [x] `lib/heuristics/drift.py` — Versionsnummern zwischen `pyproject.toml` und `requirements.txt`
   - [x] Weitere Quellen: `toolchain.versions.yml` ↔ `Dockerfile` ARG/ENV-Pins
   - [x] Drift ≠ Fehler → Beobachtung, kein Auto-Fix
-  - [ ] Policy-Flag: `heuristics.drift.create_pr: false` (default)
+  - [x] Policy-Flag: `checks.drift.create_pr: false` (default)
 - [x] **3.3** Redundanz-Scanner
   - [x] `lib/heuristics/redundancy.py` — Hash-basierte Code-Block-Duplikation
   - [x] Schwelle konfigurierbar

@@ -31,8 +31,8 @@ Hook liegt nach `~/.config/omnipull/hooks/100-sichter-always-post.sh` und trigge
 
 ## Logs
 
-- Events/PR: `~/.local/state/sichter/events/pr.log`
-- Worker: `~/.local/state/sichter/events/worker.log`
+- Events: `~/.local/state/sichter/events/*.jsonl`
+- Worker-Log: `~/sichter/logs/worker-*.log`
 
 ## Was noch? (nice nexts)
 

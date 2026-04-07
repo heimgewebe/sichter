@@ -1,4 +1,34 @@
-run_policy: after_omnipull # periodic | after_omnipull
-interval_minutes: 5
-max_parallel_jobs: 3
-autorun: true
+auto_pr: true
+sweep_on_omnipull: true
+run_mode: deep
+org: heimgewebe
+max_parallel_repos: 4
+
+llm:
+	enabled: false
+	provider: ollama
+	model: qwen2.5-coder:7b
+	base_url: http://localhost:11434
+	max_tokens_per_review: 4000
+	max_reviews_per_hour: 20
+	denylist_patterns: []
+
+checks:
+	shellcheck: true
+	yamllint: true
+	ruff: false
+	shfmt_fix: false
+	python: true
+	js: false
+	drift:
+		enabled: true
+		create_pr: false
+
+security:
+	findings_public: false
+	suppress_pr: false
+
+excludes:
+	- '**/.venv/**'
+	- '**/node_modules/**'
+	- '**/target/**'

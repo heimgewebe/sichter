@@ -10,7 +10,7 @@ const Overview = () => {
   const [error, setError] = useState<string | null>(null);
   const [alerts, setAlerts] = useState<AlertEntry[]>([]);
   const [eventFilter, setEventFilter] = useState('all');
-  const { events, connected, error: streamError } = useEventStream('/events/tail');
+  const { events, connected, error: streamError } = useEventStream();
 
   useEffect(() => {
     fetchOverview()
