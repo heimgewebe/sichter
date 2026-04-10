@@ -1814,6 +1814,28 @@ class TestWorkerRun(unittest.TestCase):
 
         self.assertTrue(worker_run.has_commit_candidates(Path("/fake/repo")))
 
+    @patch("apps.worker.run.run_cmd")
+    def test_prepare_repo_base_returns_true_when_head_matches_base(self, mock_run_cmd):
+        mock_run_cmd.side_effect = [
+            subprocess.CompletedProcess(args=["git", "fetch"], returncode=0, stdout="", stderr=""),
+            subprocess.CompletedProcess(args=["git", "switch"], returncode=0, stdout="", stderr=""),
+            subprocess.CompletedProcess(args=["git", "rev-parse"], returncode=0, stdout="abc123\n", stderr=""),
+            subprocess.CompletedProcess(args=["git", "rev-parse"], returncode=0, stdout="abc123\n", stderr=""),
+        ]
+
+        self.assertTrue(worker_run.prepare_repo_base(Path("/fake/repo")))
+
+    @patch("apps.worker.run.run_cmd")
+    def test_prepare_repo_base_returns_false_when_head_differs_from_base(self, mock_run_cmd):
+        mock_run_cmd.side_effect = [
+            subprocess.CompletedProcess(args=["git", "fetch"], returncode=0, stdout="", stderr=""),
+            subprocess.CompletedProcess(args=["git", "switch"], returncode=0, stdout="", stderr=""),
+            subprocess.CompletedProcess(args=["git", "rev-parse"], returncode=0, stdout="abc123\n", stderr=""),
+            subprocess.CompletedProcess(args=["git", "rev-parse"], returncode=0, stdout="def456\n", stderr=""),
+        ]
+
+        self.assertFalse(worker_run.prepare_repo_base(Path("/fake/repo")))
+
     @patch("apps.worker.run.process_repo")
     @patch("apps.worker.run.list_repos_local", return_value=["sichter", "repo-a", ".idea", "exports", "repo-a"])
     def test_handle_job_discovery_excludes_self_by_default(self, _mock_list_local, mock_process_repo):
@@ -1883,7 +1905,7 @@ class TestWorkerRun(unittest.TestCase):
         # Verify that a "skipped" event was logged
         mock_append_event.assert_any_call(
             {
-                "type": "skipped",
+                "type": "error",
                 "repo": "demo-repo",
                 "reason": "base_preparation_failed",
                 "message": "Changes detected in demo-repo aber Base-Detach fehlgeschlagen; branch creation skipped",

@@ -35,6 +35,29 @@ append_event() {
   printf '{"ts": "%s", %s}\n' "$(TS)" "$core_json" >>"$event_file"
 }
 
+has_relevant_changes() {
+  local repo_name="$1"
+  git status --porcelain --untracked-files=all | awk -v repo="$repo_name" '
+    {
+      path = substr($0, 4)
+      if (path == "") {
+        next
+      }
+      if (repo == "sichter" && path ~ /^logs\//) {
+        next
+      }
+      found = 1
+      exit 0
+    }
+    END {
+      if (found == 1) {
+        exit 0
+      }
+      exit 1
+    }
+  '
+}
+
 # Unified result handler
 RESULT() {
   local action="$1" repo="$2" branch="$3" detail="${4:--}"
@@ -156,12 +179,7 @@ for r in "${REPOS[@]}"; do
     git status --short >/dev/null 2>&1 || true
   fi
 
-  git add -A || true
-  if [[ "$r" == "sichter" ]]; then
-    git reset -q HEAD -- 'logs/**' >/dev/null 2>&1 || true
-  fi
-
-  if git diff --cached --quiet; then
+  if ! has_relevant_changes "$r"; then
     RESULT "NOCHANGE" "$r" "-" "no staged updates (planned_branch=$PLANNED_BR)"
     popd >/dev/null || true
     continue
@@ -172,10 +190,29 @@ for r in "${REPOS[@]}"; do
   DEFAULT_BR_REF="${DEFAULT_BRANCH:-main}"
   if ! git switch --detach "origin/$DEFAULT_BR_REF" >/dev/null 2>&1; then
     if ! git checkout --detach "origin/$DEFAULT_BR_REF" >/dev/null 2>&1; then
-      RESULT "ERROR" "$r" "$PLANNED_BR" "base detach failed: cannot prepare origin/$DEFAULT_BR_REF"
+      RESULT "ERROR" "$r" "-" "change detected but base detach failed: cannot prepare origin/$DEFAULT_BR_REF"
       popd >/dev/null || true
       continue
     fi
+  fi
+
+  BASE_REV="$(git rev-parse --verify "origin/$DEFAULT_BR_REF" 2>/dev/null || true)"
+  HEAD_REV="$(git rev-parse --verify HEAD 2>/dev/null || true)"
+  if [[ -z "$BASE_REV" || -z "$HEAD_REV" || "$BASE_REV" != "$HEAD_REV" ]]; then
+    RESULT "ERROR" "$r" "-" "change detected but base verification failed: HEAD does not match origin/$DEFAULT_BR_REF"
+    popd >/dev/null || true
+    continue
+  fi
+
+  git add -A || true
+  if [[ "$r" == "sichter" ]]; then
+    git reset -q HEAD -- 'logs/**' >/dev/null 2>&1 || true
+  fi
+
+  if git diff --cached --quiet; then
+    RESULT "NOCHANGE" "$r" "-" "no staged updates after exclusions (planned_branch=$PLANNED_BR)"
+    popd >/dev/null || true
+    continue
   fi
 
   BR="$PLANNED_BR"

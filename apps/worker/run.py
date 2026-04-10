@@ -857,7 +857,20 @@ def prepare_repo_base(repo_dir: Path) -> bool:
   if result.returncode != 0:
     log(f"base-Detach fehlgeschlagen in {repo_dir}: konnte nicht auf {base_branch} detachen")
     return False
-  
+
+  # Verify that HEAD actually matches the intended base commit.
+  base_rev = run_cmd(["git", "rev-parse", "--verify", base_branch], repo_dir, check=False)
+  head_rev = run_cmd(["git", "rev-parse", "--verify", "HEAD"], repo_dir, check=False)
+  if base_rev.returncode != 0 or head_rev.returncode != 0:
+    log(f"base-Verifikation fehlgeschlagen in {repo_dir}: rev-parse konnte nicht ausgewertet werden")
+    return False
+
+  if base_rev.stdout.strip() != head_rev.stdout.strip():
+    log(
+      f"base-Verifikation fehlgeschlagen in {repo_dir}: HEAD stimmt nicht mit {base_branch} überein"
+    )
+    return False
+
   return True
 
 
@@ -1380,7 +1393,7 @@ def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
         # Change detected but base preparation failed: skip branch/PR creation
         append_event(
           {
-            "type": "skipped",
+            "type": "error",
             "repo": repo,
             "reason": "base_preparation_failed",
             "message": f"Changes detected in {repo} aber Base-Detach fehlgeschlagen; branch creation skipped",
