@@ -1637,6 +1637,138 @@ class TestWorkerRun(unittest.TestCase):
         self.assertEqual(called_repos.count("org/a"), 1)
         self.assertEqual(called_repos.count("org/b"), 1)
 
+    @patch("apps.worker.run.record_metrics")
+    @patch("apps.worker.run.append_event")
+    @patch("apps.worker.run.record_findings_snapshot")
+    @patch("apps.worker.run.dedupe_findings", return_value={})
+    @patch("apps.worker.run.run_heuristics", return_value=[])
+    @patch("apps.worker.run.create_themed_prs")
+    @patch("apps.worker.run.commit_if_changes")
+    @patch("apps.worker.run.fresh_branch")
+    @patch("apps.worker.run.stage_commit_candidates", return_value=False)
+    @patch("apps.worker.run.llm_review", return_value=None)
+    @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
+    @patch("apps.worker.run.registry_run_checks", return_value=[])
+    @patch("apps.worker.run.prepare_repo_base")
+    @patch("apps.worker.run.is_git_repository", return_value=True)
+    @patch("apps.worker.run.ensure_repo", return_value=Path("/fake/repo"))
+    def test_process_repo_nochange_does_not_create_branch(
+        self,
+        _mock_ensure_repo,
+        _mock_is_git_repository,
+        _mock_prepare_repo_base,
+        _mock_registry_run_checks,
+        _mock_registry_run_autofixes,
+        _mock_llm_review,
+        _mock_stage_commit_candidates,
+        mock_fresh_branch,
+        mock_commit_if_changes,
+        mock_create_themed_prs,
+        _mock_run_heuristics,
+        _mock_dedupe_findings,
+        _mock_record_snapshot,
+        mock_append_event,
+        _mock_record_metrics,
+    ):
+        worker_run.process_repo("demo-repo", "all", True)
+
+        mock_fresh_branch.assert_not_called()
+        mock_commit_if_changes.assert_not_called()
+        mock_create_themed_prs.assert_not_called()
+        mock_append_event.assert_any_call({"type": "noop", "repo": "demo-repo", "branch": "-"})
+
+    @patch("apps.worker.run.record_metrics")
+    @patch("apps.worker.run.append_event")
+    @patch("apps.worker.run.record_findings_snapshot")
+    @patch("apps.worker.run.dedupe_findings", return_value={})
+    @patch("apps.worker.run.run_heuristics", return_value=[])
+    @patch("apps.worker.run.create_themed_prs", return_value=1)
+    @patch("apps.worker.run.commit_if_changes", return_value=True)
+    @patch("apps.worker.run.fresh_branch", return_value="sichter/autofix-x")
+    @patch("apps.worker.run.stage_commit_candidates", return_value=True)
+    @patch("apps.worker.run.llm_review", return_value=None)
+    @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
+    @patch("apps.worker.run.registry_run_checks", return_value=[])
+    @patch("apps.worker.run.prepare_repo_base")
+    @patch("apps.worker.run.is_git_repository", return_value=True)
+    @patch("apps.worker.run.ensure_repo", return_value=Path("/fake/repo"))
+    def test_process_repo_creates_branch_only_after_change_detection(
+        self,
+        _mock_ensure_repo,
+        _mock_is_git_repository,
+        _mock_prepare_repo_base,
+        _mock_registry_run_checks,
+        _mock_registry_run_autofixes,
+        _mock_llm_review,
+        _mock_stage_commit_candidates,
+        mock_fresh_branch,
+        mock_commit_if_changes,
+        mock_create_themed_prs,
+        _mock_run_heuristics,
+        _mock_dedupe_findings,
+        _mock_record_snapshot,
+        _mock_append_event,
+        _mock_record_metrics,
+    ):
+        worker_run.process_repo("demo-repo", "all", True)
+
+        mock_fresh_branch.assert_called_once_with(Path("/fake/repo"))
+        mock_commit_if_changes.assert_called_once_with(Path("/fake/repo"), stage_all=False)
+        mock_create_themed_prs.assert_called_once()
+
+    @patch("apps.worker.run.record_metrics")
+    @patch("apps.worker.run.record_findings_snapshot")
+    @patch("apps.worker.run.dedupe_findings", return_value={})
+    @patch("apps.worker.run.run_heuristics", return_value=[])
+    @patch("apps.worker.run.create_themed_prs")
+    @patch("apps.worker.run.commit_if_changes")
+    @patch("apps.worker.run.fresh_branch")
+    @patch("apps.worker.run.stage_commit_candidates", return_value=False)
+    @patch("apps.worker.run.llm_review", return_value=None)
+    @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
+    @patch("apps.worker.run.registry_run_checks", return_value=[])
+    @patch("apps.worker.run.prepare_repo_base")
+    @patch("apps.worker.run.is_git_repository", return_value=True)
+    @patch("apps.worker.run.ensure_repo", return_value=Path("/fake/repo"))
+    def test_process_repo_excludes_self_runtime_logs_from_commit_candidates(
+        self,
+        _mock_ensure_repo,
+        _mock_is_git_repository,
+        _mock_prepare_repo_base,
+        _mock_registry_run_checks,
+        _mock_registry_run_autofixes,
+        _mock_llm_review,
+        mock_stage_commit_candidates,
+        _mock_fresh_branch,
+        _mock_commit_if_changes,
+        _mock_create_themed_prs,
+        _mock_run_heuristics,
+        _mock_dedupe_findings,
+        _mock_record_snapshot,
+        _mock_record_metrics,
+    ):
+        worker_run.process_repo("sichter", "all", True)
+        args = mock_stage_commit_candidates.call_args[0]
+        self.assertEqual(args[0], Path("/fake/repo"))
+        self.assertEqual(tuple(args[1]), ("logs/**",))
+
+    @patch("apps.worker.run.process_repo")
+    @patch("apps.worker.run.list_repos_local", return_value=["sichter", "repo-a", ".idea", "exports", "repo-a"])
+    def test_handle_job_discovery_excludes_self_by_default(self, _mock_list_local, mock_process_repo):
+        worker_run.handle_job({"mode": "changed"})
+
+        called_repos = [c[0][0] for c in mock_process_repo.call_args_list]
+        self.assertEqual(called_repos, ["repo-a"])
+
+    @patch("apps.worker.run.process_repo")
+    @patch("apps.worker.run.list_repos_local", return_value=["sichter", "repo-a"])
+    def test_handle_job_include_self_allows_self_repo(self, _mock_list_local, mock_process_repo):
+        worker_run.handle_job({"mode": "changed", "include_self": True})
+
+        called_repos = [c[0][0] for c in mock_process_repo.call_args_list]
+        self.assertIn("sichter", called_repos)
+        self.assertIn("repo-a", called_repos)
+
     # ------------------------------------------------------------------
     # Rate-limit detection: "403" alone must NOT trigger backoff
     # ------------------------------------------------------------------

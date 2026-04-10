@@ -18,6 +18,7 @@ LOG="${LOG:-$LOG_DIR/pr-actions.log}"
 ORG="${ORG:-heimgewebe}"
 AUTO_PR="${SICHTER_AUTO_PR:-1}"
 RUN_MODE="${SICHTER_RUN_MODE:-light}"
+INCLUDE_SELF="${SICHTER_INCLUDE_SELF:-0}"
 
 TS() { date -Is; }
 SAY() { echo "[$(TS)] $*"; }
@@ -57,13 +58,50 @@ RESULT() {
 LOG_LINE "===== Sichter PR Sweep start (${MODE} / run_mode=${RUN_MODE}) ====="
 append_event '{"type": "start", "message": "PR Sweep started"}'
 
+is_excluded_repo_name() {
+  local name="$1"
+  [[ -z "$name" ]] && return 0
+  [[ "$name" == .* ]] && return 0
+  case "$name" in
+    .idea|merges|exports|_mirror) return 0 ;;
+  esac
+  if [[ "$name" == "sichter" && "$INCLUDE_SELF" != "1" ]]; then
+    return 0
+  fi
+  return 1
+}
+
 # Kandidaten
 if [[ "$MODE" == "--all" ]]; then
-  mapfile -t REPOS < <(gh repo list "$ORG" --limit 100 --json name -q '.[].name' || true)
+  mapfile -t REPOS < <(
+    gh repo list "$ORG" --limit 100 --json name -q '.[].name' 2>/dev/null | while IFS= read -r name; do
+      if is_excluded_repo_name "$name"; then
+        continue
+      fi
+      printf '%s\n' "$name"
+    done
+  )
 else
-  mapfile -t REPOS < <(find "$HOME/repos" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null || true)
+  mapfile -t REPOS < <(
+    find "$HOME/repos" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | while IFS= read -r name; do
+      if is_excluded_repo_name "$name"; then
+        continue
+      fi
+      if [[ ! -d "$HOME/repos/$name/.git" ]]; then
+        continue
+      fi
+      printf '%s\n' "$name"
+    done
+  )
   if [[ "${#REPOS[@]}" -eq 0 ]]; then
-    mapfile -t REPOS < <(gh repo list "$ORG" --limit 50 --json name -q '.[].name' || true)
+    mapfile -t REPOS < <(
+      gh repo list "$ORG" --limit 50 --json name -q '.[].name' 2>/dev/null | while IFS= read -r name; do
+        if is_excluded_repo_name "$name"; then
+          continue
+        fi
+        printf '%s\n' "$name"
+      done
+    )
   fi
 fi
 
@@ -98,8 +136,7 @@ for r in "${REPOS[@]}"; do
     git checkout --detach "origin/main" >/dev/null 2>&1 || true
   fi
 
-  BR="sichter/autofix-$(date +%Y%m%d-%H%M%S)"
-  git switch -C "$BR" >/dev/null 2>&1 || git checkout -B "$BR" >/dev/null 2>&1
+  PLANNED_BR="sichter/autofix-$(date +%Y%m%d-%H%M%S)"
 
   export SICHTER_RUN_MODE="$RUN_MODE"
   HOOK_SCRIPT="$HOME/sichter/hooks/post-run"
@@ -121,11 +158,18 @@ for r in "${REPOS[@]}"; do
   fi
 
   git add -A || true
+  if [[ "$r" == "sichter" ]]; then
+    git reset -q HEAD -- 'logs/**' >/dev/null 2>&1 || true
+  fi
+
   if git diff --cached --quiet; then
-    RESULT "NOCHANGE" "$r" "$BR" "no staged updates"
+    RESULT "NOCHANGE" "$r" "-" "no staged updates (planned_branch=$PLANNED_BR)"
     popd >/dev/null || true
     continue
   fi
+
+  BR="$PLANNED_BR"
+  git switch -C "$BR" >/dev/null 2>&1 || git checkout -B "$BR" >/dev/null 2>&1
 
   if ! git commit -m "sichter: automated sweep" >/dev/null 2>&1; then
     RESULT "ERROR" "$r" "$BR" "commit failed"

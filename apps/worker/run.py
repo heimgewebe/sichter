@@ -54,6 +54,8 @@ REVIEW_DIR.mkdir(parents=True, exist_ok=True)
 
 _NOW = datetime.now(timezone.utc)
 LOG_FILE = LOG_DIR / f"worker-{_NOW.strftime('%Y%m%d-%H%M%S')}.log"
+LOCAL_DISCOVERY_EXCLUDE = {".idea", "merges", "exports", "_mirror"}
+SELF_REPO_NAME = "sichter"
 
 
 def log(line: str) -> None:
@@ -164,6 +166,7 @@ class Policy:
   excludes: Iterable[str] = ()
   security: dict | None = None
   max_parallel_repos: int = 4
+  include_self_repo: bool = False
 
   @staticmethod
   def _bool_with_default(value: object, default: bool) -> bool:
@@ -194,6 +197,7 @@ class Policy:
 
     auto_pr = cls._bool_with_default(data.get("auto_pr"), True)
     sweep_on_omnipull = cls._bool_with_default(data.get("sweep_on_omnipull"), True)
+    include_self_repo = cls._bool_with_default(data.get("include_self_repo"), False)
     try:
       max_parallel_repos = int(data.get("max_parallel_repos", 4))
     except (TypeError, ValueError):
@@ -211,6 +215,7 @@ class Policy:
       excludes=data.get("excludes", []) or [],
       security=data.get("security", {}),
       max_parallel_repos=max_parallel_repos,
+      include_self_repo=include_self_repo,
     )
 
 
@@ -338,6 +343,19 @@ def run_gh_with_backoff(cmd: list[str], cwd: Path) -> subprocess.CompletedProces
     time.sleep(wait_seconds)
     wait_seconds *= 2
   return result
+
+
+def is_git_repository(repo_dir: Path) -> bool:
+  """Return True only for usable git worktrees."""
+  if not isinstance(repo_dir, Path):
+    return False
+  if not repo_dir.exists():
+    return False
+  try:
+    result = run_cmd(["git", "rev-parse", "--is-inside-work-tree"], repo_dir, check=False)
+  except (OSError, subprocess.SubprocessError, ValueError, TypeError):
+    return False
+  return result.returncode == 0
 
 
 def current_commit(repo_dir: Path) -> str:
@@ -820,12 +838,17 @@ def build_pr_body(
   return "\n".join(lines)
 
 
-def fresh_branch(repo_dir: Path) -> str:
-  run_cmd(["git", "fetch", "origin", "--prune", "--tags"], repo_dir)
+def prepare_repo_base(repo_dir: Path) -> None:
+  fetch = run_cmd(["git", "fetch", "origin", "--prune", "--tags"], repo_dir, check=False)
+  if fetch.returncode != 0:
+    log(f"git fetch fehlgeschlagen in {repo_dir}; arbeite mit lokalem Stand weiter")
   base_branch = f"origin/{DEFAULT_BRANCH}"
   result = run_cmd(["git", "switch", "--detach", base_branch], repo_dir, check=False)
   if result.returncode != 0:
-    run_cmd(["git", "checkout", "--detach", base_branch], repo_dir)
+    run_cmd(["git", "checkout", "--detach", base_branch], repo_dir, check=False)
+
+
+def fresh_branch(repo_dir: Path) -> str:
   branch = f"sichter/autofix-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
   result = run_cmd(["git", "switch", "-C", branch], repo_dir, check=False)
   if result.returncode != 0:
@@ -833,13 +856,63 @@ def fresh_branch(repo_dir: Path) -> str:
   return branch
 
 
-def commit_if_changes(repo_dir: Path) -> bool:
-  run_cmd(["git", "add", "-A"], repo_dir)
+def runtime_artifact_excludes(repo: str) -> tuple[str, ...]:
+  """Return runtime artifact globs that must never drive PR creation."""
+  if repo.strip() == SELF_REPO_NAME:
+    return ("logs/**",)
+  return ()
+
+
+def stage_commit_candidates(repo_dir: Path, excludes: Iterable[str] = ()) -> bool:
+  """Stage changes and return whether there are commit candidates.
+
+  Excluded patterns are unstaged after `git add -A` to prevent runtime artifacts
+  from triggering branches/PRs.
+  """
+  add = run_cmd(["git", "add", "-A"], repo_dir, check=False)
+  if add.returncode != 0:
+    log(f"git add -A fehlgeschlagen in {repo_dir}")
+    return False
+  for pattern in excludes:
+    run_cmd(["git", "reset", "-q", "HEAD", "--", pattern], repo_dir, check=False)
+
   result = run_cmd(["git", "diff", "--cached", "--quiet"], repo_dir, check=False)
+  if result.returncode == 1:
+    return True
   if result.returncode != 0:
+    log(f"git diff --cached --quiet fehlgeschlagen in {repo_dir}")
+  return False
+
+
+def commit_if_changes(repo_dir: Path, *, stage_all: bool = True) -> bool:
+  if stage_all:
+    run_cmd(["git", "add", "-A"], repo_dir)
+
+  result = run_cmd(["git", "diff", "--cached", "--quiet"], repo_dir, check=False)
+  if result.returncode == 1:
     run_cmd(["git", "commit", "-m", "sichter: autofix"], repo_dir)
     return True
+  if result.returncode != 0:
+    log(f"git diff --cached --quiet fehlgeschlagen in {repo_dir}")
   return False
+
+
+def _filter_discovered_repos(repos: Iterable[str], include_self: bool) -> list[str]:
+  """Filter discovered repositories for obvious non-targets."""
+  filtered: list[str] = []
+  for raw in repos:
+    repo = str(raw).strip()
+    if not repo:
+      continue
+    name = repo.split("/")[-1]
+    if name.startswith("."):
+      continue
+    if name in LOCAL_DISCOVERY_EXCLUDE:
+      continue
+    if not include_self and name == SELF_REPO_NAME:
+      continue
+    filtered.append(repo)
+  return filtered
 
 
 def ensure_repo(repo: str) -> Path | None:
@@ -1117,7 +1190,11 @@ def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
   if not repo_dir:
     return
 
-  branch = fresh_branch(repo_dir)
+  repo_has_git = is_git_repository(repo_dir)
+  if repo_has_git:
+    prepare_repo_base(repo_dir)
+
+  branch = "-"
   changed_files: list[Path] | None
   if mode == "changed":
     changed_files = get_changed_files(repo_dir, base=None, excludes=POLICY.excludes)
@@ -1247,7 +1324,19 @@ def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
   findings_for_prs = _filter_findings_for_prs(findings, POLICY.checks, POLICY.security, repo)
   review = llm_review(repo, repo_dir, findings_for_prs)
 
-  if commit_if_changes(repo_dir):
+  if repo_has_git:
+    has_changes = stage_commit_candidates(repo_dir, runtime_artifact_excludes(repo))
+    if has_changes:
+      branch = fresh_branch(repo_dir)
+      committed = commit_if_changes(repo_dir, stage_all=False)
+    else:
+      committed = False
+  else:
+    # Test fallback: non-git paths in unit tests still use the legacy sequence.
+    branch = fresh_branch(repo_dir)
+    committed = commit_if_changes(repo_dir, stage_all=True)
+
+  if committed:
     if findings and not findings_for_prs:
       suppressed_categories = sorted({finding.category for finding in findings if finding.category})
       log(f"{repo}: Alle Findings für PR-Erzeugung unterdrückt ({', '.join(suppressed_categories)})")
@@ -1310,13 +1399,15 @@ def handle_job(job: dict) -> None:
 
   log(f"Job erhalten: mode={mode} repo={repo_one} auto_pr={auto_pr}")
 
+  include_self = Policy._bool_with_default(job.get("include_self"), POLICY.include_self_repo)
+
   repos: list[str]
   if repo_one:
     repos = [repo_one]
   elif mode == "all":
-    repos = list(job.get("repos") or list_repos_remote())
+    repos = list(job.get("repos") or _filter_discovered_repos(list_repos_remote(), include_self))
   else:
-    repos = list_repos_local()
+    repos = _filter_discovered_repos(list_repos_local(), include_self)
 
   # Deduplicate while preserving order to prevent concurrent git operations on the
   # same worktree when the caller accidentally supplies duplicate repo entries.
@@ -1344,7 +1435,13 @@ def list_repos_local() -> list[str]:
   base = HOME / "repos"
   if not base.exists():
     return []
-  return [p.name for p in base.iterdir() if (p / ".git").exists()]
+  return [
+    p.name
+    for p in base.iterdir()
+    if (p / ".git").exists()
+    and not p.name.startswith(".")
+    and p.name not in LOCAL_DISCOVERY_EXCLUDE
+  ]
 
 
 def list_repos_remote() -> list[str]:
