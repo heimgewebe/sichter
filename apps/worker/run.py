@@ -863,30 +863,63 @@ def runtime_artifact_excludes(repo: str) -> tuple[str, ...]:
   return ()
 
 
-def stage_commit_candidates(repo_dir: Path, excludes: Iterable[str] = ()) -> bool:
-  """Stage changes and return whether there are commit candidates.
+def has_commit_candidates(repo_dir: Path, excludes: Iterable[str] = ()) -> bool:
+  """Read-only preflight check for commitable changes.
 
-  Excluded patterns are unstaged after `git add -A` to prevent runtime artifacts
-  from triggering branches/PRs.
+  Uses porcelain status output and applies exclusion globs without touching index
+  or HEAD. This keeps NOCHANGE sweeps state-light.
   """
-  add = run_cmd(["git", "add", "-A"], repo_dir, check=False)
-  if add.returncode != 0:
-    log(f"git add -A fehlgeschlagen in {repo_dir}")
-    return False
-  for pattern in excludes:
-    run_cmd(["git", "reset", "-q", "HEAD", "--", pattern], repo_dir, check=False)
-
-  result = run_cmd(["git", "diff", "--cached", "--quiet"], repo_dir, check=False)
-  if result.returncode == 1:
-    return True
+  result = run_cmd(
+    ["git", "status", "--porcelain", "-z", "--untracked-files=all"],
+    repo_dir,
+    check=False,
+  )
   if result.returncode != 0:
-    log(f"git diff --cached --quiet fehlgeschlagen in {repo_dir}")
+    log(f"git status preflight fehlgeschlagen in {repo_dir}")
+    return False
+
+  compiled_re = compile_excludes(tuple(excludes))
+  fields = result.stdout.split("\0")
+  i = 0
+  while i < len(fields):
+    entry = fields[i]
+    if not entry:
+      i += 1
+      continue
+
+    # Porcelain v1 entry: XY<space>path
+    status = entry[:2]
+    path = entry[3:] if len(entry) > 3 else ""
+
+    # Renames/copies in -z output are two consecutive path fields.
+    if "R" in status or "C" in status:
+      i += 1
+      new_path = fields[i] if i < len(fields) else ""
+      if new_path and not is_excluded(new_path, compiled_re):
+        return True
+      i += 1
+      continue
+
+    if path and not is_excluded(path, compiled_re):
+      return True
+    i += 1
+
   return False
 
 
-def commit_if_changes(repo_dir: Path, *, stage_all: bool = True) -> bool:
+def commit_if_changes(
+  repo_dir: Path,
+  *,
+  stage_all: bool = True,
+  excludes: Iterable[str] = (),
+) -> bool:
   if stage_all:
-    run_cmd(["git", "add", "-A"], repo_dir)
+    add = run_cmd(["git", "add", "-A"], repo_dir, check=False)
+    if add.returncode != 0:
+      log(f"git add -A fehlgeschlagen in {repo_dir}")
+      return False
+    for pattern in excludes:
+      run_cmd(["git", "reset", "-q", "HEAD", "--", pattern], repo_dir, check=False)
 
   result = run_cmd(["git", "diff", "--cached", "--quiet"], repo_dir, check=False)
   if result.returncode == 1:
@@ -1191,8 +1224,6 @@ def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
     return
 
   repo_has_git = is_git_repository(repo_dir)
-  if repo_has_git:
-    prepare_repo_base(repo_dir)
 
   branch = "-"
   changed_files: list[Path] | None
@@ -1325,10 +1356,12 @@ def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
   review = llm_review(repo, repo_dir, findings_for_prs)
 
   if repo_has_git:
-    has_changes = stage_commit_candidates(repo_dir, runtime_artifact_excludes(repo))
+    commit_excludes = runtime_artifact_excludes(repo)
+    has_changes = has_commit_candidates(repo_dir, commit_excludes)
     if has_changes:
+      prepare_repo_base(repo_dir)
       branch = fresh_branch(repo_dir)
-      committed = commit_if_changes(repo_dir, stage_all=False)
+      committed = commit_if_changes(repo_dir, stage_all=True, excludes=commit_excludes)
     else:
       committed = False
   else:

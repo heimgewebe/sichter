@@ -1645,7 +1645,7 @@ class TestWorkerRun(unittest.TestCase):
     @patch("apps.worker.run.create_themed_prs")
     @patch("apps.worker.run.commit_if_changes")
     @patch("apps.worker.run.fresh_branch")
-    @patch("apps.worker.run.stage_commit_candidates", return_value=False)
+    @patch("apps.worker.run.has_commit_candidates", return_value=False)
     @patch("apps.worker.run.llm_review", return_value=None)
     @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
     @patch("apps.worker.run.registry_run_checks", return_value=[])
@@ -1660,7 +1660,7 @@ class TestWorkerRun(unittest.TestCase):
         _mock_registry_run_checks,
         _mock_registry_run_autofixes,
         _mock_llm_review,
-        _mock_stage_commit_candidates,
+        _mock_has_commit_candidates,
         mock_fresh_branch,
         mock_commit_if_changes,
         mock_create_themed_prs,
@@ -1673,6 +1673,7 @@ class TestWorkerRun(unittest.TestCase):
         worker_run.process_repo("demo-repo", "all", True)
 
         mock_fresh_branch.assert_not_called()
+        _mock_prepare_repo_base.assert_not_called()
         mock_commit_if_changes.assert_not_called()
         mock_create_themed_prs.assert_not_called()
         mock_append_event.assert_any_call({"type": "noop", "repo": "demo-repo", "branch": "-"})
@@ -1685,7 +1686,7 @@ class TestWorkerRun(unittest.TestCase):
     @patch("apps.worker.run.create_themed_prs", return_value=1)
     @patch("apps.worker.run.commit_if_changes", return_value=True)
     @patch("apps.worker.run.fresh_branch", return_value="sichter/autofix-x")
-    @patch("apps.worker.run.stage_commit_candidates", return_value=True)
+    @patch("apps.worker.run.has_commit_candidates", return_value=True)
     @patch("apps.worker.run.llm_review", return_value=None)
     @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
     @patch("apps.worker.run.registry_run_checks", return_value=[])
@@ -1700,7 +1701,7 @@ class TestWorkerRun(unittest.TestCase):
         _mock_registry_run_checks,
         _mock_registry_run_autofixes,
         _mock_llm_review,
-        _mock_stage_commit_candidates,
+        _mock_has_commit_candidates,
         mock_fresh_branch,
         mock_commit_if_changes,
         mock_create_themed_prs,
@@ -1712,8 +1713,13 @@ class TestWorkerRun(unittest.TestCase):
     ):
         worker_run.process_repo("demo-repo", "all", True)
 
+        _mock_prepare_repo_base.assert_called_once_with(Path("/fake/repo"))
         mock_fresh_branch.assert_called_once_with(Path("/fake/repo"))
-        mock_commit_if_changes.assert_called_once_with(Path("/fake/repo"), stage_all=False)
+        mock_commit_if_changes.assert_called_once_with(
+            Path("/fake/repo"),
+            stage_all=True,
+            excludes=(),
+        )
         mock_create_themed_prs.assert_called_once()
 
     @patch("apps.worker.run.record_metrics")
@@ -1723,7 +1729,7 @@ class TestWorkerRun(unittest.TestCase):
     @patch("apps.worker.run.create_themed_prs")
     @patch("apps.worker.run.commit_if_changes")
     @patch("apps.worker.run.fresh_branch")
-    @patch("apps.worker.run.stage_commit_candidates", return_value=False)
+    @patch("apps.worker.run.has_commit_candidates", return_value=False)
     @patch("apps.worker.run.llm_review", return_value=None)
     @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
     @patch("apps.worker.run.registry_run_checks", return_value=[])
@@ -1738,7 +1744,7 @@ class TestWorkerRun(unittest.TestCase):
         _mock_registry_run_checks,
         _mock_registry_run_autofixes,
         _mock_llm_review,
-        mock_stage_commit_candidates,
+        mock_has_commit_candidates,
         _mock_fresh_branch,
         _mock_commit_if_changes,
         _mock_create_themed_prs,
@@ -1748,7 +1754,7 @@ class TestWorkerRun(unittest.TestCase):
         _mock_record_metrics,
     ):
         worker_run.process_repo("sichter", "all", True)
-        args = mock_stage_commit_candidates.call_args[0]
+        args = mock_has_commit_candidates.call_args[0]
         self.assertEqual(args[0], Path("/fake/repo"))
         self.assertEqual(tuple(args[1]), ("logs/**",))
 

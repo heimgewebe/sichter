@@ -132,9 +132,6 @@ for r in "${REPOS[@]}"; do
   fi
 
   git fetch origin --prune --tags >/dev/null 2>&1 || true
-  if ! git switch --detach "origin/main" >/dev/null 2>&1; then
-    git checkout --detach "origin/main" >/dev/null 2>&1 || true
-  fi
 
   PLANNED_BR="sichter/autofix-$(date +%Y%m%d-%H%M%S)"
 
