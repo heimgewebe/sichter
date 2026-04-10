@@ -167,6 +167,17 @@ for r in "${REPOS[@]}"; do
     continue
   fi
 
+  # Verify base preparation before branch creation. Switch to origin/DEFAULT_BRANCH
+  # to ensure new autofix branches grow from clean, verifiable base, not stale local HEAD.
+  DEFAULT_BR_REF="${DEFAULT_BRANCH:-main}"
+  if ! git switch --detach "origin/$DEFAULT_BR_REF" >/dev/null 2>&1; then
+    if ! git checkout --detach "origin/$DEFAULT_BR_REF" >/dev/null 2>&1; then
+      RESULT "ERROR" "$r" "$PLANNED_BR" "base detach failed: cannot prepare origin/$DEFAULT_BR_REF"
+      popd >/dev/null || true
+      continue
+    fi
+  fi
+
   BR="$PLANNED_BR"
   git switch -C "$BR" >/dev/null 2>&1 || git checkout -B "$BR" >/dev/null 2>&1
 

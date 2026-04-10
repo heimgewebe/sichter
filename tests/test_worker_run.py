@@ -115,18 +115,24 @@ class TestWorkerRun(unittest.TestCase):
     @patch("apps.worker.run.get_changed_files", return_value=[])
     @patch("apps.worker.run.create_themed_prs")
     @patch("apps.worker.run.commit_if_changes", return_value=True)
+    @patch("apps.worker.run.fresh_branch")
+    @patch("apps.worker.run.prepare_repo_base", return_value=True)
+    @patch("apps.worker.run.has_commit_candidates", return_value=True)
     @patch("apps.worker.run.llm_review")
+    @patch("apps.worker.run.is_git_repository", return_value=True)
     @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
     @patch("apps.worker.run.registry_run_checks", return_value=[])
-    @patch("apps.worker.run.fresh_branch")
     @patch("apps.worker.run.ensure_repo")
     def test_handle_job_respects_auto_pr_flag(
         self,
         mock_ensure_repo,
-        mock_fresh_branch,
         mock_registry_run_checks,
         mock_registry_run_autofixes,
+        _mock_is_git_repository,
         mock_llm_review,
+        _mock_has_commit_candidates,
+        _mock_prepare_repo_base,
+        mock_fresh_branch,
         mock_commit_if_changes,
         mock_create_themed_prs,
         mock_get_changed_files,
@@ -889,20 +895,26 @@ class TestWorkerRun(unittest.TestCase):
     @patch("apps.worker.run.run_heuristics", return_value=[])
     @patch("apps.worker.run.create_themed_prs")
     @patch("apps.worker.run.commit_if_changes", return_value=True)
+    @patch("apps.worker.run.fresh_branch", return_value="test-branch")
+    @patch("apps.worker.run.prepare_repo_base", return_value=True)
+    @patch("apps.worker.run.has_commit_candidates", return_value=True)
     @patch("apps.worker.run.llm_review", return_value=None)
     @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 1})
     @patch("apps.worker.run.registry_run_checks")
-    @patch("apps.worker.run.fresh_branch", return_value="test-branch")
+    @patch("apps.worker.run.is_git_repository", return_value=True)
     @patch("apps.worker.run.ensure_repo", return_value=Path("/fake/repo"))
     @patch("apps.worker.run._filter_findings_for_prs", return_value=[])
     def test_process_repo_skips_pr_creation_when_all_findings_are_filtered(
         self,
         _mock_filter_findings,
         _mock_ensure_repo,
-        _mock_fresh_branch,
+        _mock_is_git_repository,
         mock_registry_run_checks,
         _mock_registry_run_autofixes,
+        _mock_has_commit_candidates,
         _mock_llm_review,
+        _mock_prepare_repo_base,
+        _mock_fresh_branch,
         _mock_commit_if_changes,
         mock_create_themed_prs,
         _mock_run_heuristics,
@@ -1111,20 +1123,26 @@ class TestWorkerRun(unittest.TestCase):
     @patch("apps.worker.run.run_heuristics", return_value=[])
     @patch("apps.worker.run.create_themed_prs", return_value=1)
     @patch("apps.worker.run.commit_if_changes", return_value=True)
+    @patch("apps.worker.run.fresh_branch", return_value="test-branch")
+    @patch("apps.worker.run.prepare_repo_base", return_value=True)
+    @patch("apps.worker.run.has_commit_candidates", return_value=True)
     @patch("apps.worker.run.llm_review", return_value=None)
     @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
     @patch("apps.worker.run.registry_run_checks")
-    @patch("apps.worker.run.fresh_branch", return_value="test-branch")
+    @patch("apps.worker.run.is_git_repository", return_value=True)
     @patch("apps.worker.run.ensure_repo", return_value=Path("/fake/repo"))
     @patch("apps.worker.run.append_event")
     def test_process_repo_filters_findings_before_llm_review_and_pr_body(
         self,
         _mock_append_event,
         _mock_ensure_repo,
-        _mock_fresh_branch,
+        _mock_is_git_repository,
         mock_registry_run_checks,
         _mock_registry_run_autofixes,
         mock_llm_review,
+        _mock_has_commit_candidates,
+        _mock_prepare_repo_base,
+        _mock_fresh_branch,
         _mock_commit_if_changes,
         mock_create_themed_prs,
         _mock_run_heuristics,
@@ -1812,6 +1830,110 @@ class TestWorkerRun(unittest.TestCase):
         called_repos = [c[0][0] for c in mock_process_repo.call_args_list]
         self.assertIn("sichter", called_repos)
         self.assertIn("repo-a", called_repos)
+
+    # ------------------------------------------------------------------
+    # Base preparation gating: branch creation only after verified base
+    # ------------------------------------------------------------------
+
+    @patch("apps.worker.run.record_metrics")
+    @patch("apps.worker.run.append_event")
+    @patch("apps.worker.run.record_findings_snapshot")
+    @patch("apps.worker.run.dedupe_findings", return_value={})
+    @patch("apps.worker.run.run_heuristics", return_value=[])
+    @patch("apps.worker.run.create_themed_prs", return_value=1)
+    @patch("apps.worker.run.commit_if_changes", return_value=True)
+    @patch("apps.worker.run.fresh_branch", return_value="sichter/autofix-x")
+    @patch("apps.worker.run.has_commit_candidates", return_value=True)
+    @patch("apps.worker.run.prepare_repo_base", return_value=False)
+    @patch("apps.worker.run.llm_review", return_value=None)
+    @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
+    @patch("apps.worker.run.registry_run_checks", return_value=[])
+    @patch("apps.worker.run.is_git_repository", return_value=True)
+    @patch("apps.worker.run.ensure_repo", return_value=Path("/fake/repo"))
+    def test_process_repo_skips_branch_on_base_prep_failure(
+        self,
+        _mock_ensure_repo,
+        _mock_is_git_repository,
+        _mock_registry_run_checks,
+        _mock_registry_run_autofixes,
+        _mock_llm_review,
+        mock_prepare_repo_base,
+        mock_has_commit_candidates,
+        mock_fresh_branch,
+        mock_commit_if_changes,
+        mock_create_themed_prs,
+        _mock_run_heuristics,
+        _mock_dedupe_findings,
+        _mock_record_snapshot,
+        mock_append_event,
+        _mock_record_metrics,
+    ):
+        """When base preparation fails, no branch/commit/PR should be created."""
+        worker_run.process_repo("demo-repo", "all", True)
+
+        # Change was detected
+        mock_has_commit_candidates.assert_called_once()
+        # Base preparation was attempted
+        mock_prepare_repo_base.assert_called_once_with(Path("/fake/repo"))
+        # But branch/commit/PR creation skipped due to base prep failure
+        mock_fresh_branch.assert_not_called()
+        mock_commit_if_changes.assert_not_called()
+        mock_create_themed_prs.assert_not_called()
+
+        # Verify that a "skipped" event was logged
+        mock_append_event.assert_any_call(
+            {
+                "type": "skipped",
+                "repo": "demo-repo",
+                "reason": "base_preparation_failed",
+                "message": "Changes detected in demo-repo aber Base-Detach fehlgeschlagen; branch creation skipped",
+            }
+        )
+
+    @patch("apps.worker.run.record_metrics")
+    @patch("apps.worker.run.append_event")
+    @patch("apps.worker.run.record_findings_snapshot")
+    @patch("apps.worker.run.dedupe_findings", return_value={})
+    @patch("apps.worker.run.run_heuristics", return_value=[])
+    @patch("apps.worker.run.create_themed_prs")
+    @patch("apps.worker.run.commit_if_changes")
+    @patch("apps.worker.run.fresh_branch")
+    @patch("apps.worker.run.has_commit_candidates", return_value=False)
+    @patch("apps.worker.run.llm_review", return_value=None)
+    @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
+    @patch("apps.worker.run.registry_run_checks", return_value=[])
+    @patch("apps.worker.run.prepare_repo_base")
+    @patch("apps.worker.run.is_git_repository", return_value=False)
+    @patch("apps.worker.run.ensure_repo", return_value=Path("/fake/repo"))
+    def test_process_repo_nongit_no_operations(
+        self,
+        _mock_ensure_repo,
+        mock_is_git_repository,
+        _mock_prepare_repo_base,
+        _mock_registry_run_checks,
+        _mock_registry_run_autofixes,
+        _mock_llm_review,
+        _mock_has_commit_candidates,
+        _mock_fresh_branch,
+        _mock_commit_if_changes,
+        _mock_create_themed_prs,
+        _mock_run_heuristics,
+        _mock_dedupe_findings,
+        _mock_record_snapshot,
+        _mock_append_event,
+        _mock_record_metrics,
+    ):
+        """Non-git repos must not trigger any Git operations."""
+        worker_run.process_repo("non-git-repo", "all", True)
+
+        # has_commit_candidates should never be called for non-git repos
+        _mock_has_commit_candidates.assert_not_called()
+        # prepare_repo_base should never be called
+        _mock_prepare_repo_base.assert_not_called()
+        # No branch/commit operations
+        _mock_fresh_branch.assert_not_called()
+        _mock_commit_if_changes.assert_not_called()
+        _mock_create_themed_prs.assert_not_called()
 
     # ------------------------------------------------------------------
     # Rate-limit detection: "403" alone must NOT trigger backoff

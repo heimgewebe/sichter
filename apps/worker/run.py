@@ -838,14 +838,27 @@ def build_pr_body(
   return "\n".join(lines)
 
 
-def prepare_repo_base(repo_dir: Path) -> None:
+def prepare_repo_base(repo_dir: Path) -> bool:
+  """Prepare repo at verifiable base (origin/DEFAULT_BRANCH).
+  
+  Returns True only if worktree successfully detached at origin/DEFAULT_BRANCH.
+  Fetch failure is tolerated (soft fail); detach failure is hard gate.
+  """
   fetch = run_cmd(["git", "fetch", "origin", "--prune", "--tags"], repo_dir, check=False)
   if fetch.returncode != 0:
     log(f"git fetch fehlgeschlagen in {repo_dir}; arbeite mit lokalem Stand weiter")
+  
   base_branch = f"origin/{DEFAULT_BRANCH}"
+  # Try switch first (faster), then fallback to checkout
   result = run_cmd(["git", "switch", "--detach", base_branch], repo_dir, check=False)
   if result.returncode != 0:
-    run_cmd(["git", "checkout", "--detach", base_branch], repo_dir, check=False)
+    result = run_cmd(["git", "checkout", "--detach", base_branch], repo_dir, check=False)
+  
+  if result.returncode != 0:
+    log(f"base-Detach fehlgeschlagen in {repo_dir}: konnte nicht auf {base_branch} detachen")
+    return False
+  
+  return True
 
 
 def fresh_branch(repo_dir: Path) -> str:
@@ -1359,15 +1372,27 @@ def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
     commit_excludes = runtime_artifact_excludes(repo)
     has_changes = has_commit_candidates(repo_dir, commit_excludes)
     if has_changes:
-      prepare_repo_base(repo_dir)
-      branch = fresh_branch(repo_dir)
-      committed = commit_if_changes(repo_dir, stage_all=True, excludes=commit_excludes)
+      base_ok = prepare_repo_base(repo_dir)
+      if base_ok:
+        branch = fresh_branch(repo_dir)
+        committed = commit_if_changes(repo_dir, stage_all=True, excludes=commit_excludes)
+      else:
+        # Change detected but base preparation failed: skip branch/PR creation
+        append_event(
+          {
+            "type": "skipped",
+            "repo": repo,
+            "reason": "base_preparation_failed",
+            "message": f"Changes detected in {repo} aber Base-Detach fehlgeschlagen; branch creation skipped",
+          }
+        )
+        committed = False
     else:
       committed = False
   else:
-    # Test fallback: non-git paths in unit tests still use the legacy sequence.
-    branch = fresh_branch(repo_dir)
-    committed = commit_if_changes(repo_dir, stage_all=True)
+    # Non-git paths must not trigger Git operations in production.
+    # If this path is hit in real deployment, it indicates a configuration error.
+    committed = False
 
   if committed:
     if findings and not findings_for_prs:
