@@ -131,6 +131,8 @@ for r in "${REPOS[@]}"; do
     continue
   fi
 
+  # Refresh remote refs early for later PR/push operations. Unlike detach/switch,
+  # fetch does not mutate the worktree/HEAD and is tolerated for no-op sweeps.
   git fetch origin --prune --tags >/dev/null 2>&1 || true
 
   PLANNED_BR="sichter/autofix-$(date +%Y%m%d-%H%M%S)"

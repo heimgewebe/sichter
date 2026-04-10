@@ -1758,6 +1758,44 @@ class TestWorkerRun(unittest.TestCase):
         self.assertEqual(args[0], Path("/fake/repo"))
         self.assertEqual(tuple(args[1]), ("logs/**",))
 
+    @patch("apps.worker.run.run_cmd")
+    def test_has_commit_candidates_detects_untracked_file(self, mock_run_cmd):
+        mock_run_cmd.return_value = subprocess.CompletedProcess(
+            args=["git", "status"],
+            returncode=0,
+            stdout="?? new-file.py\0",
+            stderr="",
+        )
+
+        self.assertTrue(worker_run.has_commit_candidates(Path("/fake/repo")))
+
+    @patch("apps.worker.run.run_cmd")
+    def test_has_commit_candidates_returns_false_for_excluded_only_changes(self, mock_run_cmd):
+        mock_run_cmd.return_value = subprocess.CompletedProcess(
+            args=["git", "status"],
+            returncode=0,
+            stdout="?? logs/run.md\0",
+            stderr="",
+        )
+
+        self.assertFalse(
+            worker_run.has_commit_candidates(
+                Path("/fake/repo"),
+                excludes=("logs/**",),
+            )
+        )
+
+    @patch("apps.worker.run.run_cmd")
+    def test_has_commit_candidates_detects_rename_target(self, mock_run_cmd):
+        mock_run_cmd.return_value = subprocess.CompletedProcess(
+            args=["git", "status"],
+            returncode=0,
+            stdout="R  old-name.py\0new-name.py\0",
+            stderr="",
+        )
+
+        self.assertTrue(worker_run.has_commit_candidates(Path("/fake/repo")))
+
     @patch("apps.worker.run.process_repo")
     @patch("apps.worker.run.list_repos_local", return_value=["sichter", "repo-a", ".idea", "exports", "repo-a"])
     def test_handle_job_discovery_excludes_self_by_default(self, _mock_list_local, mock_process_repo):
