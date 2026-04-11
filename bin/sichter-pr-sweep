@@ -18,6 +18,7 @@ LOG="${LOG:-$LOG_DIR/pr-actions.log}"
 ORG="${ORG:-heimgewebe}"
 AUTO_PR="${SICHTER_AUTO_PR:-1}"
 RUN_MODE="${SICHTER_RUN_MODE:-light}"
+INCLUDE_SELF="${SICHTER_INCLUDE_SELF:-0}"
 
 TS() { date -Is; }
 SAY() { echo "[$(TS)] $*"; }
@@ -32,6 +33,29 @@ append_event() {
   local event_file
   event_file="$EVENTS_DIR/sweep-$(date +%Y%m%d).jsonl"
   printf '{"ts": "%s", %s}\n' "$(TS)" "$core_json" >>"$event_file"
+}
+
+has_relevant_changes() {
+  local repo_name="$1"
+  git status --porcelain --untracked-files=all | awk -v repo="$repo_name" '
+    {
+      path = substr($0, 4)
+      if (path == "") {
+        next
+      }
+      if (repo == "sichter" && path ~ /^logs\//) {
+        next
+      }
+      found = 1
+      exit 0
+    }
+    END {
+      if (found == 1) {
+        exit 0
+      }
+      exit 1
+    }
+  '
 }
 
 # Unified result handler
@@ -57,13 +81,50 @@ RESULT() {
 LOG_LINE "===== Sichter PR Sweep start (${MODE} / run_mode=${RUN_MODE}) ====="
 append_event '{"type": "start", "message": "PR Sweep started"}'
 
+is_excluded_repo_name() {
+  local name="$1"
+  [[ -z "$name" ]] && return 0
+  [[ "$name" == .* ]] && return 0
+  case "$name" in
+    .idea|merges|exports|_mirror) return 0 ;;
+  esac
+  if [[ "$name" == "sichter" && "$INCLUDE_SELF" != "1" ]]; then
+    return 0
+  fi
+  return 1
+}
+
 # Kandidaten
 if [[ "$MODE" == "--all" ]]; then
-  mapfile -t REPOS < <(gh repo list "$ORG" --limit 100 --json name -q '.[].name' || true)
+  mapfile -t REPOS < <(
+    gh repo list "$ORG" --limit 100 --json name -q '.[].name' 2>/dev/null | while IFS= read -r name; do
+      if is_excluded_repo_name "$name"; then
+        continue
+      fi
+      printf '%s\n' "$name"
+    done
+  )
 else
-  mapfile -t REPOS < <(find "$HOME/repos" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null || true)
+  mapfile -t REPOS < <(
+    find "$HOME/repos" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | while IFS= read -r name; do
+      if is_excluded_repo_name "$name"; then
+        continue
+      fi
+      if [[ ! -d "$HOME/repos/$name/.git" ]]; then
+        continue
+      fi
+      printf '%s\n' "$name"
+    done
+  )
   if [[ "${#REPOS[@]}" -eq 0 ]]; then
-    mapfile -t REPOS < <(gh repo list "$ORG" --limit 50 --json name -q '.[].name' || true)
+    mapfile -t REPOS < <(
+      gh repo list "$ORG" --limit 50 --json name -q '.[].name' 2>/dev/null | while IFS= read -r name; do
+        if is_excluded_repo_name "$name"; then
+          continue
+        fi
+        printf '%s\n' "$name"
+      done
+    )
   fi
 fi
 
@@ -93,13 +154,11 @@ for r in "${REPOS[@]}"; do
     continue
   fi
 
+  # Refresh remote refs early for later PR/push operations. Unlike detach/switch,
+  # fetch does not mutate the worktree/HEAD and is tolerated for no-op sweeps.
   git fetch origin --prune --tags >/dev/null 2>&1 || true
-  if ! git switch --detach "origin/main" >/dev/null 2>&1; then
-    git checkout --detach "origin/main" >/dev/null 2>&1 || true
-  fi
 
-  BR="sichter/autofix-$(date +%Y%m%d-%H%M%S)"
-  git switch -C "$BR" >/dev/null 2>&1 || git checkout -B "$BR" >/dev/null 2>&1
+  PLANNED_BR="sichter/autofix-$(date +%Y%m%d-%H%M%S)"
 
   export SICHTER_RUN_MODE="$RUN_MODE"
   HOOK_SCRIPT="$HOME/sichter/hooks/post-run"
@@ -120,12 +179,44 @@ for r in "${REPOS[@]}"; do
     git status --short >/dev/null 2>&1 || true
   fi
 
-  git add -A || true
-  if git diff --cached --quiet; then
-    RESULT "NOCHANGE" "$r" "$BR" "no staged updates"
+  if ! has_relevant_changes "$r"; then
+    RESULT "NOCHANGE" "$r" "-" "no staged updates (planned_branch=$PLANNED_BR)"
     popd >/dev/null || true
     continue
   fi
+
+  # Verify base preparation before branch creation. Switch to origin/DEFAULT_BRANCH
+  # to ensure new autofix branches grow from clean, verifiable base, not stale local HEAD.
+  DEFAULT_BR_REF="${DEFAULT_BRANCH:-main}"
+  if ! git switch --detach "origin/$DEFAULT_BR_REF" >/dev/null 2>&1; then
+    if ! git checkout --detach "origin/$DEFAULT_BR_REF" >/dev/null 2>&1; then
+      RESULT "ERROR" "$r" "-" "change detected but base detach failed: cannot prepare origin/$DEFAULT_BR_REF"
+      popd >/dev/null || true
+      continue
+    fi
+  fi
+
+  BASE_REV="$(git rev-parse --verify "origin/$DEFAULT_BR_REF" 2>/dev/null || true)"
+  HEAD_REV="$(git rev-parse --verify HEAD 2>/dev/null || true)"
+  if [[ -z "$BASE_REV" || -z "$HEAD_REV" || "$BASE_REV" != "$HEAD_REV" ]]; then
+    RESULT "ERROR" "$r" "-" "change detected but base verification failed: HEAD does not match origin/$DEFAULT_BR_REF"
+    popd >/dev/null || true
+    continue
+  fi
+
+  git add -A || true
+  if [[ "$r" == "sichter" ]]; then
+    git reset -q HEAD -- 'logs/**' >/dev/null 2>&1 || true
+  fi
+
+  if git diff --cached --quiet; then
+    RESULT "NOCHANGE" "$r" "-" "no staged updates after exclusions (planned_branch=$PLANNED_BR)"
+    popd >/dev/null || true
+    continue
+  fi
+
+  BR="$PLANNED_BR"
+  git switch -C "$BR" >/dev/null 2>&1 || git checkout -B "$BR" >/dev/null 2>&1
 
   if ! git commit -m "sichter: automated sweep" >/dev/null 2>&1; then
     RESULT "ERROR" "$r" "$BR" "commit failed"
