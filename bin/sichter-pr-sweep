@@ -106,6 +106,103 @@ is_excluded_repo_name() {
   return 1
 }
 
+is_logs_path() {
+  local path="$1"
+  [[ "$path" == logs/* ]]
+}
+
+declare -a CHANGED_PATHS=()
+
+_collect_path_from_status() {
+  local status="$1"
+  local first="$2"
+  local second="${3:-}"
+  if [[ -z "$status" ]]; then
+    return
+  fi
+  if [[ "$status" == R* || "$status" == C* ]]; then
+    [[ -n "$first" ]] && CHANGED_PATHS+=("$first")
+    [[ -n "$second" ]] && CHANGED_PATHS+=("$second")
+    return
+  fi
+  [[ -n "$first" ]] && CHANGED_PATHS+=("$first")
+}
+
+collect_changed_paths() {
+  local base_ref="$1"
+  CHANGED_PATHS=()
+
+  local line status first second path
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    IFS=$'\t' read -r status first second <<<"$line"
+    _collect_path_from_status "$status" "$first" "$second"
+  done < <(git diff --name-status --diff-filter=ACMRTD -- . ":(exclude)logs/**")
+
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    IFS=$'\t' read -r status first second <<<"$line"
+    _collect_path_from_status "$status" "$first" "$second"
+  done < <(git diff --cached --name-status --diff-filter=ACMRTD -- . ":(exclude)logs/**")
+
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    IFS=$'\t' read -r status first second <<<"$line"
+    _collect_path_from_status "$status" "$first" "$second"
+  done < <(git diff --name-status --diff-filter=ACMRTD "$base_ref"...HEAD -- . ":(exclude)logs/**")
+
+  while IFS= read -r path; do
+    [[ -z "$path" ]] && continue
+    CHANGED_PATHS+=("$path")
+  done < <(git ls-files --others --exclude-standard -- .)
+
+  local seen="|"
+  local deduped=()
+  for path in "${CHANGED_PATHS[@]}"; do
+    [[ -z "$path" ]] && continue
+    is_logs_path "$path" && continue
+    case "$path" in
+      /*|../*|*/../*|../) continue ;;
+    esac
+    if [[ "$seen" == *"|$path|"* ]]; then
+      continue
+    fi
+    seen+="$path|"
+    deduped+=("$path")
+  done
+  CHANGED_PATHS=("${deduped[@]}")
+}
+
+sync_changed_paths_to_worktree() {
+  local source_repo="$1"
+  local target_repo="$2"
+
+  local rel src dst
+  for rel in "${CHANGED_PATHS[@]}"; do
+    src="$source_repo/$rel"
+    dst="$target_repo/$rel"
+
+    if [[ -e "$src" || -L "$src" ]]; then
+      mkdir -p "$(dirname "$dst")"
+      if [[ -d "$dst" && ! -L "$dst" ]]; then
+        rm -rf "$dst"
+      elif [[ -e "$dst" || -L "$dst" ]]; then
+        rm -f "$dst"
+      fi
+
+      if [[ -L "$src" ]]; then
+        ln -s "$(readlink "$src")" "$dst"
+      elif [[ -f "$src" ]]; then
+        cp -p "$src" "$dst"
+      elif [[ -d "$src" ]]; then
+        cp -a "$src" "$dst"
+      fi
+    else
+      rm -rf "$dst"
+    fi
+  done
+}
+
 has_relevant_changes() {
   local base_ref="$1"
   if ! git diff --quiet -- . ":(exclude)logs/**"; then
@@ -198,6 +295,7 @@ for r in "${REPOS[@]}"; do
       popd >/dev/null || true
       continue
     fi
+    collect_changed_paths "$BASE_REF"
   fi
 
   TMP_WT="$(mktemp -d "${TMPDIR:-/tmp}/sichter-sweep-${r//[^a-zA-Z0-9._-]/_}-XXXXXX")"
@@ -214,6 +312,11 @@ for r in "${REPOS[@]}"; do
 
   set +e
   pushd "$TMP_WT" >/dev/null
+
+  if [[ "$MODE" == "--changed" ]]; then
+    sync_changed_paths_to_worktree "$REPO_PATH" "$TMP_WT"
+  fi
+
   HOOK_SCRIPT="$HOME/sichter/hooks/post-run"
   if [[ -x "$HOOK_SCRIPT" ]]; then
     HAUSKI_AUTO_APPLY=1 HAUSKI_AUTO_COMMIT=0 HAUSKI_AUTO_PR=0 SICHTER_RUN_MODE="$RUN_MODE" "$HOOK_SCRIPT" >/dev/null 2>&1

@@ -85,7 +85,7 @@ def test_sichter_pr_sweep_changed_untracked_file_is_not_skipped(tmp_path: Path):
   hook_dir = home / "sichter" / "hooks"
   hook_dir.mkdir(parents=True)
   hook = hook_dir / "post-run"
-  hook.write_text("#!/usr/bin/env bash\nset -euo pipefail\nprintf 'hook-ran\\n' > hook-output.txt\n", encoding="utf-8")
+  hook.write_text("#!/usr/bin/env bash\nset -euo pipefail\nexit 0\n", encoding="utf-8")
   hook.chmod(0o755)
 
   script = Path(__file__).resolve().parents[1] / "bin" / "sichter-pr-sweep"
@@ -107,7 +107,10 @@ def test_sichter_pr_sweep_changed_untracked_file_is_not_skipped(tmp_path: Path):
   refs = _run(["git", "for-each-ref", "--format=%(refname:short)", "refs/heads/sichter/autofix-*"], target)
   assert "no_relevant_changes" not in result.stdout
   assert "[RESULT][COMMIT] repo=demo-repo branch=sichter/autofix-" in result.stdout
-  assert refs.stdout.strip().startswith("sichter/autofix-")
+  branch = refs.stdout.strip()
+  assert branch.startswith("sichter/autofix-")
+  committed_new_file = _run(["git", "show", f"{branch}:new-file.txt"], target)
+  assert committed_new_file.stdout == "local only\n"
 
 
 def test_sichter_pr_sweep_changed_tracked_working_tree_change_is_not_skipped(tmp_path: Path):
@@ -134,7 +137,7 @@ def test_sichter_pr_sweep_changed_tracked_working_tree_change_is_not_skipped(tmp
   hook_dir = home / "sichter" / "hooks"
   hook_dir.mkdir(parents=True)
   hook = hook_dir / "post-run"
-  hook.write_text("#!/usr/bin/env bash\nset -euo pipefail\nprintf 'hook-ran\\n' > hook-output.txt\n", encoding="utf-8")
+  hook.write_text("#!/usr/bin/env bash\nset -euo pipefail\nexit 0\n", encoding="utf-8")
   hook.chmod(0o755)
 
   script = Path(__file__).resolve().parents[1] / "bin" / "sichter-pr-sweep"
@@ -156,4 +159,7 @@ def test_sichter_pr_sweep_changed_tracked_working_tree_change_is_not_skipped(tmp
   refs = _run(["git", "for-each-ref", "--format=%(refname:short)", "refs/heads/sichter/autofix-*"], target)
   assert "no_relevant_changes" not in result.stdout
   assert "[RESULT][COMMIT] repo=demo-repo branch=sichter/autofix-" in result.stdout
-  assert refs.stdout.strip().startswith("sichter/autofix-")
+  branch = refs.stdout.strip()
+  assert branch.startswith("sichter/autofix-")
+  committed_readme = _run(["git", "show", f"{branch}:README.md"], target)
+  assert committed_readme.stdout == "seed\ntracked local change\n"
