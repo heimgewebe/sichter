@@ -13,11 +13,8 @@ from lib.findings import Finding
 class TestWorkerRun(unittest.TestCase):
     def setUp(self):
         super().setUp()
-        self._capture_patcher = patch("apps.worker.run._capture_head_state", return_value=("main", "abc123"))
         self._prepare_patcher = patch("apps.worker.run._prepare_base_ref", return_value=(True, "abc123"))
-        self._capture_patcher.start()
         self._prepare_patcher.start()
-        self.addCleanup(self._capture_patcher.stop)
         self.addCleanup(self._prepare_patcher.stop)
 
         self._real_run_cmd = worker_run.run_cmd
@@ -163,6 +160,7 @@ class TestWorkerRun(unittest.TestCase):
         self.assertIn("exit=2", mock_log.call_args[0][0])
 
     @patch("apps.worker.run.get_changed_files", return_value=[Path("/fake/repo/test.sh")])
+    @patch("apps.worker.run._sync_changed_files_to_worktree", return_value=[Path("/tmp/worktree/test.sh")])
     @patch("apps.worker.run.cache_get", return_value=None)
     @patch("apps.worker.run.create_themed_prs")
     @patch("apps.worker.run.commit_if_changes", return_value=True)
@@ -180,6 +178,7 @@ class TestWorkerRun(unittest.TestCase):
         mock_llm_review,
         mock_commit_if_changes,
         mock_create_themed_prs,
+        _mock_sync_changed,
         _mock_cache_get,
         mock_get_changed_files,
     ):
@@ -243,6 +242,7 @@ class TestWorkerRun(unittest.TestCase):
             self.assertEqual(args[3], False)
 
     @patch("apps.worker.run.get_changed_files")
+    @patch("apps.worker.run._sync_changed_files_to_worktree", return_value=[Path("/tmp/worktree/test.sh"), Path("/tmp/worktree/test.yml")])
     @patch("apps.worker.run.cache_get", return_value=None)
     @patch("apps.worker.run.create_themed_prs")
     @patch("apps.worker.run.commit_if_changes", return_value=True)
@@ -260,6 +260,7 @@ class TestWorkerRun(unittest.TestCase):
         mock_llm_review,
         mock_commit_if_changes,
         mock_create_themed_prs,
+        _mock_sync_changed,
         _mock_cache_get,
         mock_get_changed_files,
     ):
@@ -313,6 +314,7 @@ class TestWorkerRun(unittest.TestCase):
         self.assertIsNone(args[1])
 
     @patch("apps.worker.run.get_changed_files", return_value=[Path("/fake/repo/test.sh")])
+    @patch("apps.worker.run._sync_changed_files_to_worktree", return_value=[Path("/tmp/worktree/test.sh")])
     @patch("apps.worker.run.append_event")
     @patch("apps.worker.run.dedupe_findings")
     @patch("apps.worker.run.create_themed_prs")
@@ -333,6 +335,7 @@ class TestWorkerRun(unittest.TestCase):
         mock_create_themed_prs,
         mock_dedupe_findings,
         mock_append_event,
+        _mock_sync_changed,
         mock_get_changed_files,
     ):
         """Test that findings are collected, deduped, and counted correctly."""
@@ -855,16 +858,12 @@ class TestWorkerRun(unittest.TestCase):
     @patch("apps.worker.run.registry_run_checks", return_value=[])
     @patch("apps.worker.run.fresh_branch")
     @patch("apps.worker.run.ensure_repo", return_value=Path("/fake/repo"))
-    @patch("apps.worker.run._capture_head_state", return_value=("main", "abc123"))
     @patch("apps.worker.run._prepare_base_ref", return_value=(True, "abc123"))
     @patch("apps.worker.run.run_cmd")
-    @patch("apps.worker.run._restore_head_state")
     def test_process_repo_nochange_does_not_create_branch(
         self,
-        _mock_restore_head,
         mock_run_cmd,
         _mock_prepare,
-        _mock_capture,
         _mock_ensure_repo,
         mock_fresh_branch,
         _mock_registry_checks,
@@ -911,7 +910,6 @@ class TestWorkerRun(unittest.TestCase):
             worker_run.process_repo("demo-repo", "all", True)
             mock_fresh_branch.assert_not_called()
         self.assertTrue(mock_append_event.called)
-
     @patch("apps.worker.run.record_metrics")
     @patch("apps.worker.run.run_heuristics", return_value=[])
     @patch("apps.worker.run.commit_if_changes", return_value=False)
@@ -1635,6 +1633,7 @@ class TestWorkerRun(unittest.TestCase):
             repo_dir = _Path(tmpdir)
             git_dir = repo_dir / ".git"
             git_dir.mkdir()
+            (repo_dir / "a.py").write_text("print('hi')\n", encoding="utf-8")
             mock_ensure_repo.return_value = repo_dir
 
             with patch("apps.worker.run.get_changed_files", return_value=[repo_dir / "a.py"]):

@@ -265,14 +265,20 @@ def get_changed_files(
   if base is None:
     base = f"origin/{DEFAULT_BRANCH}"
 
-  result = run_cmd(
-    ["git", "diff", "--name-only", "--diff-filter=ACMRT", base],
+  tracked_result = run_cmd(
+    ["git", "diff", "--name-only", "--diff-filter=ACMRTD", base],
     repo_dir,
     check=False,
   )
-  if result.returncode != 0:
-    log(f"git diff failed for base={base}: {result.stderr.strip()}")
+  if tracked_result.returncode != 0:
+    log(f"git diff failed for base={base}: {tracked_result.stderr.strip()}")
     return []
+
+  untracked_result = run_cmd(
+    ["git", "ls-files", "--others", "--exclude-standard"],
+    repo_dir,
+    check=False,
+  )
 
   try:
     repo_root = repo_dir.resolve()
@@ -282,15 +288,18 @@ def get_changed_files(
   files: list[Path] = []
   skipped_outside: list[str] = []
   compiled_re = compile_excludes(tuple(excludes))
+  seen_paths: set[Path] = set()
 
-  for raw in result.stdout.splitlines():
+  raw_paths = list(tracked_result.stdout.splitlines())
+  if untracked_result.returncode == 0:
+    raw_paths.extend(untracked_result.stdout.splitlines())
+
+  for raw in raw_paths:
     rel_path_str = raw.strip()
     if not rel_path_str:
       continue
 
     path = repo_dir / rel_path_str
-    if not path.exists():
-      continue
 
     # Ensure resolved target stays inside repo_root (catches symlinks pointing outside)
     try:
@@ -308,6 +317,9 @@ def get_changed_files(
     if is_excluded(str(rel), compiled_re):
       continue
 
+    if path in seen_paths:
+      continue
+    seen_paths.add(path)
     files.append(path)
 
   if skipped_outside:
@@ -862,40 +874,6 @@ def commit_if_changes(repo_dir: Path, stage_changes: bool = True) -> bool:
   return False
 
 
-def _capture_head_state(repo_dir: Path) -> tuple[str | None, str]:
-  try:
-    head_sha_result = run_cmd(["git", "rev-parse", "HEAD"], repo_dir, check=False)
-    head_sha = (head_sha_result.stdout or "").strip() if head_sha_result.returncode == 0 else ""
-    branch_result = run_cmd(["git", "symbolic-ref", "--short", "-q", "HEAD"], repo_dir, check=False)
-    branch = (branch_result.stdout or "").strip() if branch_result.returncode == 0 else ""
-    return (branch or None), (head_sha or "unknown")
-  except OSError:
-    return None, "unknown"
-
-
-def _restore_head_state(repo: str, repo_dir: Path, branch: str | None, sha: str) -> None:
-  try:
-    if branch:
-      result = run_cmd(["git", "switch", branch], repo_dir, check=False)
-      if result.returncode == 0:
-        return
-      result = run_cmd(["git", "checkout", branch], repo_dir, check=False)
-      if result.returncode == 0:
-        return
-      log(f"{repo}: HEAD-Restore auf Branch {branch} fehlgeschlagen")
-
-    if sha and sha != "unknown":
-      result = run_cmd(["git", "switch", "--detach", sha], repo_dir, check=False)
-      if result.returncode == 0:
-        return
-      result = run_cmd(["git", "checkout", "--detach", sha], repo_dir, check=False)
-      if result.returncode == 0:
-        return
-      log(f"{repo}: HEAD-Restore auf Commit {sha} fehlgeschlagen")
-  except OSError:
-    log(f"{repo}: HEAD-Restore übersprungen (repo nicht erreichbar)")
-
-
 def _prepare_base_ref(repo: str, repo_dir: Path) -> tuple[bool, str | None]:
   try:
     run_cmd(["git", "fetch", "origin", "--prune", "--tags"], repo_dir)
@@ -951,17 +929,46 @@ def _cleanup_temp_worktree(repo_dir: Path, worktree_dir: Path | None) -> None:
   shutil.rmtree(worktree_dir, ignore_errors=True)
 
 
-def _remap_changed_files(changed_files: list[Path], source_repo_dir: Path, target_repo_dir: Path) -> list[Path]:
-  remapped: list[Path] = []
-  for file_path in changed_files:
+def _remove_path(path: Path) -> None:
+  if path.is_dir() and not path.is_symlink():
+    shutil.rmtree(path, ignore_errors=True)
+    return
+  if path.exists() or path.is_symlink():
+    path.unlink()
+
+
+def _sync_changed_files_to_worktree(
+  changed_files: list[Path],
+  source_repo_dir: Path,
+  target_repo_dir: Path,
+) -> list[Path]:
+  synced: list[Path] = []
+  for source_path in changed_files:
     try:
-      rel_path = file_path.relative_to(source_repo_dir)
+      rel_path = source_path.relative_to(source_repo_dir)
     except ValueError:
       continue
+
     target_path = target_repo_dir / rel_path
-    if target_path.exists():
-      remapped.append(target_path)
-  return remapped
+    if source_path.exists():
+      target_path.parent.mkdir(parents=True, exist_ok=True)
+      if target_path.exists() and target_path.is_dir() and not target_path.is_symlink():
+        shutil.rmtree(target_path, ignore_errors=True)
+      elif target_path.exists() or target_path.is_symlink():
+        target_path.unlink()
+
+      if source_path.is_symlink():
+        os.symlink(os.readlink(source_path), target_path)
+      elif source_path.is_file():
+        shutil.copy2(source_path, target_path, follow_symlinks=False)
+      else:
+        continue
+      synced.append(target_path)
+      continue
+
+    _remove_path(target_path)
+
+  return synced
 
 
 def ensure_repo(repo: str) -> Path | None:
@@ -1270,7 +1277,7 @@ def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
       return
 
     if changed_files_source is not None:
-      changed_files = _remap_changed_files(changed_files_source, repo_dir, worktree_dir)
+      changed_files = _sync_changed_files_to_worktree(changed_files_source, repo_dir, worktree_dir)
       if not changed_files:
         log(f"Keine geänderten Dateien im Worktree für {repo} (mode=changed)")
         append_event({"type": "noop", "repo": repo, "branch": "-", "reason": "no_changed_files"})

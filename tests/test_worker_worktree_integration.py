@@ -59,3 +59,46 @@ def test_worker_process_repo_keeps_primary_head_and_reflog_clean(tmp_path: Path)
     assert after_head == before_head
     assert after_branch == "main"
     assert all("checkout" not in line and "switch" not in line for line in reflog_delta)
+
+
+def test_worker_process_repo_changed_mode_uses_current_local_file_content(tmp_path: Path):
+    origin = tmp_path / "origin.git"
+    _run(["git", "init", "--bare", str(origin)], tmp_path)
+
+    seed = tmp_path / "seed"
+    _run(["git", "clone", str(origin), str(seed)], tmp_path)
+    _run(["git", "checkout", "-b", "main"], seed)
+    _run(["git", "config", "user.name", "Test"], seed)
+    _run(["git", "config", "user.email", "test@example.com"], seed)
+    (seed / "README.md").write_text("base\n", encoding="utf-8")
+    _run(["git", "add", "README.md"], seed)
+    _run(["git", "commit", "-m", "seed"], seed)
+    _run(["git", "push", "-u", "origin", "main"], seed)
+
+    target = tmp_path / "demo-repo"
+    _run(["git", "clone", str(origin), str(target)], tmp_path)
+    _run(["git", "checkout", "main"], target)
+    _run(["git", "config", "user.name", "Test"], target)
+    _run(["git", "config", "user.email", "test@example.com"], target)
+    (target / "README.md").write_text("base\nlocal change\n", encoding="utf-8")
+
+    observed: dict[str, object] = {}
+
+    def _checks_side_effect(repo_dir: Path, changed_files: list[Path] | None, *_args, **_kwargs):
+        observed["changed_files"] = changed_files
+        observed["readme"] = (repo_dir / "README.md").read_text(encoding="utf-8")
+        return []
+
+    with patch("apps.worker.run.ensure_repo", return_value=target), patch(
+        "apps.worker.run.registry_run_checks", side_effect=_checks_side_effect
+    ), patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0}), patch(
+        "apps.worker.run.run_heuristics", return_value=[]
+    ), patch("apps.worker.run.llm_review", return_value=None), patch(
+        "apps.worker.run.dedupe_findings", return_value={}
+    ), patch("apps.worker.run.record_findings_snapshot"), patch("apps.worker.run.record_metrics"):
+        worker_run.process_repo("demo-repo", "changed", False)
+
+    assert observed["readme"] == "base\nlocal change\n"
+    changed_files = observed["changed_files"]
+    assert isinstance(changed_files, list)
+    assert [path.name for path in changed_files] == ["README.md"]
