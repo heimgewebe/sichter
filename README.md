@@ -55,9 +55,9 @@ Es lädt die korrekte Version (definiert in `toolchain.versions.yml`) nach `.loc
 ## Konfiguration
 
 - `registry.sample.json`: Entwurf für eine globale Registry (Chronik-URL, Mirror-Pfade). Aktuell nicht aktiv genutzt.
-- `config/policy.yml`: Kanonische Default-Policy fuer Worker/Sweep im Repo.
+- `config/policy.yml`: Kanonische Default-Policy für Worker/Sweep im Repo.
 - `~/.config/sichter/policy.yml`: Laufzeit-Override der gleichen Policy; wird bei Installation aus `config/policy.yml` vorbelegt und hat Vorrang.
-- `policy.yml`: Separate Laufzeit-/Scheduler-Policy fuer `bin/sichter-env` und systemnahe Orchestrierung; nicht dieselbe Schemaebene wie `config/policy.yml`.
+- `policy.yml`: Separate Laufzeit-/Scheduler-Policy für `bin/sichter-env` und systemnahe Orchestrierung; nicht dieselbe Schemaebene wie `config/policy.yml`.
 
 ## WGX (Mini-Einführung für Dummies)
 
