@@ -13,3 +13,10 @@ def test_start_dashboard_healthcheck_only_for_web():
     assert "wait_for_health" in script
     assert "curl is required in web mode" in script
     assert "exec \"$TUI_BIN\"" in script
+
+
+def test_start_dashboard_uses_healthz_with_bounded_curl():
+    script = Path("scripts/start-dashboard.sh").read_text(encoding="utf-8")
+    assert "SICHTER_HEALTH_PATH:-/healthz" in script
+    assert "--connect-timeout" in script
+    assert "--max-time" in script

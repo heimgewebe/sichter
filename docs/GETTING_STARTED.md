@@ -33,11 +33,11 @@ Diese Anleitung beschreibt die ersten Schritte nach dem Klonen des Repositories.
 
  ```bash
  SICHTER_UI_MODE=web ./scripts/start-dashboard.sh
- curl http://127.0.0.1:5055/health/live
+ curl http://127.0.0.1:5055/healthz
  ```
 
  Der Modus `web` startet `bin/uvicorn-app` im Hintergrund und prüft Health über
- `/health/live`. So bleiben TUI und Web-Dashboard klar getrennt.
+ `/healthz`. So bleiben TUI und Web-Dashboard klar getrennt.
 
 4. **WebSocket-Eventstream testen**
 

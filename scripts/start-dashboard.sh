@@ -12,7 +12,7 @@ TUI_BIN_DEFAULT="$ROOT_DIR/bin/sichter-dashboard"
 WEB_BIN="${SICHTER_DASHBOARD_WEB_BIN:-$WEB_BIN_DEFAULT}"
 TUI_BIN="${SICHTER_DASHBOARD_TUI_BIN:-$TUI_BIN_DEFAULT}"
 
-HEALTH_PATH="${SICHTER_HEALTH_PATH:-/health/live}"
+HEALTH_PATH="${SICHTER_HEALTH_PATH:-/healthz}"
 HEALTH_URL="${SICHTER_HEALTH_URL:-http://${HOST}:${PORT}${HEALTH_PATH}}"
 HEALTH_TIMEOUT_SECONDS="${SICHTER_HEALTH_TIMEOUT_SECONDS:-20}"
 HEALTH_INTERVAL_SECONDS="${SICHTER_HEALTH_INTERVAL_SECONDS:-1}"
@@ -56,7 +56,17 @@ wait_for_health() {
 
   local elapsed=0
   while (( elapsed < timeout )); do
-    if curl -fsS "$url" >/dev/null 2>&1; then
+    local remaining=$((timeout - elapsed))
+    local connect_timeout=1
+
+    if (( remaining < connect_timeout )); then
+      connect_timeout=$remaining
+    fi
+
+    if curl -fsS \
+      --connect-timeout "$connect_timeout" \
+      --max-time "$remaining" \
+      "$url" >/dev/null 2>&1; then
       log "Health check passed: $url"
       return 0
     fi
