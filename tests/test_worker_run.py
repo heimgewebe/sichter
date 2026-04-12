@@ -1,5 +1,6 @@
 import unittest
 import json
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -10,6 +11,52 @@ from lib.findings import Finding
 
 
 class TestWorkerRun(unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        self._prepare_patcher = patch("apps.worker.run._prepare_base_ref", return_value=(True, "abc123"))
+        self._prepare_patcher.start()
+        self.addCleanup(self._prepare_patcher.stop)
+
+        self._real_run_cmd = worker_run.run_cmd
+
+        def _default_run_cmd(cmd, cwd, check=True):
+            if cmd[:3] == ["git", "worktree", "add"] and len(cmd) >= 5:
+                wt_path = Path(cmd[4])
+                wt_path.mkdir(parents=True, exist_ok=True)
+                (wt_path / ".git").write_text("gitdir: mock\n", encoding="utf-8")
+                (wt_path / "test.sh").write_text("echo ok\n", encoding="utf-8")
+                (wt_path / "test.yml").write_text("name: test\n", encoding="utf-8")
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            if cmd[:3] == ["git", "worktree", "remove"] and len(cmd) >= 5:
+                wt_path = Path(cmd[4])
+                if wt_path.exists():
+                    shutil.rmtree(wt_path, ignore_errors=True)
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+            if not isinstance(cwd, Path) or not cwd.exists():
+                if cmd and cmd[0] == "git":
+                    if cmd[:2] == ["git", "rev-parse"]:
+                        return subprocess.CompletedProcess(cmd, 0, stdout="abc123\n", stderr="")
+                    if cmd[:2] == ["git", "diff"] and "--cached" in cmd:
+                        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+            pseudo_git = (cwd / ".git").exists() and not (cwd / ".git" / "HEAD").exists()
+            if pseudo_git and cmd and cmd[0] == "git":
+                if cmd[:2] == ["git", "rev-parse"] and len(cmd) >= 3:
+                    target = cmd[2]
+                    if target.startswith("origin/") or target == "HEAD":
+                        return subprocess.CompletedProcess(cmd, 0, stdout="abc123\n", stderr="")
+                if cmd[:2] == ["git", "diff"] and "--cached" in cmd:
+                    return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+            return self._real_run_cmd(cmd, cwd, check=check)
+
+        self._run_cmd_patcher = patch("apps.worker.run.run_cmd", side_effect=_default_run_cmd)
+        self._run_cmd_patcher.start()
+        self.addCleanup(self._run_cmd_patcher.stop)
+
     def test_get_sorted_jobs_prioritizes_high_then_fifo_within_priority(self):
         with tempfile.TemporaryDirectory() as tmp:
             queue_dir = Path(tmp)
@@ -112,13 +159,15 @@ class TestWorkerRun(unittest.TestCase):
         self.assertTrue(mock_log.called)
         self.assertIn("exit=2", mock_log.call_args[0][0])
 
-    @patch("apps.worker.run.get_changed_files", return_value=[])
+    @patch("apps.worker.run.get_changed_files", return_value=[Path("/fake/repo/test.sh")])
+    @patch("apps.worker.run._sync_changed_files_to_worktree", return_value=[Path("/tmp/worktree/test.sh")])
+    @patch("apps.worker.run.cache_get", return_value=None)
     @patch("apps.worker.run.create_themed_prs")
     @patch("apps.worker.run.commit_if_changes", return_value=True)
     @patch("apps.worker.run.llm_review")
     @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
     @patch("apps.worker.run.registry_run_checks", return_value=[])
-    @patch("apps.worker.run.fresh_branch")
+    @patch("apps.worker.run.fresh_branch", return_value="test-branch")
     @patch("apps.worker.run.ensure_repo")
     def test_handle_job_respects_auto_pr_flag(
         self,
@@ -129,105 +178,72 @@ class TestWorkerRun(unittest.TestCase):
         mock_llm_review,
         mock_commit_if_changes,
         mock_create_themed_prs,
+        _mock_sync_changed,
+        _mock_cache_get,
         mock_get_changed_files,
     ):
+        mock_ensure_repo.return_value = Path("/fake/repo")
         # Test case 1: job with auto_pr=False
         job_false = {"repo": "test_repo", "auto_pr": False}
         worker_run.handle_job(job_false)
-        mock_create_themed_prs.assert_called_with(
-            "test_repo",
-            mock_ensure_repo.return_value,
-            mock_fresh_branch.return_value,
-            False,
-            [],
-            mock_llm_review.return_value,
-        )
+        args = mock_create_themed_prs.call_args[0]
+        self.assertEqual(args[0], "test_repo")
+        self.assertIsInstance(args[1], Path)
+        self.assertEqual(args[2], mock_fresh_branch.return_value)
+        self.assertEqual(args[3], False)
+        self.assertEqual(args[4], [])
+        self.assertEqual(args[5], mock_llm_review.return_value)
 
         # Test case 2: job with auto_pr=True
         job_true = {"repo": "test_repo", "auto_pr": True}
         worker_run.handle_job(job_true)
-        mock_create_themed_prs.assert_called_with(
-            "test_repo",
-            mock_ensure_repo.return_value,
-            mock_fresh_branch.return_value,
-            True,
-            [],
-            mock_llm_review.return_value,
-        )
+        args = mock_create_themed_prs.call_args[0]
+        self.assertEqual(args[0], "test_repo")
+        self.assertIsInstance(args[1], Path)
+        self.assertEqual(args[2], mock_fresh_branch.return_value)
+        self.assertEqual(args[3], True)
+        self.assertEqual(args[4], [])
+        self.assertEqual(args[5], mock_llm_review.return_value)
 
         # Test case 3: job without auto_pr (fallback to policy)
         job_none = {"repo": "test_repo"}
         with patch("apps.worker.run.POLICY.auto_pr", True):
             worker_run.handle_job(job_none)
-            mock_create_themed_prs.assert_called_with(
-                "test_repo",
-                mock_ensure_repo.return_value,
-                mock_fresh_branch.return_value,
-                True,
-                [],
-                mock_llm_review.return_value,
-            )
+            args = mock_create_themed_prs.call_args[0]
+            self.assertEqual(args[3], True)
 
         with patch("apps.worker.run.POLICY.auto_pr", False):
             worker_run.handle_job(job_none)
-            mock_create_themed_prs.assert_called_with(
-                "test_repo",
-                mock_ensure_repo.return_value,
-                mock_fresh_branch.return_value,
-                False,
-                [],
-                mock_llm_review.return_value,
-            )
+            args = mock_create_themed_prs.call_args[0]
+            self.assertEqual(args[3], False)
 
         # Test case 4: job with auto_pr=None (should fallback to policy)
         job_none_value = {"repo": "test_repo", "auto_pr": None}
         with patch("apps.worker.run.POLICY.auto_pr", True):
             worker_run.handle_job(job_none_value)
-            mock_create_themed_prs.assert_called_with(
-                "test_repo",
-                mock_ensure_repo.return_value,
-                mock_fresh_branch.return_value,
-                True,
-                [],
-                mock_llm_review.return_value,
-            )
+            args = mock_create_themed_prs.call_args[0]
+            self.assertEqual(args[3], True)
 
         with patch("apps.worker.run.POLICY.auto_pr", False):
             worker_run.handle_job(job_none_value)
-            mock_create_themed_prs.assert_called_with(
-                "test_repo",
-                mock_ensure_repo.return_value,
-                mock_fresh_branch.return_value,
-                False,
-                [],
-                mock_llm_review.return_value,
-            )
+            args = mock_create_themed_prs.call_args[0]
+            self.assertEqual(args[3], False)
 
         # Test case 5: job with non-bool auto_pr defaults to policy
         job_invalid_type = {"repo": "test_repo", "auto_pr": "false"}
         with patch("apps.worker.run.POLICY.auto_pr", True):
             worker_run.handle_job(job_invalid_type)
-            mock_create_themed_prs.assert_called_with(
-                "test_repo",
-                mock_ensure_repo.return_value,
-                mock_fresh_branch.return_value,
-                True,
-                [],
-                mock_llm_review.return_value,
-            )
+            args = mock_create_themed_prs.call_args[0]
+            self.assertEqual(args[3], True)
 
         with patch("apps.worker.run.POLICY.auto_pr", False):
             worker_run.handle_job(job_invalid_type)
-            mock_create_themed_prs.assert_called_with(
-                "test_repo",
-                mock_ensure_repo.return_value,
-                mock_fresh_branch.return_value,
-                False,
-                [],
-                mock_llm_review.return_value,
-            )
+            args = mock_create_themed_prs.call_args[0]
+            self.assertEqual(args[3], False)
 
     @patch("apps.worker.run.get_changed_files")
+    @patch("apps.worker.run._sync_changed_files_to_worktree", return_value=[Path("/tmp/worktree/test.sh"), Path("/tmp/worktree/test.yml")])
+    @patch("apps.worker.run.cache_get", return_value=None)
     @patch("apps.worker.run.create_themed_prs")
     @patch("apps.worker.run.commit_if_changes", return_value=True)
     @patch("apps.worker.run.llm_review")
@@ -244,6 +260,8 @@ class TestWorkerRun(unittest.TestCase):
         mock_llm_review,
         mock_commit_if_changes,
         mock_create_themed_prs,
+        _mock_sync_changed,
+        _mock_cache_get,
         mock_get_changed_files,
     ):
         """Test that mode='changed' invokes get_changed_files and passes result to linters."""
@@ -258,10 +276,11 @@ class TestWorkerRun(unittest.TestCase):
         mock_get_changed_files.assert_called_once()
         mock_registry_run_checks.assert_called_once()
         args = mock_registry_run_checks.call_args[0]
-        self.assertEqual(args[0], mock_repo_dir)
-        self.assertEqual(args[1], mock_changed)
+        self.assertIsInstance(args[0], Path)
+        self.assertEqual([p.name for p in args[1]], ["test.sh", "test.yml"])
 
     @patch("apps.worker.run.get_changed_files")
+    @patch("apps.worker.run.cache_get", return_value=None)
     @patch("apps.worker.run.create_themed_prs")
     @patch("apps.worker.run.commit_if_changes", return_value=True)
     @patch("apps.worker.run.llm_review")
@@ -278,6 +297,7 @@ class TestWorkerRun(unittest.TestCase):
         mock_llm_review,
         mock_commit_if_changes,
         mock_create_themed_prs,
+        _mock_cache_get,
         mock_get_changed_files,
     ):
         """Test that mode='all' does not invoke get_changed_files and passes None to linters."""
@@ -290,10 +310,11 @@ class TestWorkerRun(unittest.TestCase):
         mock_get_changed_files.assert_not_called()
         mock_registry_run_checks.assert_called_once()
         args = mock_registry_run_checks.call_args[0]
-        self.assertEqual(args[0], mock_repo_dir)
+        self.assertIsInstance(args[0], Path)
         self.assertIsNone(args[1])
 
-    @patch("apps.worker.run.get_changed_files", return_value=[])
+    @patch("apps.worker.run.get_changed_files", return_value=[Path("/fake/repo/test.sh")])
+    @patch("apps.worker.run._sync_changed_files_to_worktree", return_value=[Path("/tmp/worktree/test.sh")])
     @patch("apps.worker.run.append_event")
     @patch("apps.worker.run.dedupe_findings")
     @patch("apps.worker.run.create_themed_prs")
@@ -314,6 +335,7 @@ class TestWorkerRun(unittest.TestCase):
         mock_create_themed_prs,
         mock_dedupe_findings,
         mock_append_event,
+        _mock_sync_changed,
         mock_get_changed_files,
     ):
         """Test that findings are collected, deduped, and counted correctly."""
@@ -795,6 +817,189 @@ class TestWorkerRun(unittest.TestCase):
         self.assertEqual(tools, {"ruff", "eslint"})
         self.assertEqual(target_files, {"ruff": [Path("src/app.py")], "eslint": [Path("web/app.ts")]})
 
+    @patch("apps.worker.run.append_event")
+    @patch("apps.worker.run.HOME", new=Path("/tmp/sichter-home"))
+    def test_list_repos_local_filters_self_non_git_and_discovery_excludes(self, mock_append_event):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp) / "repos"
+            base.mkdir(parents=True)
+
+            (base / "target-repo").mkdir()
+            (base / "target-repo" / ".git").mkdir()
+
+            (base / "sichter").mkdir()
+            (base / "sichter" / ".git").mkdir()
+
+            (base / ".idea").mkdir()
+            (base / ".idea" / ".git").mkdir()
+
+            (base / "plain-dir").mkdir()
+
+            with patch("apps.worker.run.HOME", Path(tmp)), patch(
+                "apps.worker.run.POLICY",
+                unittest.mock.Mock(
+                    include_self_repo=False,
+                    discovery_excludes=(".idea", "merges", "exports", "_mirror"),
+                ),
+            ), patch("apps.worker.run.REPO_ROOT", Path(tmp) / "sichter"):
+                repos = worker_run.list_repos_local()
+
+            self.assertEqual(repos, ["target-repo"])
+            reasons = [c[0][0].get("reason") for c in mock_append_event.call_args_list if c[0][0].get("type") == "repo_skipped"]
+            self.assertIn("self_repo_disabled", reasons)
+            self.assertIn("discovery_excluded", reasons)
+            self.assertIn("non_git_directory", reasons)
+
+    @patch("apps.worker.run.record_metrics")
+    @patch("apps.worker.run.append_event")
+    @patch("apps.worker.run.run_heuristics", return_value=[])
+    @patch("apps.worker.run.llm_review", return_value=None)
+    @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
+    @patch("apps.worker.run.registry_run_checks", return_value=[])
+    @patch("apps.worker.run.fresh_branch")
+    @patch("apps.worker.run.ensure_repo", return_value=Path("/fake/repo"))
+    @patch("apps.worker.run._prepare_base_ref", return_value=(True, "abc123"))
+    @patch("apps.worker.run.run_cmd")
+    def test_process_repo_nochange_does_not_create_branch(
+        self,
+        mock_run_cmd,
+        _mock_prepare,
+        _mock_ensure_repo,
+        mock_fresh_branch,
+        _mock_registry_checks,
+        _mock_registry_autofix,
+        _mock_llm_review,
+        _mock_heuristics,
+        mock_append_event,
+        _mock_record_metrics,
+    ):
+        class _Result:
+            def __init__(self, returncode=0, stdout="", stderr=""):
+                self.returncode = returncode
+                self.stdout = stdout
+                self.stderr = stderr
+
+        def _side_effect(cmd, cwd, check=True):
+            if cmd[:3] == ["git", "diff", "--cached"]:
+                return _Result(returncode=0)
+            if cmd[:2] == ["git", "add"]:
+                return _Result(returncode=0)
+            if cmd[:2] == ["git", "rev-parse"]:
+                return _Result(returncode=0, stdout="abc123\n")
+            return _Result(returncode=0)
+
+        mock_run_cmd.side_effect = _side_effect
+
+        worker_run.process_repo("demo-repo", "all", True)
+
+        mock_fresh_branch.assert_not_called()
+        noop_events = [c[0][0] for c in mock_append_event.call_args_list if c[0][0].get("type") == "noop"]
+        self.assertTrue(noop_events)
+        self.assertEqual(noop_events[-1].get("branch"), "-")
+
+    @patch("apps.worker.run.record_metrics")
+    @patch("apps.worker.run.append_event")
+    @patch("apps.worker.run.run_heuristics", return_value=[])
+    @patch("apps.worker.run.llm_review", return_value=None)
+    @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
+    @patch("apps.worker.run.registry_run_checks", return_value=[])
+    @patch("apps.worker.run.fresh_branch")
+    @patch("apps.worker.run.ensure_repo", return_value=Path("/fake/repo"))
+    @patch("apps.worker.run._prepare_base_ref", return_value=(True, "abc123"))
+    @patch("apps.worker.run.run_cmd")
+    def test_process_repo_git_diff_error_does_not_create_branch(
+        self,
+        mock_run_cmd,
+        _mock_prepare,
+        _mock_ensure_repo,
+        mock_fresh_branch,
+        _mock_registry_checks,
+        _mock_registry_autofix,
+        _mock_llm_review,
+        _mock_heuristics,
+        mock_append_event,
+        _mock_record_metrics,
+    ):
+        class _Result:
+            def __init__(self, returncode=0, stdout="", stderr=""):
+                self.returncode = returncode
+                self.stdout = stdout
+                self.stderr = stderr
+
+        def _side_effect(cmd, cwd, check=True):
+            if cmd[:3] == ["git", "diff", "--cached"]:
+                return _Result(returncode=2, stderr="fatal")
+            if cmd[:2] == ["git", "add"]:
+                return _Result(returncode=0)
+            if cmd[:2] == ["git", "rev-parse"]:
+                return _Result(returncode=0, stdout="abc123\n")
+            return _Result(returncode=0)
+
+        mock_run_cmd.side_effect = _side_effect
+
+        worker_run.process_repo("demo-repo", "all", True)
+
+        mock_fresh_branch.assert_not_called()
+        mock_append_event.assert_any_call(
+            {
+                "type": "error",
+                "repo": "demo-repo",
+                "reason": "git_diff_failed",
+                "rc": 2,
+            }
+        )
+
+    @patch("apps.worker.run.record_metrics")
+    @patch("apps.worker.run.append_event")
+    @patch("apps.worker.run.record_findings_snapshot")
+    @patch("apps.worker.run.cache_get", return_value=None)
+    @patch("apps.worker.run.dedupe_findings", return_value={})
+    @patch("apps.worker.run.run_heuristics", return_value=[])
+    @patch("apps.worker.run.create_themed_prs", return_value=0)
+    @patch("apps.worker.run.commit_if_changes", return_value=True)
+    @patch("apps.worker.run.llm_review", return_value=None)
+    @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
+    @patch("apps.worker.run.registry_run_checks", return_value=[])
+    @patch("apps.worker.run._sync_changed_files_to_worktree", return_value=[])
+    @patch("apps.worker.run.fresh_branch", return_value="test-branch")
+    @patch("apps.worker.run.ensure_repo", return_value=Path("/fake/repo"))
+    def test_process_repo_changed_mode_deletions_only_continues(
+        self,
+        _mock_ensure_repo,
+        _mock_fresh_branch,
+        _mock_sync,
+        mock_registry_run_checks,
+        _mock_registry_run_autofixes,
+        _mock_llm_review,
+        _mock_commit_if_changes,
+        _mock_create_themed_prs,
+        _mock_heuristics,
+        _mock_dedupe,
+        _mock_cache_get,
+        _mock_record_snapshot,
+        mock_append_event,
+        _mock_record_metrics,
+    ):
+        deleted_only = [Path("/fake/repo/deleted.py")]
+        with patch("apps.worker.run.get_changed_files", return_value=deleted_only):
+            worker_run.process_repo("demo-repo", "changed", False)
+
+        mock_registry_run_checks.assert_called()
+        mock_append_event.assert_any_call({"type": "deletions_only", "repo": "demo-repo"})
+
+    @patch("apps.worker.run.append_event")
+    @patch("apps.worker.run.ensure_repo", return_value=Path("/fake/repo"))
+    @patch("apps.worker.run._prepare_base_ref", return_value=(False, None))
+    def test_process_repo_base_preparation_failure_blocks_branching(
+        self,
+        _mock_prepare,
+        _mock_ensure_repo,
+        mock_append_event,
+    ):
+        with patch("apps.worker.run.fresh_branch") as mock_fresh_branch:
+            worker_run.process_repo("demo-repo", "all", True)
+            mock_fresh_branch.assert_not_called()
+        self.assertTrue(mock_append_event.called)
     @patch("apps.worker.run.record_metrics")
     @patch("apps.worker.run.run_heuristics", return_value=[])
     @patch("apps.worker.run.commit_if_changes", return_value=False)
@@ -818,11 +1023,14 @@ class TestWorkerRun(unittest.TestCase):
             mock_ensure_repo.return_value = Path("/fake/repo")
             worker_run.process_repo("test_repo", "all", True)
 
-        mock_run_heuristics.assert_called_once_with(Path("/fake/repo"), None)
+        mock_run_heuristics.assert_called_once()
+        self.assertIsInstance(mock_run_heuristics.call_args[0][0], Path)
+        self.assertEqual(mock_run_heuristics.call_args[0][1], None)
 
     @patch("apps.worker.run.record_metrics")
     @patch("apps.worker.run.append_event")
     @patch("apps.worker.run.record_findings_snapshot")
+    @patch("apps.worker.run.cache_get", return_value=None)
     @patch("apps.worker.run.dedupe_findings", return_value={})
     @patch("apps.worker.run.run_heuristics", return_value=[])
     @patch("apps.worker.run.create_themed_prs", return_value=1)
@@ -842,6 +1050,7 @@ class TestWorkerRun(unittest.TestCase):
         _mock_commit_if_changes,
         _mock_create_themed_prs,
         mock_run_heuristics,
+        _mock_cache_get,
         _mock_dedupe_findings,
         mock_record_snapshot,
         _mock_append_event,
@@ -1514,6 +1723,7 @@ class TestWorkerRun(unittest.TestCase):
             repo_dir = _Path(tmpdir)
             git_dir = repo_dir / ".git"
             git_dir.mkdir()
+            (repo_dir / "a.py").write_text("print('hi')\n", encoding="utf-8")
             mock_ensure_repo.return_value = repo_dir
 
             with patch("apps.worker.run.get_changed_files", return_value=[repo_dir / "a.py"]):

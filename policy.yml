@@ -3,8 +3,3 @@ interval_minutes: 5
 max_parallel_jobs: 3
 autorun: true
 include_self_repo: false
-discovery_excludes:
-  - .idea
-  - merges
-  - exports
-  - _mirror

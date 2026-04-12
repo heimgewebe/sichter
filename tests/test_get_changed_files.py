@@ -1,6 +1,7 @@
 import unittest
 import tempfile
 import os
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 from apps.worker import run as worker_run
@@ -31,8 +32,10 @@ class TestGetChangedFiles(unittest.TestCase):
 
             # Mock run_cmd to return our file list
             with patch("apps.worker.run.run_cmd") as mock_run_cmd:
-                mock_run_cmd.return_value.stdout = "inside.py\nlink_outside.py\n"
-                mock_run_cmd.return_value.returncode = 0
+                mock_run_cmd.side_effect = [
+                    subprocess.CompletedProcess([], 0, stdout="M\tinside.py\nM\tlink_outside.py\n", stderr=""),
+                    subprocess.CompletedProcess([], 0, stdout="", stderr=""),
+                ]
 
                 files = worker_run.get_changed_files(repo_dir)
 
@@ -41,6 +44,39 @@ class TestGetChangedFiles(unittest.TestCase):
 
                 # link_outside.py should NOT be returned because it resolves to outside
                 self.assertNotIn(symlink, files)
+
+    def test_get_changed_files_includes_untracked_files(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_dir = Path(tmp_dir)
+            (repo_dir / "tracked.py").write_text("print('tracked')\n", encoding="utf-8")
+            (repo_dir / "new.py").write_text("print('new')\n", encoding="utf-8")
+
+            with patch("apps.worker.run.run_cmd") as mock_run_cmd:
+                mock_run_cmd.side_effect = [
+                    subprocess.CompletedProcess([], 0, stdout="M\ttracked.py\n", stderr=""),
+                    subprocess.CompletedProcess([], 0, stdout="new.py\n", stderr=""),
+                ]
+
+                files = worker_run.get_changed_files(repo_dir)
+
+            self.assertIn(repo_dir / "tracked.py", files)
+            self.assertIn(repo_dir / "new.py", files)
+
+    def test_get_changed_files_tracks_rename_source_and_target(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_dir = Path(tmp_dir)
+            (repo_dir / "new.py").write_text("print('renamed')\n", encoding="utf-8")
+
+            with patch("apps.worker.run.run_cmd") as mock_run_cmd:
+                mock_run_cmd.side_effect = [
+                    subprocess.CompletedProcess([], 0, stdout="R100\told.py\tnew.py\n", stderr=""),
+                    subprocess.CompletedProcess([], 0, stdout="", stderr=""),
+                ]
+
+                files = worker_run.get_changed_files(repo_dir)
+
+            self.assertIn(repo_dir / "old.py", files)
+            self.assertIn(repo_dir / "new.py", files)
 
 if __name__ == "__main__":
     unittest.main()

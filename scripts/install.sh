@@ -23,6 +23,10 @@ for cmd in gh git python3 pip shellcheck yamllint; do
   need_cmd "$cmd"
 done
 
+CURRENT_COMMIT="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+CURRENT_BRANCH="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo detached)"
+log "Code-Stand: branch=${CURRENT_BRANCH} commit=${CURRENT_COMMIT}"
+
 if command -v node >/dev/null 2>&1; then
   log "node gefunden: $(node --version)"
 else
@@ -54,6 +58,10 @@ ln -sf "$ROOT/bin/omnicheck" "$HOME/bin/omnicheck"
 ln -sf "$ROOT/bin/sichter-pr-sweep" "$HOME/sichter/bin/sichter-pr-sweep"
 ln -sf "$ROOT/bin/sweep" "$HOME/sichter/bin/sweep"
 ln -sf "$ROOT/bin/sichter-dashboard" "$HOME/sichter/bin/sichter-dashboard"
+
+if ! "$ROOT/bin/sichter-pr-sweep" --version | grep -q "hard-gates-v2"; then
+  die "Guard-Marker fehlt: sichter-pr-sweep ist nicht im erwarteten Hard-Gate-Stand"
+fi
 
 HOOK_TARGET="${XDG_CONFIG_HOME:-$HOME/.config}/omnipull/hooks"
 mkdir -p "$HOOK_TARGET"

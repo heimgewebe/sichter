@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -157,11 +158,13 @@ def acquire_pid_lock() -> None:
 class Policy:
   auto_pr: bool = True
   sweep_on_omnipull: bool = True
+  include_self_repo: bool = False
   run_mode: str = "deep"
   org: str = DEFAULT_ORG
   llm: dict | None = None
   checks: dict | None = None
   excludes: Iterable[str] = ()
+  discovery_excludes: tuple[str, ...] = (".idea", "merges", "exports", "_mirror")
   security: dict | None = None
   max_parallel_repos: int = 4
 
@@ -194,6 +197,7 @@ class Policy:
 
     auto_pr = cls._bool_with_default(data.get("auto_pr"), True)
     sweep_on_omnipull = cls._bool_with_default(data.get("sweep_on_omnipull"), True)
+    include_self_repo = cls._bool_with_default(data.get("include_self_repo"), False)
     try:
       max_parallel_repos = int(data.get("max_parallel_repos", 4))
     except (TypeError, ValueError):
@@ -201,14 +205,24 @@ class Policy:
     if max_parallel_repos <= 0:
       max_parallel_repos = 1
 
+    raw_discovery_excludes = data.get("discovery_excludes", [])
+    discovery_excludes: list[str] = [".idea", "merges", "exports", "_mirror"]
+    if isinstance(raw_discovery_excludes, list):
+      for value in raw_discovery_excludes:
+        text = str(value).strip()
+        if text and text not in discovery_excludes:
+          discovery_excludes.append(text)
+
     return cls(
       auto_pr=auto_pr,
       sweep_on_omnipull=sweep_on_omnipull,
+      include_self_repo=include_self_repo,
       run_mode=str(data.get("run_mode", "deep")),
       org=str(data.get("org", DEFAULT_ORG)),
       llm=data.get("llm", {}),
       checks=data.get("checks", {}),
       excludes=data.get("excludes", []) or [],
+      discovery_excludes=tuple(discovery_excludes),
       security=data.get("security", {}),
       max_parallel_repos=max_parallel_repos,
     )
@@ -251,14 +265,20 @@ def get_changed_files(
   if base is None:
     base = f"origin/{DEFAULT_BRANCH}"
 
-  result = run_cmd(
-    ["git", "diff", "--name-only", "--diff-filter=ACMRT", base],
+  tracked_result = run_cmd(
+    ["git", "diff", "--name-status", "--diff-filter=ACMRTD", base],
     repo_dir,
     check=False,
   )
-  if result.returncode != 0:
-    log(f"git diff failed for base={base}: {result.stderr.strip()}")
+  if tracked_result.returncode != 0:
+    log(f"git diff failed for base={base}: {tracked_result.stderr.strip()}")
     return []
+
+  untracked_result = run_cmd(
+    ["git", "ls-files", "--others", "--exclude-standard"],
+    repo_dir,
+    check=False,
+  )
 
   try:
     repo_root = repo_dir.resolve()
@@ -268,15 +288,29 @@ def get_changed_files(
   files: list[Path] = []
   skipped_outside: list[str] = []
   compiled_re = compile_excludes(tuple(excludes))
+  seen_paths: set[Path] = set()
 
-  for raw in result.stdout.splitlines():
+  tracked_paths: list[str] = []
+  for line in tracked_result.stdout.splitlines():
+    parts = [part for part in line.strip().split("\t") if part]
+    if len(parts) < 2:
+      continue
+    status = parts[0]
+    if status.startswith("R") and len(parts) >= 3:
+      tracked_paths.extend([parts[1], parts[2]])
+      continue
+    tracked_paths.append(parts[-1])
+
+  raw_paths = tracked_paths
+  if untracked_result.returncode == 0:
+    raw_paths.extend(untracked_result.stdout.splitlines())
+
+  for raw in raw_paths:
     rel_path_str = raw.strip()
     if not rel_path_str:
       continue
 
     path = repo_dir / rel_path_str
-    if not path.exists():
-      continue
 
     # Ensure resolved target stays inside repo_root (catches symlinks pointing outside)
     try:
@@ -294,6 +328,9 @@ def get_changed_files(
     if is_excluded(str(rel), compiled_re):
       continue
 
+    if path in seen_paths:
+      continue
+    seen_paths.add(path)
     files.append(path)
 
   if skipped_outside:
@@ -820,12 +857,15 @@ def build_pr_body(
   return "\n".join(lines)
 
 
-def fresh_branch(repo_dir: Path) -> str:
-  run_cmd(["git", "fetch", "origin", "--prune", "--tags"], repo_dir)
-  base_branch = f"origin/{DEFAULT_BRANCH}"
-  result = run_cmd(["git", "switch", "--detach", base_branch], repo_dir, check=False)
-  if result.returncode != 0:
-    run_cmd(["git", "checkout", "--detach", base_branch], repo_dir)
+def fresh_branch(repo_dir: Path, base_sha: str | None = None) -> str:
+  if base_sha:
+    head = run_cmd(["git", "rev-parse", "HEAD"], repo_dir, check=False)
+    head_sha = (head.stdout or "").strip()
+    if head.returncode != 0 or head_sha != base_sha:
+      raise RuntimeError(
+        "base verification failed before branch creation "
+        f"(expected={base_sha}, actual={head_sha or 'unknown'})"
+      )
   branch = f"sichter/autofix-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
   result = run_cmd(["git", "switch", "-C", branch], repo_dir, check=False)
   if result.returncode != 0:
@@ -833,13 +873,113 @@ def fresh_branch(repo_dir: Path) -> str:
   return branch
 
 
-def commit_if_changes(repo_dir: Path) -> bool:
-  run_cmd(["git", "add", "-A"], repo_dir)
+def commit_if_changes(repo_dir: Path, stage_changes: bool = True) -> bool:
+  if stage_changes:
+    run_cmd(["git", "add", "-A"], repo_dir)
   result = run_cmd(["git", "diff", "--cached", "--quiet"], repo_dir, check=False)
-  if result.returncode != 0:
+  if result.returncode == 1:
     run_cmd(["git", "commit", "-m", "sichter: autofix"], repo_dir)
     return True
+  if result.returncode not in {0, 1}:
+    log(f"git diff --cached --quiet fehlgeschlagen in {repo_dir} (rc={result.returncode})")
   return False
+
+
+def _prepare_base_ref(repo: str, repo_dir: Path) -> tuple[bool, str | None]:
+  try:
+    run_cmd(["git", "fetch", "origin", "--prune", "--tags"], repo_dir)
+  except (OSError, subprocess.SubprocessError):
+    append_event({"type": "base_preparation_failed", "repo": repo, "reason": "repo_not_accessible"})
+    return False, None
+  base_ref = f"origin/{DEFAULT_BRANCH}"
+  base_rev = run_cmd(["git", "rev-parse", base_ref], repo_dir, check=False)
+  if base_rev.returncode != 0:
+    append_event({"type": "base_preparation_failed", "repo": repo, "base": base_ref, "reason": "missing_base_ref"})
+    log(f"{repo}: Base-Ref fehlt ({base_ref})")
+    return False, None
+
+  base_sha = (base_rev.stdout or "").strip()
+  return True, base_sha
+
+
+def _worktree_tmpdir_name(repo: str) -> str:
+  sanitized = re.sub(r"[^a-zA-Z0-9._-]+", "_", repo).strip("._-")
+  return sanitized or "repo"
+
+
+def _create_temp_worktree(repo: str, repo_dir: Path, base_sha: str) -> Path | None:
+  tmpdir = Path(tempfile.mkdtemp(prefix=f"sichter-worker-{_worktree_tmpdir_name(repo)}-"))
+  add_result = run_cmd(["git", "worktree", "add", "--detach", str(tmpdir), base_sha], repo_dir, check=False)
+  if add_result.returncode != 0:
+    append_event({"type": "base_preparation_failed", "repo": repo, "reason": "worktree_add_failed"})
+    shutil.rmtree(tmpdir, ignore_errors=True)
+    return None
+
+  head = run_cmd(["git", "rev-parse", "HEAD"], tmpdir, check=False)
+  head_sha = (head.stdout or "").strip()
+  if head.returncode != 0 or head_sha != base_sha:
+    append_event(
+      {
+        "type": "base_preparation_failed",
+        "repo": repo,
+        "reason": "base_sha_mismatch",
+        "expected": base_sha,
+        "actual": head_sha,
+      }
+    )
+    _cleanup_temp_worktree(repo_dir, tmpdir)
+    return None
+
+  return tmpdir
+
+
+def _cleanup_temp_worktree(repo_dir: Path, worktree_dir: Path | None) -> None:
+  if not worktree_dir:
+    return
+  run_cmd(["git", "worktree", "remove", "--force", str(worktree_dir)], repo_dir, check=False)
+  shutil.rmtree(worktree_dir, ignore_errors=True)
+
+
+def _remove_path(path: Path) -> None:
+  if path.is_dir() and not path.is_symlink():
+    shutil.rmtree(path, ignore_errors=True)
+    return
+  if path.exists() or path.is_symlink():
+    path.unlink()
+
+
+def _sync_changed_files_to_worktree(
+  changed_files: list[Path],
+  source_repo_dir: Path,
+  target_repo_dir: Path,
+) -> list[Path]:
+  synced: list[Path] = []
+  for source_path in changed_files:
+    try:
+      rel_path = source_path.relative_to(source_repo_dir)
+    except ValueError:
+      continue
+
+    target_path = target_repo_dir / rel_path
+    if source_path.exists():
+      target_path.parent.mkdir(parents=True, exist_ok=True)
+      if target_path.exists() and target_path.is_dir() and not target_path.is_symlink():
+        shutil.rmtree(target_path, ignore_errors=True)
+      elif target_path.exists() or target_path.is_symlink():
+        target_path.unlink()
+
+      if source_path.is_symlink():
+        os.symlink(os.readlink(source_path), target_path)
+      elif source_path.is_file():
+        shutil.copy2(source_path, target_path, follow_symlinks=False)
+      else:
+        continue
+      synced.append(target_path)
+      continue
+
+    _remove_path(target_path)
+
+  return synced
 
 
 def ensure_repo(repo: str) -> Path | None:
@@ -852,6 +992,10 @@ def ensure_repo(repo: str) -> Path | None:
     Path to repository directory, or None if clone failed
   """
   repo_dir = HOME / "repos" / repo
+  if repo_dir.exists() and not (repo_dir / ".git").exists():
+    log(f"Überspringe {repo}: Verzeichnis ist kein Git-Repo")
+    append_event({"type": "repo_skipped", "repo": repo, "reason": "non_git_directory"})
+    return None
   if not (repo_dir / ".git").exists():
     try:
       result = run_cmd(
@@ -1117,179 +1261,223 @@ def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
   if not repo_dir:
     return
 
-  branch = fresh_branch(repo_dir)
+  branch = "-"
   changed_files: list[Path] | None
+  changed_files_source: list[Path] | None
+
   if mode == "changed":
-    changed_files = get_changed_files(repo_dir, base=None, excludes=POLICY.excludes)
-    if not changed_files:
+    changed_files_source = get_changed_files(repo_dir, base=None, excludes=POLICY.excludes)
+    if not changed_files_source:
       log(f"Keine geänderten Dateien für {repo} (mode=changed)")
+      append_event({"type": "noop", "repo": repo, "branch": "-", "reason": "no_changed_files"})
+      return
+    changed_files = changed_files_source
   else:
     changed_files = None
+    changed_files_source = None
 
-  policy_hash = cache_policy_hash(
-    POLICY.checks if isinstance(POLICY.checks, dict) else {},
-    list(POLICY.excludes),
-  )
-  findings_key = make_check_key(repo, current_commit(repo_dir), "registry", policy_hash)
-  # Cache is only valid for full-repo scans; changed-file mode produces a different
-  # subset of findings so we must not serve a full-scan cache entry for it.
-  cache_allowed = (
-    changed_files is None
-    and isinstance(repo_dir, Path)
-    and repo_dir.exists()
-    and (repo_dir / ".git").exists()
-  )
-  cached = cache_get(findings_key) if cache_allowed else None
-  if cached and isinstance(cached.get("findings"), list):
-    findings = deserialize_findings(cached["findings"])
-    cache_hits += 1
-    log(f"{repo}: Check-Ergebnisse aus Cache geladen")
-  else:
-    findings = registry_run_checks(
-      repo_dir,
+  worktree_dir: Path | None = None
+  try:
+    base_ok, base_sha = _prepare_base_ref(repo, repo_dir)
+    if not base_ok or not base_sha:
+      append_event({"type": "base_preparation_failed", "repo": repo, "reason": "base_gate_blocked"})
+      return
+
+    worktree_dir = _create_temp_worktree(repo, repo_dir, base_sha)
+    if not worktree_dir:
+      return
+
+    if changed_files_source is not None:
+      changed_files = _sync_changed_files_to_worktree(changed_files_source, repo_dir, worktree_dir)
+      if not changed_files:
+        has_existing_source_paths = any(path.exists() for path in changed_files_source)
+        if has_existing_source_paths:
+          log(f"Keine geänderten Dateien im Worktree für {repo} (mode=changed)")
+          append_event({"type": "noop", "repo": repo, "branch": "-", "reason": "no_changed_files"})
+          return
+        log(f"{repo}: Nur Löschungen erkannt (mode=changed), fahre fort")
+        append_event({"type": "deletions_only", "repo": repo})
+
+    policy_hash = cache_policy_hash(
+      POLICY.checks if isinstance(POLICY.checks, dict) else {},
+      list(POLICY.excludes),
+    )
+    findings_key = make_check_key(repo, current_commit(worktree_dir), "registry", policy_hash)
+    cache_allowed = (
+      changed_files is None
+      and isinstance(worktree_dir, Path)
+      and worktree_dir.exists()
+      and (worktree_dir / ".git").exists()
+    )
+    cached = cache_get(findings_key) if cache_allowed else None
+    if cached and isinstance(cached.get("findings"), list):
+      findings = deserialize_findings(cached["findings"])
+      cache_hits += 1
+      log(f"{repo}: Check-Ergebnisse aus Cache geladen")
+    else:
+      findings = registry_run_checks(
+        worktree_dir,
+        changed_files,
+        POLICY.checks,
+        POLICY.excludes,
+        run_cmd,
+        log,
+      )
+      if cache_allowed:
+        cache_set(findings_key, {"findings": serialize_findings(findings)})
+
+    autofix_tools, target_files_by_tool = _select_autofix_targets(findings)
+    autofix = registry_run_autofixes(
+      worktree_dir,
       changed_files,
       POLICY.checks,
       POLICY.excludes,
       run_cmd,
       log,
+      only_tools=autofix_tools,
+      target_files_by_tool=target_files_by_tool,
     )
-    if cache_allowed:
-      # The cache key is anchored to the starting HEAD commit. Keep the cached
-      # payload bound to that commit's raw findings; post-autofix re-scan results
-      # belong to a dirty worktree (and later a different commit after commit_if_changes).
-      cache_set(findings_key, {"findings": serialize_findings(findings)})
-
-  autofix_tools, target_files_by_tool = _select_autofix_targets(findings)
-
-  autofix = registry_run_autofixes(
-    repo_dir,
-    changed_files,
-    POLICY.checks,
-    POLICY.excludes,
-    run_cmd,
-    log,
-    only_tools=autofix_tools,
-    target_files_by_tool=target_files_by_tool,
-  )
-  autofix_applied = False
-  for tool_name, changed in autofix.items():
-    changed_int = int(changed)
-    if changed_int <= 0:
-      continue
-    autofix_applied = True
-    log(f"{repo}: {tool_name} hat {changed_int} Datei(en) angepasst")
-    append_event(
-      {
-        "type": "autofix",
-        "repo": repo,
-        "tool": tool_name,
-        "changed": changed_int,
-      }
-    )
-
-  if autofix_applied:
-    # Re-scan for downstream artefacts (snapshot, LLM review, PR body) so they
-    # reflect the post-fix working tree. Do not overwrite the commit-based cache
-    # with this state because it no longer corresponds to findings_key.
-    findings = registry_run_checks(
-      repo_dir,
-      changed_files,
-      POLICY.checks,
-      POLICY.excludes,
-      run_cmd,
-      log,
-    )
-
-  heuristic_findings = run_heuristics(repo_dir, changed_files)
-  if heuristic_findings:
-    append_event({"type": "heuristics", "repo": repo, "count": len(heuristic_findings)})
-  findings = findings + heuristic_findings
-
-  grouped = dedupe_findings(findings)
-  record_findings_snapshot(repo, findings)
-  if findings:
-    log(f"{repo}: {len(findings)} Findings ({len(grouped)} dedupliziert)")
-    findings_by_file: dict[str, int] = {}
-    finding_items: list[dict] = []
-    for finding in findings:
-      if finding.file:
-        findings_by_file[finding.file] = findings_by_file.get(finding.file, 0) + 1
-      if len(finding_items) < 100:
-        finding_items.append(
-          {
-            "severity": finding.severity,
-            "category": finding.category,
-            "file": finding.file,
-            "line": finding.line,
-            "message": finding.message,
-            "rule_id": finding.rule_id,
-          }
-        )
-    append_event(
-      {
-        "type": "findings",
-        "repo": repo,
-        "count": len(findings),
-        "deduped": len(grouped),
-        "files": sorted(
-          (
-            {"path": path, "count": count}
-            for path, count in findings_by_file.items()
-          ),
-          key=lambda item: (-item["count"], item["path"]),
-        )[:100],
-        "items": finding_items,
-      }
-    )
-
-  # Filter policy-suppressed findings before review/PR generation so they do not
-  # leak into the LLM prompt or the resulting PR body.
-  findings_for_prs = _filter_findings_for_prs(findings, POLICY.checks, POLICY.security, repo)
-  review = llm_review(repo, repo_dir, findings_for_prs)
-
-  if commit_if_changes(repo_dir):
-    if findings and not findings_for_prs:
-      suppressed_categories = sorted({finding.category for finding in findings if finding.category})
-      log(f"{repo}: Alle Findings für PR-Erzeugung unterdrückt ({', '.join(suppressed_categories)})")
+    autofix_applied = False
+    for tool_name, changed in autofix.items():
+      changed_int = int(changed)
+      if changed_int <= 0:
+        continue
+      autofix_applied = True
+      log(f"{repo}: {tool_name} hat {changed_int} Datei(en) angepasst")
       append_event(
         {
-          "type": "pr_suppressed",
+          "type": "autofix",
           "repo": repo,
-          "branch": branch,
-          "categories": suppressed_categories,
-          "reason": "all_findings_filtered",
+          "tool": tool_name,
+          "changed": changed_int,
         }
       )
+
+    if autofix_applied:
+      findings = registry_run_checks(
+        worktree_dir,
+        changed_files,
+        POLICY.checks,
+        POLICY.excludes,
+        run_cmd,
+        log,
+      )
+
+    heuristic_findings = run_heuristics(worktree_dir, changed_files)
+    if heuristic_findings:
+      append_event({"type": "heuristics", "repo": repo, "count": len(heuristic_findings)})
+    findings = findings + heuristic_findings
+
+    grouped = dedupe_findings(findings)
+    record_findings_snapshot(repo, findings)
+    if findings:
+      log(f"{repo}: {len(findings)} Findings ({len(grouped)} dedupliziert)")
+      findings_by_file: dict[str, int] = {}
+      finding_items: list[dict] = []
+      for finding in findings:
+        if finding.file:
+          findings_by_file[finding.file] = findings_by_file.get(finding.file, 0) + 1
+        if len(finding_items) < 100:
+          finding_items.append(
+            {
+              "severity": finding.severity,
+              "category": finding.category,
+              "file": finding.file,
+              "line": finding.line,
+              "message": finding.message,
+              "rule_id": finding.rule_id,
+            }
+          )
+      append_event(
+        {
+          "type": "findings",
+          "repo": repo,
+          "count": len(findings),
+          "deduped": len(grouped),
+          "files": sorted(
+            (
+              {"path": path, "count": count}
+              for path, count in findings_by_file.items()
+            ),
+            key=lambda item: (-item["count"], item["path"]),
+          )[:100],
+          "items": finding_items,
+        }
+      )
+
+    findings_for_prs = _filter_findings_for_prs(findings, POLICY.checks, POLICY.security, repo)
+    review = llm_review(repo, worktree_dir, findings_for_prs)
+
+    run_cmd(["git", "add", "-A"], worktree_dir)
+    staged_result = run_cmd(["git", "diff", "--cached", "--quiet"], worktree_dir, check=False)
+    if staged_result.returncode == 0:
+      planned_branch = f"sichter/autofix-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+      log(f"Keine Änderungen für {repo}")
+      append_event({"type": "noop", "repo": repo, "branch": "-", "planned_branch": planned_branch})
+    elif staged_result.returncode == 1:
+      append_event({"type": "change_detected", "repo": repo})
+      try:
+        branch = fresh_branch(worktree_dir, base_sha=base_sha)
+      except RuntimeError:
+        append_event({"type": "base_preparation_failed", "repo": repo, "reason": "pre_branch_verification_failed"})
+        return
+
+      append_event({"type": "branch_created", "repo": repo, "branch": branch})
+      if commit_if_changes(worktree_dir, stage_changes=False):
+        if findings and not findings_for_prs:
+          suppressed_categories = sorted({finding.category for finding in findings if finding.category})
+          log(f"{repo}: Alle Findings für PR-Erzeugung unterdrückt ({', '.join(suppressed_categories)})")
+          append_event(
+            {
+              "type": "pr_suppressed",
+              "repo": repo,
+              "branch": branch,
+              "categories": suppressed_categories,
+              "reason": "all_findings_filtered",
+            }
+          )
+        else:
+          prs_created = create_themed_prs(repo, worktree_dir, branch, auto_pr, findings_for_prs, review)
+      else:
+        append_event({"type": "noop", "repo": repo, "branch": "-"})
     else:
-      prs_created = create_themed_prs(repo, repo_dir, branch, auto_pr, findings_for_prs, review)
-  else:
-    log(f"Keine Änderungen für {repo}")
-    append_event({"type": "noop", "repo": repo, "branch": branch})
+      log(f"{repo}: git diff --cached --quiet fehlgeschlagen (rc={staged_result.returncode})")
+      append_event(
+        {
+          "type": "error",
+          "repo": repo,
+          "reason": "git_diff_failed",
+          "rc": staged_result.returncode,
+        }
+      )
+      return
 
-  findings_by_severity: dict[str, int] = {}
-  for finding in findings:
-    findings_by_severity[finding.severity] = findings_by_severity.get(finding.severity, 0) + 1
+    findings_by_severity: dict[str, int] = {}
+    for finding in findings:
+      findings_by_severity[finding.severity] = findings_by_severity.get(finding.severity, 0) + 1
 
-  try:
-    llm_tokens_used = int(getattr(review, "tokens_used", 0)) if review is not None else 0
-  except (TypeError, ValueError):
-    llm_tokens_used = 0
-  try:
-    prs_created_int = int(prs_created)
-  except (TypeError, ValueError):
-    prs_created_int = 0
+    try:
+      llm_tokens_used = int(getattr(review, "tokens_used", 0)) if review is not None else 0
+    except (TypeError, ValueError):
+      llm_tokens_used = 0
+    try:
+      prs_created_int = int(prs_created)
+    except (TypeError, ValueError):
+      prs_created_int = 0
 
-  record_metrics(
-    ReviewMetrics(
-      repo=repo,
-      duration_seconds=round(time.monotonic() - started, 2),
-      findings_count=len(findings),
-      findings_by_severity=findings_by_severity,
-      llm_tokens_used=llm_tokens_used,
-      cache_hits=cache_hits,
-      prs_created=prs_created_int,
+    record_metrics(
+      ReviewMetrics(
+        repo=repo,
+        duration_seconds=round(time.monotonic() - started, 2),
+        findings_count=len(findings),
+        findings_by_severity=findings_by_severity,
+        llm_tokens_used=llm_tokens_used,
+        cache_hits=cache_hits,
+        prs_created=prs_created_int,
+      )
     )
-  )
+  finally:
+    _cleanup_temp_worktree(repo_dir, worktree_dir)
 
 
 def handle_job(job: dict) -> None:
@@ -1344,7 +1532,24 @@ def list_repos_local() -> list[str]:
   base = HOME / "repos"
   if not base.exists():
     return []
-  return [p.name for p in base.iterdir() if (p / ".git").exists()]
+  repos: list[str] = []
+  skip_names = {name.strip() for name in POLICY.discovery_excludes if name.strip()}
+  self_repo_name = REPO_ROOT.name
+  for path in base.iterdir():
+    if not path.is_dir():
+      continue
+    repo = path.name
+    if repo in skip_names:
+      append_event({"type": "repo_skipped", "repo": repo, "reason": "discovery_excluded"})
+      continue
+    if not POLICY.include_self_repo and repo == self_repo_name:
+      append_event({"type": "repo_skipped", "repo": repo, "reason": "self_repo_disabled"})
+      continue
+    if not (path / ".git").exists():
+      append_event({"type": "repo_skipped", "repo": repo, "reason": "non_git_directory"})
+      continue
+    repos.append(repo)
+  return repos
 
 
 def list_repos_remote() -> list[str]:
@@ -1356,7 +1561,21 @@ def list_repos_remote() -> list[str]:
   if result.returncode != 0:
     log("gh repo list fehlgeschlagen")
     return list_repos_local()
-  return [line for line in result.stdout.splitlines() if line.strip()]
+  skip_names = {name.strip() for name in POLICY.discovery_excludes if name.strip()}
+  self_repo_name = REPO_ROOT.name
+  repos: list[str] = []
+  for line in result.stdout.splitlines():
+    repo = line.strip()
+    if not repo:
+      continue
+    if repo in skip_names:
+      append_event({"type": "repo_skipped", "repo": repo, "reason": "discovery_excluded"})
+      continue
+    if not POLICY.include_self_repo and repo == self_repo_name:
+      append_event({"type": "repo_skipped", "repo": repo, "reason": "self_repo_disabled"})
+      continue
+    repos.append(repo)
+  return repos
 
 
 def get_sorted_jobs(queue_dir: Path) -> list[Path]:
