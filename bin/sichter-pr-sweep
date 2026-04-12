@@ -43,7 +43,12 @@ RUN_MODE="${SICHTER_RUN_MODE:-light}"
 INCLUDE_SELF_REPO="${SICHTER_INCLUDE_SELF_REPO:-$(kv include_self_repo false)}"
 SELF_REPO_NAME="${SICHTER_SELF_REPO_NAME:-sichter}"
 
-DISCOVERY_EXCLUDES_RAW="${SICHTER_DISCOVERY_EXCLUDES:-.idea,merges,exports,_mirror}"
+POLICY_DISCOVERY_EXCLUDES_RAW="$(kv discovery_excludes "")"
+POLICY_DISCOVERY_EXCLUDES_NORMALIZED="$(printf '%s' "$POLICY_DISCOVERY_EXCLUDES_RAW" | tr '\n' ',' | sed -E 's/[\[\]"]//g; s/-[[:space:]]*/ /g; s/[[:space:]]*,[[:space:]]*/,/g; s/[[:space:]]+/ /g; s/^ +| +$//g; s/,+/,/g; s/^,|,$//g; s/ ,/,/g; s/, /,/g; s/ /,/g')"
+DISCOVERY_EXCLUDES_RAW="${SICHTER_DISCOVERY_EXCLUDES:-$POLICY_DISCOVERY_EXCLUDES_NORMALIZED}"
+if [[ -z "$DISCOVERY_EXCLUDES_RAW" ]]; then
+  DISCOVERY_EXCLUDES_RAW=".idea,merges,exports,_mirror"
+fi
 IFS=',' read -r -a DISCOVERY_EXCLUDES <<<"$DISCOVERY_EXCLUDES_RAW"
 
 TS() { date -Is; }

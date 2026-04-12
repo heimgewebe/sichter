@@ -1,5 +1,6 @@
 import unittest
 import json
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -22,6 +23,19 @@ class TestWorkerRun(unittest.TestCase):
         self._real_run_cmd = worker_run.run_cmd
 
         def _default_run_cmd(cmd, cwd, check=True):
+            if cmd[:3] == ["git", "worktree", "add"] and len(cmd) >= 5:
+                wt_path = Path(cmd[4])
+                wt_path.mkdir(parents=True, exist_ok=True)
+                (wt_path / ".git").write_text("gitdir: mock\n", encoding="utf-8")
+                (wt_path / "test.sh").write_text("echo ok\n", encoding="utf-8")
+                (wt_path / "test.yml").write_text("name: test\n", encoding="utf-8")
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            if cmd[:3] == ["git", "worktree", "remove"] and len(cmd) >= 5:
+                wt_path = Path(cmd[4])
+                if wt_path.exists():
+                    shutil.rmtree(wt_path, ignore_errors=True)
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
             if not isinstance(cwd, Path) or not cwd.exists():
                 if cmd and cmd[0] == "git":
                     if cmd[:2] == ["git", "rev-parse"]:
@@ -148,7 +162,8 @@ class TestWorkerRun(unittest.TestCase):
         self.assertTrue(mock_log.called)
         self.assertIn("exit=2", mock_log.call_args[0][0])
 
-    @patch("apps.worker.run.get_changed_files", return_value=[])
+    @patch("apps.worker.run.get_changed_files", return_value=[Path("/fake/repo/test.sh")])
+    @patch("apps.worker.run.cache_get", return_value=None)
     @patch("apps.worker.run.create_themed_prs")
     @patch("apps.worker.run.commit_if_changes", return_value=True)
     @patch("apps.worker.run.llm_review")
@@ -165,105 +180,70 @@ class TestWorkerRun(unittest.TestCase):
         mock_llm_review,
         mock_commit_if_changes,
         mock_create_themed_prs,
+        _mock_cache_get,
         mock_get_changed_files,
     ):
+        mock_ensure_repo.return_value = Path("/fake/repo")
         # Test case 1: job with auto_pr=False
         job_false = {"repo": "test_repo", "auto_pr": False}
         worker_run.handle_job(job_false)
-        mock_create_themed_prs.assert_called_with(
-            "test_repo",
-            mock_ensure_repo.return_value,
-            mock_fresh_branch.return_value,
-            False,
-            [],
-            mock_llm_review.return_value,
-        )
+        args = mock_create_themed_prs.call_args[0]
+        self.assertEqual(args[0], "test_repo")
+        self.assertIsInstance(args[1], Path)
+        self.assertEqual(args[2], mock_fresh_branch.return_value)
+        self.assertEqual(args[3], False)
+        self.assertEqual(args[4], [])
+        self.assertEqual(args[5], mock_llm_review.return_value)
 
         # Test case 2: job with auto_pr=True
         job_true = {"repo": "test_repo", "auto_pr": True}
         worker_run.handle_job(job_true)
-        mock_create_themed_prs.assert_called_with(
-            "test_repo",
-            mock_ensure_repo.return_value,
-            mock_fresh_branch.return_value,
-            True,
-            [],
-            mock_llm_review.return_value,
-        )
+        args = mock_create_themed_prs.call_args[0]
+        self.assertEqual(args[0], "test_repo")
+        self.assertIsInstance(args[1], Path)
+        self.assertEqual(args[2], mock_fresh_branch.return_value)
+        self.assertEqual(args[3], True)
+        self.assertEqual(args[4], [])
+        self.assertEqual(args[5], mock_llm_review.return_value)
 
         # Test case 3: job without auto_pr (fallback to policy)
         job_none = {"repo": "test_repo"}
         with patch("apps.worker.run.POLICY.auto_pr", True):
             worker_run.handle_job(job_none)
-            mock_create_themed_prs.assert_called_with(
-                "test_repo",
-                mock_ensure_repo.return_value,
-                mock_fresh_branch.return_value,
-                True,
-                [],
-                mock_llm_review.return_value,
-            )
+            args = mock_create_themed_prs.call_args[0]
+            self.assertEqual(args[3], True)
 
         with patch("apps.worker.run.POLICY.auto_pr", False):
             worker_run.handle_job(job_none)
-            mock_create_themed_prs.assert_called_with(
-                "test_repo",
-                mock_ensure_repo.return_value,
-                mock_fresh_branch.return_value,
-                False,
-                [],
-                mock_llm_review.return_value,
-            )
+            args = mock_create_themed_prs.call_args[0]
+            self.assertEqual(args[3], False)
 
         # Test case 4: job with auto_pr=None (should fallback to policy)
         job_none_value = {"repo": "test_repo", "auto_pr": None}
         with patch("apps.worker.run.POLICY.auto_pr", True):
             worker_run.handle_job(job_none_value)
-            mock_create_themed_prs.assert_called_with(
-                "test_repo",
-                mock_ensure_repo.return_value,
-                mock_fresh_branch.return_value,
-                True,
-                [],
-                mock_llm_review.return_value,
-            )
+            args = mock_create_themed_prs.call_args[0]
+            self.assertEqual(args[3], True)
 
         with patch("apps.worker.run.POLICY.auto_pr", False):
             worker_run.handle_job(job_none_value)
-            mock_create_themed_prs.assert_called_with(
-                "test_repo",
-                mock_ensure_repo.return_value,
-                mock_fresh_branch.return_value,
-                False,
-                [],
-                mock_llm_review.return_value,
-            )
+            args = mock_create_themed_prs.call_args[0]
+            self.assertEqual(args[3], False)
 
         # Test case 5: job with non-bool auto_pr defaults to policy
         job_invalid_type = {"repo": "test_repo", "auto_pr": "false"}
         with patch("apps.worker.run.POLICY.auto_pr", True):
             worker_run.handle_job(job_invalid_type)
-            mock_create_themed_prs.assert_called_with(
-                "test_repo",
-                mock_ensure_repo.return_value,
-                mock_fresh_branch.return_value,
-                True,
-                [],
-                mock_llm_review.return_value,
-            )
+            args = mock_create_themed_prs.call_args[0]
+            self.assertEqual(args[3], True)
 
         with patch("apps.worker.run.POLICY.auto_pr", False):
             worker_run.handle_job(job_invalid_type)
-            mock_create_themed_prs.assert_called_with(
-                "test_repo",
-                mock_ensure_repo.return_value,
-                mock_fresh_branch.return_value,
-                False,
-                [],
-                mock_llm_review.return_value,
-            )
+            args = mock_create_themed_prs.call_args[0]
+            self.assertEqual(args[3], False)
 
     @patch("apps.worker.run.get_changed_files")
+    @patch("apps.worker.run.cache_get", return_value=None)
     @patch("apps.worker.run.create_themed_prs")
     @patch("apps.worker.run.commit_if_changes", return_value=True)
     @patch("apps.worker.run.llm_review")
@@ -280,6 +260,7 @@ class TestWorkerRun(unittest.TestCase):
         mock_llm_review,
         mock_commit_if_changes,
         mock_create_themed_prs,
+        _mock_cache_get,
         mock_get_changed_files,
     ):
         """Test that mode='changed' invokes get_changed_files and passes result to linters."""
@@ -294,10 +275,11 @@ class TestWorkerRun(unittest.TestCase):
         mock_get_changed_files.assert_called_once()
         mock_registry_run_checks.assert_called_once()
         args = mock_registry_run_checks.call_args[0]
-        self.assertEqual(args[0], mock_repo_dir)
-        self.assertEqual(args[1], mock_changed)
+        self.assertIsInstance(args[0], Path)
+        self.assertEqual([p.name for p in args[1]], ["test.sh", "test.yml"])
 
     @patch("apps.worker.run.get_changed_files")
+    @patch("apps.worker.run.cache_get", return_value=None)
     @patch("apps.worker.run.create_themed_prs")
     @patch("apps.worker.run.commit_if_changes", return_value=True)
     @patch("apps.worker.run.llm_review")
@@ -314,6 +296,7 @@ class TestWorkerRun(unittest.TestCase):
         mock_llm_review,
         mock_commit_if_changes,
         mock_create_themed_prs,
+        _mock_cache_get,
         mock_get_changed_files,
     ):
         """Test that mode='all' does not invoke get_changed_files and passes None to linters."""
@@ -326,10 +309,10 @@ class TestWorkerRun(unittest.TestCase):
         mock_get_changed_files.assert_not_called()
         mock_registry_run_checks.assert_called_once()
         args = mock_registry_run_checks.call_args[0]
-        self.assertEqual(args[0], mock_repo_dir)
+        self.assertIsInstance(args[0], Path)
         self.assertIsNone(args[1])
 
-    @patch("apps.worker.run.get_changed_files", return_value=[])
+    @patch("apps.worker.run.get_changed_files", return_value=[Path("/fake/repo/test.sh")])
     @patch("apps.worker.run.append_event")
     @patch("apps.worker.run.dedupe_findings")
     @patch("apps.worker.run.create_themed_prs")
@@ -917,21 +900,16 @@ class TestWorkerRun(unittest.TestCase):
 
     @patch("apps.worker.run.append_event")
     @patch("apps.worker.run.ensure_repo", return_value=Path("/fake/repo"))
-    @patch("apps.worker.run._capture_head_state", return_value=("main", "abc123"))
     @patch("apps.worker.run._prepare_base_ref", return_value=(False, None))
-    @patch("apps.worker.run._restore_head_state")
     def test_process_repo_base_preparation_failure_blocks_branching(
         self,
-        mock_restore,
         _mock_prepare,
-        _mock_capture,
         _mock_ensure_repo,
         mock_append_event,
     ):
         with patch("apps.worker.run.fresh_branch") as mock_fresh_branch:
             worker_run.process_repo("demo-repo", "all", True)
             mock_fresh_branch.assert_not_called()
-            mock_restore.assert_called_once()
         self.assertTrue(mock_append_event.called)
 
     @patch("apps.worker.run.record_metrics")
@@ -957,11 +935,14 @@ class TestWorkerRun(unittest.TestCase):
             mock_ensure_repo.return_value = Path("/fake/repo")
             worker_run.process_repo("test_repo", "all", True)
 
-        mock_run_heuristics.assert_called_once_with(Path("/fake/repo"), None)
+        mock_run_heuristics.assert_called_once()
+        self.assertIsInstance(mock_run_heuristics.call_args[0][0], Path)
+        self.assertEqual(mock_run_heuristics.call_args[0][1], None)
 
     @patch("apps.worker.run.record_metrics")
     @patch("apps.worker.run.append_event")
     @patch("apps.worker.run.record_findings_snapshot")
+    @patch("apps.worker.run.cache_get", return_value=None)
     @patch("apps.worker.run.dedupe_findings", return_value={})
     @patch("apps.worker.run.run_heuristics", return_value=[])
     @patch("apps.worker.run.create_themed_prs", return_value=1)
@@ -981,6 +962,7 @@ class TestWorkerRun(unittest.TestCase):
         _mock_commit_if_changes,
         _mock_create_themed_prs,
         mock_run_heuristics,
+        _mock_cache_get,
         _mock_dedupe_findings,
         mock_record_snapshot,
         _mock_append_event,
