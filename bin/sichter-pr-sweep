@@ -108,6 +108,14 @@ is_excluded_repo_name() {
 
 has_relevant_changes() {
   local base_ref="$1"
+  if ! git diff --quiet -- . ":(exclude)logs/**"; then
+    return 0
+  fi
+
+  if ! git diff --cached --quiet -- . ":(exclude)logs/**"; then
+    return 0
+  fi
+
   if ! git diff --quiet "$base_ref"...HEAD -- . ":(exclude)logs/**"; then
     return 0
   fi

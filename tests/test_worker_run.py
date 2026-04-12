@@ -897,6 +897,96 @@ class TestWorkerRun(unittest.TestCase):
         self.assertTrue(noop_events)
         self.assertEqual(noop_events[-1].get("branch"), "-")
 
+    @patch("apps.worker.run.record_metrics")
+    @patch("apps.worker.run.append_event")
+    @patch("apps.worker.run.run_heuristics", return_value=[])
+    @patch("apps.worker.run.llm_review", return_value=None)
+    @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
+    @patch("apps.worker.run.registry_run_checks", return_value=[])
+    @patch("apps.worker.run.fresh_branch")
+    @patch("apps.worker.run.ensure_repo", return_value=Path("/fake/repo"))
+    @patch("apps.worker.run._prepare_base_ref", return_value=(True, "abc123"))
+    @patch("apps.worker.run.run_cmd")
+    def test_process_repo_git_diff_error_does_not_create_branch(
+        self,
+        mock_run_cmd,
+        _mock_prepare,
+        _mock_ensure_repo,
+        mock_fresh_branch,
+        _mock_registry_checks,
+        _mock_registry_autofix,
+        _mock_llm_review,
+        _mock_heuristics,
+        mock_append_event,
+        _mock_record_metrics,
+    ):
+        class _Result:
+            def __init__(self, returncode=0, stdout="", stderr=""):
+                self.returncode = returncode
+                self.stdout = stdout
+                self.stderr = stderr
+
+        def _side_effect(cmd, cwd, check=True):
+            if cmd[:3] == ["git", "diff", "--cached"]:
+                return _Result(returncode=2, stderr="fatal")
+            if cmd[:2] == ["git", "add"]:
+                return _Result(returncode=0)
+            if cmd[:2] == ["git", "rev-parse"]:
+                return _Result(returncode=0, stdout="abc123\n")
+            return _Result(returncode=0)
+
+        mock_run_cmd.side_effect = _side_effect
+
+        worker_run.process_repo("demo-repo", "all", True)
+
+        mock_fresh_branch.assert_not_called()
+        mock_append_event.assert_any_call(
+            {
+                "type": "error",
+                "repo": "demo-repo",
+                "reason": "git_diff_failed",
+                "rc": 2,
+            }
+        )
+
+    @patch("apps.worker.run.record_metrics")
+    @patch("apps.worker.run.append_event")
+    @patch("apps.worker.run.record_findings_snapshot")
+    @patch("apps.worker.run.cache_get", return_value=None)
+    @patch("apps.worker.run.dedupe_findings", return_value={})
+    @patch("apps.worker.run.run_heuristics", return_value=[])
+    @patch("apps.worker.run.create_themed_prs", return_value=0)
+    @patch("apps.worker.run.commit_if_changes", return_value=True)
+    @patch("apps.worker.run.llm_review", return_value=None)
+    @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
+    @patch("apps.worker.run.registry_run_checks", return_value=[])
+    @patch("apps.worker.run._sync_changed_files_to_worktree", return_value=[])
+    @patch("apps.worker.run.fresh_branch", return_value="test-branch")
+    @patch("apps.worker.run.ensure_repo", return_value=Path("/fake/repo"))
+    def test_process_repo_changed_mode_deletions_only_continues(
+        self,
+        _mock_ensure_repo,
+        _mock_fresh_branch,
+        _mock_sync,
+        mock_registry_run_checks,
+        _mock_registry_run_autofixes,
+        _mock_llm_review,
+        _mock_commit_if_changes,
+        _mock_create_themed_prs,
+        _mock_heuristics,
+        _mock_dedupe,
+        _mock_cache_get,
+        _mock_record_snapshot,
+        mock_append_event,
+        _mock_record_metrics,
+    ):
+        deleted_only = [Path("/fake/repo/deleted.py")]
+        with patch("apps.worker.run.get_changed_files", return_value=deleted_only):
+            worker_run.process_repo("demo-repo", "changed", False)
+
+        mock_registry_run_checks.assert_called()
+        mock_append_event.assert_any_call({"type": "deletions_only", "repo": "demo-repo"})
+
     @patch("apps.worker.run.append_event")
     @patch("apps.worker.run.ensure_repo", return_value=Path("/fake/repo"))
     @patch("apps.worker.run._prepare_base_ref", return_value=(False, None))

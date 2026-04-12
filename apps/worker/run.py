@@ -266,7 +266,7 @@ def get_changed_files(
     base = f"origin/{DEFAULT_BRANCH}"
 
   tracked_result = run_cmd(
-    ["git", "diff", "--name-only", "--diff-filter=ACMRTD", base],
+    ["git", "diff", "--name-status", "--diff-filter=ACMRTD", base],
     repo_dir,
     check=False,
   )
@@ -290,7 +290,18 @@ def get_changed_files(
   compiled_re = compile_excludes(tuple(excludes))
   seen_paths: set[Path] = set()
 
-  raw_paths = list(tracked_result.stdout.splitlines())
+  tracked_paths: list[str] = []
+  for line in tracked_result.stdout.splitlines():
+    parts = [part for part in line.strip().split("\t") if part]
+    if len(parts) < 2:
+      continue
+    status = parts[0]
+    if status.startswith("R") and len(parts) >= 3:
+      tracked_paths.extend([parts[1], parts[2]])
+      continue
+    tracked_paths.append(parts[-1])
+
+  raw_paths = tracked_paths
   if untracked_result.returncode == 0:
     raw_paths.extend(untracked_result.stdout.splitlines())
 
@@ -1279,9 +1290,13 @@ def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
     if changed_files_source is not None:
       changed_files = _sync_changed_files_to_worktree(changed_files_source, repo_dir, worktree_dir)
       if not changed_files:
-        log(f"Keine geänderten Dateien im Worktree für {repo} (mode=changed)")
-        append_event({"type": "noop", "repo": repo, "branch": "-", "reason": "no_changed_files"})
-        return
+        has_existing_source_paths = any(path.exists() for path in changed_files_source)
+        if has_existing_source_paths:
+          log(f"Keine geänderten Dateien im Worktree für {repo} (mode=changed)")
+          append_event({"type": "noop", "repo": repo, "branch": "-", "reason": "no_changed_files"})
+          return
+        log(f"{repo}: Nur Löschungen erkannt (mode=changed), fahre fort")
+        append_event({"type": "deletions_only", "repo": repo})
 
     policy_hash = cache_policy_hash(
       POLICY.checks if isinstance(POLICY.checks, dict) else {},
@@ -1399,7 +1414,7 @@ def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
       planned_branch = f"sichter/autofix-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
       log(f"Keine Änderungen für {repo}")
       append_event({"type": "noop", "repo": repo, "branch": "-", "planned_branch": planned_branch})
-    else:
+    elif staged_result.returncode == 1:
       append_event({"type": "change_detected", "repo": repo})
       try:
         branch = fresh_branch(worktree_dir, base_sha=base_sha)
@@ -1425,6 +1440,17 @@ def process_repo(repo: str, mode: str, auto_pr: bool) -> None:
           prs_created = create_themed_prs(repo, worktree_dir, branch, auto_pr, findings_for_prs, review)
       else:
         append_event({"type": "noop", "repo": repo, "branch": "-"})
+    else:
+      log(f"{repo}: git diff --cached --quiet fehlgeschlagen (rc={staged_result.returncode})")
+      append_event(
+        {
+          "type": "error",
+          "repo": repo,
+          "reason": "git_diff_failed",
+          "rc": staged_result.returncode,
+        }
+      )
+      return
 
     findings_by_severity: dict[str, int] = {}
     for finding in findings:
