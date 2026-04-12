@@ -17,6 +17,13 @@ die() {
 # In Repo-Root wechseln
 cd "$(dirname "$0")/.."
 
+CURRENT_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo detached)"
+log "Code-Stand: branch=${CURRENT_BRANCH} commit=${CURRENT_COMMIT}"
+if [[ "$CURRENT_BRANCH" != "main" ]]; then
+  warn "Nicht auf main (${CURRENT_BRANCH}) - prüfe bewusst, ob dieser Stand gewünscht ist"
+fi
+
 # --- VENV ---
 VENV_DIR=".venv"
 REQ_FILE="requirements.txt"
@@ -89,6 +96,10 @@ for f in bin/omnicheck bin/sichter-pr-sweep bin/sichter-dashboard bin/sweep hook
     chmod +x "$f" || die "chmod +x fehlgeschlagen für $f"
   fi
 done
+
+if ! bin/sichter-pr-sweep --version | grep -q "hard-gates-v2"; then
+  die "Guard-Marker fehlt: bin/sichter-pr-sweep meldet nicht hard-gates-v2"
+fi
 
 # --- Omnipull Hook installieren ---
 if compgen -G "hooks/omnipull/*.sh" >/dev/null; then

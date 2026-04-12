@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="apps.api.main:app"
 PORT="${PORT:-5055}"
 HOST="${HOST:-127.0.0.1}"
-UVICORN="${UVICORN_BIN:-uvicorn}"
+if [[ -x "$ROOT/.venv/bin/uvicorn" ]]; then
+	UVICORN="${UVICORN_BIN:-$ROOT/.venv/bin/uvicorn}"
+else
+	UVICORN="${UVICORN_BIN:-uvicorn}"
+fi
 exec "$UVICORN" "$APP" --host "$HOST" --port "$PORT"

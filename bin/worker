@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
-PYTHON="${PYTHON3:-python3}"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [[ -x "$ROOT/.venv/bin/python" ]]; then
+	PYTHON="$ROOT/.venv/bin/python"
+else
+	PYTHON="${PYTHON3:-python3}"
+fi
 exec "$PYTHON" -m apps.worker.run "$@"

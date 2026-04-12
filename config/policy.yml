@@ -1,7 +1,13 @@
 auto_pr: true
 sweep_on_omnipull: true
+include_self_repo: false
 run_mode: deep
 org: heimgewebe
+discovery_excludes:
+ - .idea
+ - merges
+ - exports
+ - _mirror
 llm:
  provider: ollama
  model: qwen2.5-coder:7b

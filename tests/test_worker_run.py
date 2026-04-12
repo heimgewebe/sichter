@@ -10,6 +10,42 @@ from lib.findings import Finding
 
 
 class TestWorkerRun(unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        self._capture_patcher = patch("apps.worker.run._capture_head_state", return_value=("main", "abc123"))
+        self._prepare_patcher = patch("apps.worker.run._prepare_base_ref", return_value=(True, "abc123"))
+        self._capture_patcher.start()
+        self._prepare_patcher.start()
+        self.addCleanup(self._capture_patcher.stop)
+        self.addCleanup(self._prepare_patcher.stop)
+
+        self._real_run_cmd = worker_run.run_cmd
+
+        def _default_run_cmd(cmd, cwd, check=True):
+            if not isinstance(cwd, Path) or not cwd.exists():
+                if cmd and cmd[0] == "git":
+                    if cmd[:2] == ["git", "rev-parse"]:
+                        return subprocess.CompletedProcess(cmd, 0, stdout="abc123\n", stderr="")
+                    if cmd[:2] == ["git", "diff"] and "--cached" in cmd:
+                        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+            pseudo_git = (cwd / ".git").exists() and not (cwd / ".git" / "HEAD").exists()
+            if pseudo_git and cmd and cmd[0] == "git":
+                if cmd[:2] == ["git", "rev-parse"] and len(cmd) >= 3:
+                    target = cmd[2]
+                    if target.startswith("origin/") or target == "HEAD":
+                        return subprocess.CompletedProcess(cmd, 0, stdout="abc123\n", stderr="")
+                if cmd[:2] == ["git", "diff"] and "--cached" in cmd:
+                    return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+            return self._real_run_cmd(cmd, cwd, check=check)
+
+        self._run_cmd_patcher = patch("apps.worker.run.run_cmd", side_effect=_default_run_cmd)
+        self._run_cmd_patcher.start()
+        self.addCleanup(self._run_cmd_patcher.stop)
+
     def test_get_sorted_jobs_prioritizes_high_then_fifo_within_priority(self):
         with tempfile.TemporaryDirectory() as tmp:
             queue_dir = Path(tmp)
@@ -118,7 +154,7 @@ class TestWorkerRun(unittest.TestCase):
     @patch("apps.worker.run.llm_review")
     @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
     @patch("apps.worker.run.registry_run_checks", return_value=[])
-    @patch("apps.worker.run.fresh_branch")
+    @patch("apps.worker.run.fresh_branch", return_value="test-branch")
     @patch("apps.worker.run.ensure_repo")
     def test_handle_job_respects_auto_pr_flag(
         self,
@@ -794,6 +830,109 @@ class TestWorkerRun(unittest.TestCase):
 
         self.assertEqual(tools, {"ruff", "eslint"})
         self.assertEqual(target_files, {"ruff": [Path("src/app.py")], "eslint": [Path("web/app.ts")]})
+
+    @patch("apps.worker.run.append_event")
+    @patch("apps.worker.run.HOME", new=Path("/tmp/sichter-home"))
+    def test_list_repos_local_filters_self_non_git_and_discovery_excludes(self, mock_append_event):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp) / "repos"
+            base.mkdir(parents=True)
+
+            (base / "target-repo").mkdir()
+            (base / "target-repo" / ".git").mkdir()
+
+            (base / "sichter").mkdir()
+            (base / "sichter" / ".git").mkdir()
+
+            (base / ".idea").mkdir()
+            (base / ".idea" / ".git").mkdir()
+
+            (base / "plain-dir").mkdir()
+
+            with patch("apps.worker.run.HOME", Path(tmp)), patch(
+                "apps.worker.run.POLICY",
+                unittest.mock.Mock(
+                    include_self_repo=False,
+                    discovery_excludes=(".idea", "merges", "exports", "_mirror"),
+                ),
+            ), patch("apps.worker.run.REPO_ROOT", Path(tmp) / "sichter"):
+                repos = worker_run.list_repos_local()
+
+            self.assertEqual(repos, ["target-repo"])
+            reasons = [c[0][0].get("reason") for c in mock_append_event.call_args_list if c[0][0].get("type") == "repo_skipped"]
+            self.assertIn("self_repo_disabled", reasons)
+            self.assertIn("discovery_excluded", reasons)
+            self.assertIn("non_git_directory", reasons)
+
+    @patch("apps.worker.run.record_metrics")
+    @patch("apps.worker.run.append_event")
+    @patch("apps.worker.run.run_heuristics", return_value=[])
+    @patch("apps.worker.run.llm_review", return_value=None)
+    @patch("apps.worker.run.registry_run_autofixes", return_value={"shfmt": 0})
+    @patch("apps.worker.run.registry_run_checks", return_value=[])
+    @patch("apps.worker.run.fresh_branch")
+    @patch("apps.worker.run.ensure_repo", return_value=Path("/fake/repo"))
+    @patch("apps.worker.run._capture_head_state", return_value=("main", "abc123"))
+    @patch("apps.worker.run._prepare_base_ref", return_value=(True, "abc123"))
+    @patch("apps.worker.run.run_cmd")
+    @patch("apps.worker.run._restore_head_state")
+    def test_process_repo_nochange_does_not_create_branch(
+        self,
+        _mock_restore_head,
+        mock_run_cmd,
+        _mock_prepare,
+        _mock_capture,
+        _mock_ensure_repo,
+        mock_fresh_branch,
+        _mock_registry_checks,
+        _mock_registry_autofix,
+        _mock_llm_review,
+        _mock_heuristics,
+        mock_append_event,
+        _mock_record_metrics,
+    ):
+        class _Result:
+            def __init__(self, returncode=0, stdout="", stderr=""):
+                self.returncode = returncode
+                self.stdout = stdout
+                self.stderr = stderr
+
+        def _side_effect(cmd, cwd, check=True):
+            if cmd[:3] == ["git", "diff", "--cached"]:
+                return _Result(returncode=0)
+            if cmd[:2] == ["git", "add"]:
+                return _Result(returncode=0)
+            if cmd[:2] == ["git", "rev-parse"]:
+                return _Result(returncode=0, stdout="abc123\n")
+            return _Result(returncode=0)
+
+        mock_run_cmd.side_effect = _side_effect
+
+        worker_run.process_repo("demo-repo", "all", True)
+
+        mock_fresh_branch.assert_not_called()
+        noop_events = [c[0][0] for c in mock_append_event.call_args_list if c[0][0].get("type") == "noop"]
+        self.assertTrue(noop_events)
+        self.assertEqual(noop_events[-1].get("branch"), "-")
+
+    @patch("apps.worker.run.append_event")
+    @patch("apps.worker.run.ensure_repo", return_value=Path("/fake/repo"))
+    @patch("apps.worker.run._capture_head_state", return_value=("main", "abc123"))
+    @patch("apps.worker.run._prepare_base_ref", return_value=(False, None))
+    @patch("apps.worker.run._restore_head_state")
+    def test_process_repo_base_preparation_failure_blocks_branching(
+        self,
+        mock_restore,
+        _mock_prepare,
+        _mock_capture,
+        _mock_ensure_repo,
+        mock_append_event,
+    ):
+        with patch("apps.worker.run.fresh_branch") as mock_fresh_branch:
+            worker_run.process_repo("demo-repo", "all", True)
+            mock_fresh_branch.assert_not_called()
+            mock_restore.assert_called_once()
+        self.assertTrue(mock_append_event.called)
 
     @patch("apps.worker.run.record_metrics")
     @patch("apps.worker.run.run_heuristics", return_value=[])

@@ -6,27 +6,52 @@ if [[ "${1:-}" == "--all" ]]; then
   MODE="--all"
 elif [[ "${1:-}" == "--changed" ]]; then
   MODE="--changed"
+elif [[ "${1:-}" == "--version" ]] || [[ "${1:-}" == "version" ]]; then
+  echo "sichter-pr-sweep guard=hard-gates-v2"
+  echo "invariants=no-branch-on-nochange,self-repo-default-off,base-verification-before-branch"
+  exit 0
 fi
 
-# Setup paths and logging
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" >/dev/null 2>&1 && pwd)"
+YAML_GET="${SCRIPT_DIR}/yaml-get"
+if [[ ! -x "$YAML_GET" ]] && command -v yaml-get >/dev/null 2>&1; then
+  YAML_GET="$(command -v yaml-get)"
+fi
+
+POLICY_PATH="${SICHTER_POLICY_PATH:-$HOME/.config/sichter/policy.yml}"
+if [[ -x "$YAML_GET" ]]; then
+  kv() {
+    local key="$1" def="${2:-}"
+    "$YAML_GET" "$key" "$POLICY_PATH" "$def"
+  }
+else
+  kv() {
+    local _key="$1" def="${2:-}"
+    printf '%s\n' "$def"
+  }
+fi
+
 LOG_DIR="$HOME/sichter/logs"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/sichter"
 EVENTS_DIR="$STATE_DIR/events"
 mkdir -p "$LOG_DIR" "$EVENTS_DIR"
 
 LOG="${LOG:-$LOG_DIR/pr-actions.log}"
-ORG="${ORG:-heimgewebe}"
+ORG="${ORG:-$(kv org heimgewebe)}"
 AUTO_PR="${SICHTER_AUTO_PR:-1}"
 RUN_MODE="${SICHTER_RUN_MODE:-light}"
+INCLUDE_SELF_REPO="${SICHTER_INCLUDE_SELF_REPO:-$(kv include_self_repo false)}"
+SELF_REPO_NAME="${SICHTER_SELF_REPO_NAME:-sichter}"
+
+DISCOVERY_EXCLUDES_RAW="${SICHTER_DISCOVERY_EXCLUDES:-.idea,merges,exports,_mirror}"
+IFS=',' read -r -a DISCOVERY_EXCLUDES <<<"$DISCOVERY_EXCLUDES_RAW"
 
 TS() { date -Is; }
 SAY() { echo "[$(TS)] $*"; }
 LOG_LINE() { SAY "$*" | tee -a "$LOG"; }
 
-# JSONL event recorder (shell only)
 append_event() {
   local json_str="$1"
-  # Naive removal of leading/trailing braces
   local core_json="${json_str#\{}"
   core_json="${core_json%\}}"
   local event_file
@@ -34,30 +59,51 @@ append_event() {
   printf '{"ts": "%s", %s}\n' "$(TS)" "$core_json" >>"$event_file"
 }
 
-# Unified result handler
 RESULT() {
   local action="$1" repo="$2" branch="$3" detail="${4:--}"
   LOG_LINE "[RESULT][$action] repo=$repo branch=$branch detail=$detail"
 
   local type="noop"
-  [[ "$action" == "PR" ]] && type="pr"
-  [[ "$action" == "PUSH" ]] && type="push"
-  [[ "$action" == "COMMIT" ]] && type="commit"
+  [[ "$action" == "PR" ]] && type="pr_created"
+  [[ "$action" == "PUSH" ]] && type="branch_created"
+  [[ "$action" == "COMMIT" ]] && type="branch_created"
   [[ "$action" == "ERROR" ]] && type="error"
+  [[ "$action" == "SKIP" ]] && type="repo_skipped"
 
   local event_core="\"type\": \"$type\", \"repo\": \"$repo\", \"branch\": \"$branch\""
   if [[ "$action" == "PR" && -n "$detail" ]]; then
     event_core="$event_core, \"url\": \"$detail\""
   elif [[ "$action" == "ERROR" ]]; then
     event_core="$event_core, \"message\": \"$detail\""
+  elif [[ "$action" == "SKIP" ]]; then
+    event_core="$event_core, \"reason\": \"$detail\""
   fi
   append_event "{$event_core}"
 }
 
-LOG_LINE "===== Sichter PR Sweep start (${MODE} / run_mode=${RUN_MODE}) ====="
-append_event '{"type": "start", "message": "PR Sweep started"}'
+is_truthy() {
+  case "${1,,}" in
+    1|true|yes|y|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
-# Kandidaten
+is_excluded_repo_name() {
+  local repo="$1"
+  local e
+  for e in "${DISCOVERY_EXCLUDES[@]}"; do
+    e="${e// /}"
+    [[ -z "$e" ]] && continue
+    if [[ "$repo" == "$e" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+LOG_LINE "===== Sichter PR Sweep start (${MODE} / run_mode=${RUN_MODE}) ====="
+append_event '{"type": "start", "message": "PR Sweep started", "guard": "hard-gates-v2"}'
+
 if [[ "$MODE" == "--all" ]]; then
   mapfile -t REPOS < <(gh repo list "$ORG" --limit 100 --json name -q '.[].name' || true)
 else
@@ -75,17 +121,29 @@ if [[ "${#REPOS[@]}" -eq 0 ]]; then
 fi
 
 for r in "${REPOS[@]}"; do
-  if [[ -z "$r" ]]; then
+  [[ -z "$r" ]] && continue
+
+  if is_excluded_repo_name "$r"; then
+    RESULT "SKIP" "$r" "-" "discovery_excluded"
     continue
   fi
+
+  if [[ "$r" == "$SELF_REPO_NAME" ]] && ! is_truthy "$INCLUDE_SELF_REPO"; then
+    RESULT "SKIP" "$r" "-" "self_repo_disabled"
+    continue
+  fi
+
   REPO_PATH="$HOME/repos/$r"
-  if [[ ! -d "$REPO_PATH/.git" ]]; then
-    LOG_LINE "Cloning missing repo $ORG/$r"
-    gh repo clone "$ORG/$r" "$REPO_PATH" >/dev/null 2>&1 || true
-    if [[ ! -d "$REPO_PATH/.git" ]]; then
-      RESULT "ERROR" "$r" "-" "clone failed"
-      continue
+  if [[ ! -d "$REPO_PATH" ]]; then
+    if [[ "$MODE" == "--all" ]]; then
+      LOG_LINE "Cloning missing repo $ORG/$r"
+      gh repo clone "$ORG/$r" "$REPO_PATH" >/dev/null 2>&1 || true
     fi
+  fi
+
+  if [[ ! -d "$REPO_PATH/.git" ]]; then
+    RESULT "SKIP" "$r" "-" "non_git_repo"
+    continue
   fi
 
   if ! pushd "$REPO_PATH" >/dev/null; then
@@ -93,64 +151,104 @@ for r in "${REPOS[@]}"; do
     continue
   fi
 
+  BASE_REF="origin/main"
   git fetch origin --prune --tags >/dev/null 2>&1 || true
-  if ! git switch --detach "origin/main" >/dev/null 2>&1; then
-    git checkout --detach "origin/main" >/dev/null 2>&1 || true
-  fi
 
-  BR="sichter/autofix-$(date +%Y%m%d-%H%M%S)"
-  git switch -C "$BR" >/dev/null 2>&1 || git checkout -B "$BR" >/dev/null 2>&1
-
-  export SICHTER_RUN_MODE="$RUN_MODE"
-  HOOK_SCRIPT="$HOME/sichter/hooks/post-run"
-  if [[ -x "$HOOK_SCRIPT" ]]; then
-    LOG_LINE "Running repo hook for $r"
-    # Make hook execution non-fatal, but preserve side-effects
-    set +e # Temporarily disable exit-on-error
-    HAUSKI_AUTO_APPLY=1 HAUSKI_AUTO_COMMIT=0 HAUSKI_AUTO_PR=0 "$HOOK_SCRIPT" >/dev/null 2>&1
-    hook_status=$?
-    if [[ $hook_status -ne 0 ]]; then
-      LOG_LINE "Hook for $r exited with status $hook_status (non-fatal)"
-    fi
-    set -e # Restore exit-on-error
-  fi
-
-  # Light integrated check for visibility
-  if [[ "$RUN_MODE" == "light" ]]; then
-    git status --short >/dev/null 2>&1 || true
-  fi
-
-  git add -A || true
-  if git diff --cached --quiet; then
-    RESULT "NOCHANGE" "$r" "$BR" "no staged updates"
+  BASE_SHA="$(git rev-parse --verify "$BASE_REF" 2>/dev/null || true)"
+  if [[ -z "$BASE_SHA" ]]; then
+    RESULT "ERROR" "$r" "-" "base_preparation_failed: missing $BASE_REF"
+    append_event "{\"type\": \"base_preparation_failed\", \"repo\": \"$r\", \"base\": \"$BASE_REF\", \"reason\": \"missing_base_ref\"}"
     popd >/dev/null || true
     continue
   fi
 
+  if [[ "$MODE" == "--changed" ]]; then
+    if git diff --quiet "$BASE_REF"...HEAD -- . ":(exclude)logs/**"; then
+      RESULT "SKIP" "$r" "-" "no_relevant_changes"
+      popd >/dev/null || true
+      continue
+    fi
+  fi
+
+  TMP_WT="$(mktemp -d "${TMPDIR:-/tmp}/sichter-sweep-${r//[^a-zA-Z0-9._-]/_}-XXXXXX")"
+  if ! git worktree add --detach "$TMP_WT" "$BASE_SHA" >/dev/null 2>&1; then
+    RESULT "ERROR" "$r" "-" "base_preparation_failed: worktree_add"
+    append_event "{\"type\": \"base_preparation_failed\", \"repo\": \"$r\", \"base\": \"$BASE_REF\", \"reason\": \"worktree_add_failed\"}"
+    rm -rf "$TMP_WT"
+    popd >/dev/null || true
+    continue
+  fi
+
+  PLANNED_BRANCH="sichter/autofix-$(date +%Y%m%d-%H%M%S)"
+  append_event "{\"type\": \"change_detected\", \"repo\": \"$r\", \"planned_branch\": \"$PLANNED_BRANCH\"}"
+
+  set +e
+  pushd "$TMP_WT" >/dev/null
+  HOOK_SCRIPT="$HOME/sichter/hooks/post-run"
+  if [[ -x "$HOOK_SCRIPT" ]]; then
+    HAUSKI_AUTO_APPLY=1 HAUSKI_AUTO_COMMIT=0 HAUSKI_AUTO_PR=0 SICHTER_RUN_MODE="$RUN_MODE" "$HOOK_SCRIPT" >/dev/null 2>&1
+  fi
+
+  git add -A -- . ":(exclude)logs/**"
+  if git diff --cached --quiet; then
+    RESULT "NOCHANGE" "$r" "-" "no staged updates; planned_branch=$PLANNED_BRANCH"
+    popd >/dev/null
+    git worktree remove --force "$TMP_WT" >/dev/null 2>&1 || true
+    rm -rf "$TMP_WT"
+    set -e
+    popd >/dev/null || true
+    continue
+  fi
+
+  HEAD_SHA="$(git rev-parse --verify HEAD 2>/dev/null || true)"
+  if [[ "$HEAD_SHA" != "$BASE_SHA" ]]; then
+    RESULT "ERROR" "$r" "-" "base_preparation_failed: base_sha_mismatch"
+    append_event "{\"type\": \"base_preparation_failed\", \"repo\": \"$r\", \"base\": \"$BASE_REF\", \"reason\": \"base_sha_mismatch\"}"
+    popd >/dev/null
+    git worktree remove --force "$TMP_WT" >/dev/null 2>&1 || true
+    rm -rf "$TMP_WT"
+    set -e
+    popd >/dev/null || true
+    continue
+  fi
+
+  if ! git switch -C "$PLANNED_BRANCH" >/dev/null 2>&1; then
+    git checkout -B "$PLANNED_BRANCH" >/dev/null 2>&1
+  fi
+  append_event "{\"type\": \"branch_created\", \"repo\": \"$r\", \"branch\": \"$PLANNED_BRANCH\", \"planned_branch\": \"$PLANNED_BRANCH\", \"created_branch\": \"$PLANNED_BRANCH\"}"
+
   if ! git commit -m "sichter: automated sweep" >/dev/null 2>&1; then
-    RESULT "ERROR" "$r" "$BR" "commit failed"
+    RESULT "ERROR" "$r" "$PLANNED_BRANCH" "commit failed"
+    popd >/dev/null
+    git worktree remove --force "$TMP_WT" >/dev/null 2>&1 || true
+    rm -rf "$TMP_WT"
+    set -e
     popd >/dev/null || true
     continue
   fi
 
   if [[ "$AUTO_PR" == "1" ]]; then
-    git push --set-upstream origin "$BR" --force-with-lease >/dev/null 2>&1 || true
-    URL="$(gh pr view "$BR" --json url -q .url 2>/dev/null || true)"
+    git push --set-upstream origin "$PLANNED_BRANCH" --force-with-lease >/dev/null 2>&1 || true
+    URL="$(gh pr view "$PLANNED_BRANCH" --json url -q .url 2>/dev/null || true)"
     if [[ -z "$URL" ]]; then
       gh pr create --base main --fill --title "Sichter: auto PR ($r)" --label sichter --label automation >/dev/null 2>&1 || true
-      URL="$(gh pr view "$BR" --json url -q .url 2>/dev/null || true)"
+      URL="$(gh pr view "$PLANNED_BRANCH" --json url -q .url 2>/dev/null || true)"
     fi
     if [[ -n "$URL" ]]; then
-      RESULT "PR" "$r" "$BR" "$URL"
+      RESULT "PR" "$r" "$PLANNED_BRANCH" "$URL"
     else
-      RESULT "PUSH" "$r" "$BR" "pushed (PR n/a)"
+      RESULT "PUSH" "$r" "$PLANNED_BRANCH" "pushed (PR n/a)"
     fi
   else
-    RESULT "COMMIT" "$r" "$BR" "Auto-PR=off"
+    RESULT "COMMIT" "$r" "$PLANNED_BRANCH" "Auto-PR=off"
   fi
 
-  popd >/dev/null || true
+  popd >/dev/null
+  git worktree remove --force "$TMP_WT" >/dev/null 2>&1 || true
+  rm -rf "$TMP_WT"
+  set -e
 
+  popd >/dev/null || true
 done
 
 LOG_LINE "===== Sichter PR Sweep done (${MODE}) ====="
