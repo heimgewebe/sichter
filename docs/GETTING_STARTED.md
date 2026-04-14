@@ -24,11 +24,20 @@ Diese Anleitung beschreibt die ersten Schritte nach dem Klonen des Repositories.
 3. **Dashboard starten**
 
  ```bash
- sichter-dashboard
+ SICHTER_UI_MODE=tui ./scripts/start-dashboard.sh
  ```
 
- Der Befehl startet die TUI-Variante des Dashboards. Sobald die Web-UI verfügbar ist,
- öffnet der gleiche Befehl diese Version.
+ Der Modus `tui` startet das interaktive Terminal-Dashboard ohne HTTP-Healthcheck.
+
+ Für den Web-Modus:
+
+ ```bash
+ SICHTER_UI_MODE=web ./scripts/start-dashboard.sh
+ curl http://127.0.0.1:5055/healthz
+ ```
+
+ Der Modus `web` startet `bin/uvicorn-app` im Hintergrund und prüft Health über
+ `/healthz`. So bleiben TUI und Web-Dashboard klar getrennt.
 
 4. **WebSocket-Eventstream testen**
 
