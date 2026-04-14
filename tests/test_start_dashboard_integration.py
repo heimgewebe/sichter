@@ -180,3 +180,29 @@ def test_integration_invalid_mode_fails_immediately():
 
     assert result.returncode != 0
     assert "invalid-mode" in result.stderr.lower() or "invalid" in result.stderr.lower()
+
+
+def test_integration_web_mode_refuses_killing_unknown_listener_by_default():
+    """If another process listens on the port, script must fail without killing it."""
+    port = _find_free_port()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        foreign_bin = _make_http_mock(tmpdir, port)
+        foreign_proc = subprocess.Popen([str(foreign_bin)])
+        try:
+            web_bin = _make_silent_mock(tmpdir, name="mock-owned-web-bin")
+            env = _env_for(
+                port,
+                "web",
+                SICHTER_DASHBOARD_WEB_BIN=str(web_bin),
+                SICHTER_HEALTH_TIMEOUT_SECONDS="2",
+            )
+            result = subprocess.run(
+                ["bash", SCRIPT], env=env, capture_output=True, text=True, timeout=8
+            )
+
+            assert result.returncode != 0, "Expected failure when port is already in use"
+            assert "refusing to kill unknown listeners" in result.stderr
+            assert foreign_proc.poll() is None, "Foreign listener should still be running"
+        finally:
+            foreign_proc.terminate()
+            foreign_proc.wait(timeout=5)
