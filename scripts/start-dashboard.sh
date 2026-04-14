@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 UI_MODE="${SICHTER_UI_MODE:-web}"
+UI_ACTION="${1:-${SICHTER_UI_ACTION:-start}}"
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-5055}"
 
@@ -49,18 +50,18 @@ listeners_on_port() {
 
 kill_tracked_web_process_if_needed() {
   local port="$1"
-  [[ -f "$WEB_PID_FILE" ]] || return 0
+  [[ -f "$WEB_PID_FILE" ]] || return 1
 
   local tracked_pid
   tracked_pid="$(cat "$WEB_PID_FILE" 2>/dev/null || true)"
   [[ "$tracked_pid" =~ ^[0-9]+$ ]] || {
     rm -f "$WEB_PID_FILE"
-    return 0
+    return 1
   }
 
   if ! kill -0 "$tracked_pid" >/dev/null 2>&1; then
     rm -f "$WEB_PID_FILE"
-    return 0
+    return 1
   fi
 
   local listeners
@@ -70,7 +71,58 @@ kill_tracked_web_process_if_needed() {
     kill "$tracked_pid" >/dev/null 2>&1 || true
     wait "$tracked_pid" 2>/dev/null || true
     rm -f "$WEB_PID_FILE"
+    return 0
   fi
+
+  return 1
+}
+
+stop_web_dashboard() {
+  local listeners
+  listeners="$(listeners_on_port "$WEB_KILL_PORT")"
+
+  if kill_tracked_web_process_if_needed "$WEB_KILL_PORT"; then
+    return 0
+  fi
+
+  [[ -z "$listeners" ]] && {
+    log "No tracked web dashboard process running"
+    return 0
+  }
+
+  if [[ "$WEB_KILL_UNKNOWN" == "1" ]]; then
+    log "Force-stopping unknown listener(s) on port $WEB_KILL_PORT: $listeners"
+    kill $listeners >/dev/null 2>&1 || true
+    return 0
+  fi
+
+  die "Port $WEB_KILL_PORT is in use by unknown PID(s): $listeners (set SICHTER_WEB_KILL_UNKNOWN=1 to force stop)"
+}
+
+status_web_dashboard() {
+  local listeners
+  listeners="$(listeners_on_port "$WEB_KILL_PORT")"
+
+  if [[ -f "$WEB_PID_FILE" ]]; then
+    local tracked_pid
+    tracked_pid="$(cat "$WEB_PID_FILE" 2>/dev/null || true)"
+    if [[ "$tracked_pid" =~ ^[0-9]+$ ]] && [[ " $listeners " == *" $tracked_pid "* ]]; then
+      log "Web dashboard is running (pid=$tracked_pid, port=$WEB_KILL_PORT)"
+      return 0
+    fi
+
+    if [[ ! "$tracked_pid" =~ ^[0-9]+$ ]] || ! kill -0 "$tracked_pid" >/dev/null 2>&1; then
+      rm -f "$WEB_PID_FILE"
+    fi
+  fi
+
+  if [[ -n "$listeners" ]]; then
+    log "Port $WEB_KILL_PORT is used by unknown listener(s): $listeners"
+    return 1
+  fi
+
+  log "Web dashboard is not running"
+  return 1
 }
 
 ensure_port_available_for_web() {
@@ -118,29 +170,43 @@ wait_for_health() {
 
 case "$UI_MODE" in
   web)
-    require_executable "$WEB_BIN" "web"
-    command -v curl >/dev/null 2>&1 || die "curl is required in web mode"
-
     mkdir -p "$RUN_DIR"
-    kill_tracked_web_process_if_needed "$WEB_KILL_PORT"
-    ensure_port_available_for_web "$WEB_KILL_PORT"
+    case "$UI_ACTION" in
+      start)
+        require_executable "$WEB_BIN" "web"
+        command -v curl >/dev/null 2>&1 || die "curl is required in web mode"
 
-    log "Starting web dashboard via $WEB_BIN"
-    # Detach web process stdio from caller to avoid inherited-FD hangs.
-    "$WEB_BIN" </dev/null >>"$WEB_STDOUT" 2>>"$WEB_STDERR" &
-    web_pid=$!
-    printf '%s\n' "$web_pid" >"$WEB_PID_FILE"
+        kill_tracked_web_process_if_needed "$WEB_KILL_PORT" || true
+        ensure_port_available_for_web "$WEB_KILL_PORT"
 
-    if ! wait_for_health "$HEALTH_URL" "$HEALTH_TIMEOUT_SECONDS" "$HEALTH_INTERVAL_SECONDS"; then
-      kill "$web_pid" >/dev/null 2>&1 || true
-      wait "$web_pid" 2>/dev/null || true
-      rm -f "$WEB_PID_FILE"
-      die "Web dashboard failed health check: $HEALTH_URL"
-    fi
+        log "Starting web dashboard via $WEB_BIN"
+        # Detach web process stdio from caller to avoid inherited-FD hangs.
+        "$WEB_BIN" </dev/null >>"$WEB_STDOUT" 2>>"$WEB_STDERR" &
+        web_pid=$!
+        printf '%s\n' "$web_pid" >"$WEB_PID_FILE"
 
-    log "Web dashboard running (pid=$web_pid)"
+        if ! wait_for_health "$HEALTH_URL" "$HEALTH_TIMEOUT_SECONDS" "$HEALTH_INTERVAL_SECONDS"; then
+          kill "$web_pid" >/dev/null 2>&1 || true
+          wait "$web_pid" 2>/dev/null || true
+          rm -f "$WEB_PID_FILE"
+          die "Web dashboard failed health check: $HEALTH_URL"
+        fi
+
+        log "Web dashboard running (pid=$web_pid)"
+        ;;
+      stop)
+        stop_web_dashboard
+        ;;
+      status)
+        status_web_dashboard
+        ;;
+      *)
+        die "Invalid SICHTER_UI_ACTION='$UI_ACTION' (expected: start|stop|status)"
+        ;;
+    esac
     ;;
   tui)
+    [[ "$UI_ACTION" == "start" ]] || die "Action '$UI_ACTION' is only supported for web mode"
     require_executable "$TUI_BIN" "tui"
     log "Starting TUI dashboard via $TUI_BIN"
     exec "$TUI_BIN"

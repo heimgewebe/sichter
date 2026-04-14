@@ -39,6 +39,13 @@ Diese Anleitung beschreibt die ersten Schritte nach dem Klonen des Repositories.
  Der Modus `web` startet `bin/uvicorn-app` im Hintergrund und prüft Health über
  `/healthz`. So bleiben TUI und Web-Dashboard klar getrennt.
 
+ Web-Status und Stopp (gleiche Ownership-Logik wie beim Start):
+
+ ```bash
+ SICHTER_UI_MODE=web SICHTER_UI_ACTION=status ./scripts/start-dashboard.sh
+ SICHTER_UI_MODE=web SICHTER_UI_ACTION=stop ./scripts/start-dashboard.sh
+ ```
+
 4. **WebSocket-Eventstream testen**
 
    ```bash

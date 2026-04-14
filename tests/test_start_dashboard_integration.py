@@ -15,6 +15,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import pytest
+
 SCRIPT = str(Path(__file__).parent.parent / "scripts" / "start-dashboard.sh")
 
 
@@ -206,3 +208,55 @@ def test_integration_web_mode_refuses_killing_unknown_listener_by_default():
         finally:
             foreign_proc.terminate()
             foreign_proc.wait(timeout=5)
+
+
+def test_integration_web_start_status_stop_lifecycle():
+    """Web lifecycle should support start -> status -> stop via tracked PID file."""
+    port = _find_free_port()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        web_bin = _make_http_mock(tmpdir, port)
+        run_dir = Path(tmpdir) / "run"
+        web_log = Path(tmpdir) / "web.out"
+        pid_file = run_dir / "web-dashboard.pid"
+
+        start_env = _env_for(
+            port,
+            "web",
+            SICHTER_DASHBOARD_WEB_BIN=str(web_bin),
+            SICHTER_RUN_DIR=str(run_dir),
+            SICHTER_WEB_STDOUT=str(web_log),
+            SICHTER_WEB_STDERR=str(web_log),
+        )
+        start_result = subprocess.run(
+            ["bash", SCRIPT], env=start_env, capture_output=True, text=True, timeout=20
+        )
+        assert start_result.returncode == 0, start_result.stderr
+        assert pid_file.exists(), "Expected PID file after successful web start"
+
+        status_env = _env_for(
+            port,
+            "web",
+            SICHTER_UI_ACTION="status",
+            SICHTER_RUN_DIR=str(run_dir),
+        )
+        status_result = subprocess.run(
+            ["bash", SCRIPT], env=status_env, capture_output=True, text=True, timeout=8
+        )
+        assert status_result.returncode == 0
+        assert "is running" in status_result.stdout
+
+        tracked_pid = int(pid_file.read_text().strip())
+        stop_env = _env_for(
+            port,
+            "web",
+            SICHTER_UI_ACTION="stop",
+            SICHTER_RUN_DIR=str(run_dir),
+        )
+        stop_result = subprocess.run(
+            ["bash", SCRIPT], env=stop_env, capture_output=True, text=True, timeout=8
+        )
+        assert stop_result.returncode == 0, stop_result.stderr
+        assert not pid_file.exists(), "Expected PID file removal after stop"
+
+        with pytest.raises(ProcessLookupError):
+            os.kill(tracked_pid, 0)
