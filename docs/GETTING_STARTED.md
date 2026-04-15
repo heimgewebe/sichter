@@ -11,7 +11,7 @@ Diese Anleitung beschreibt die ersten Schritte nach dem Klonen des Repositories.
  Das Skript prüft benötigte Abhängigkeiten, richtet Symlinks ein und aktiviert die
  systemd-Units für API, Worker und den automatischen Deep-Review.
 
-1. **Status prüfen**
+2. **Status prüfen**
 
  Nach der Installation stehen folgende Befehle zur Verfügung:
 
@@ -21,7 +21,7 @@ Diese Anleitung beschreibt die ersten Schritte nach dem Klonen des Repositories.
  systemctl --user status sichter-worker.service
  ```
 
-1. **Dashboard starten**
+3. **Dashboard starten**
 
  ```bash
  SICHTER_UI_MODE=tui ./scripts/start-dashboard.sh
@@ -50,14 +50,4 @@ Diese Anleitung beschreibt die ersten Schritte nach dem Klonen des Repositories.
  Fremde Listener werden sichtbar gemeldet und nur mit `SICHTER_WEB_KILL_UNKNOWN=1`
  bewusst hart beendet.
 
-1. **WebSocket-Eventstream testen**
-
-   ```bash
-   bin/ws-selftest --base http://127.0.0.1:5055 --replay 10
-   ```
-
-   Der Test versucht zuerst eine WS-Verbindung (`/events/stream`). Falls kein WebSocket-Client
-   installiert ist, fällt er auf `GET /events/recent` zurück.
-
- > **Hinweis:** Die Web-UI nutzt aktuell HTTP-Polling zur Aktualisierung der Event-Anzeige.
- > Eine WebSocket-basierte Echtzeit-Ansicht ist für eine spätere Version geplant.
+4. **WebSocket-Eventstream testen**

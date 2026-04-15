@@ -245,24 +245,30 @@ def test_integration_web_start_status_stop_lifecycle():
         assert start_result.returncode == 0, start_result.stderr
         assert pid_file.exists(), "Expected PID file after successful web start"
 
+        # Extract PID from metadata (format: pid|started_at|cmd_basename)
+        metadata = pid_file.read_text().strip()
+        tracked_pid = int(metadata.split("|")[0])
+
+        # Status and stop must use the same WEB_BIN to verify identity
         status_env = _env_for(
             port,
             "web",
             SICHTER_UI_ACTION="status",
             SICHTER_RUN_DIR=str(run_dir),
+            SICHTER_DASHBOARD_WEB_BIN=str(web_bin),
         )
         status_result = subprocess.run(
             ["bash", SCRIPT], env=status_env, capture_output=True, text=True, timeout=8
         )
-        assert status_result.returncode == 0
+        assert status_result.returncode == 0, f"Status failed: {status_result.stderr}"
         assert "is running" in status_result.stdout
 
-        tracked_pid = int(pid_file.read_text().strip())
         stop_env = _env_for(
             port,
             "web",
             SICHTER_UI_ACTION="stop",
             SICHTER_RUN_DIR=str(run_dir),
+            SICHTER_DASHBOARD_WEB_BIN=str(web_bin),
         )
         stop_result = subprocess.run(
             ["bash", SCRIPT], env=stop_env, capture_output=True, text=True, timeout=8
@@ -316,7 +322,10 @@ def test_integration_web_status_removes_stale_pid_file_for_non_listener_process(
 
         sleeper = subprocess.Popen(["bash", "-lc", "exec sleep 30"])
         try:
-            pid_file.write_text(f"{sleeper.pid}\n", encoding="utf-8")
+            # Write metadata claiming to be uvicorn-app, but process is actually sleep
+            import time
+            started_at = str(int(time.time()))
+            pid_file.write_text(f"{sleeper.pid}|{started_at}|uvicorn-app\n", encoding="utf-8")
 
             env = _env_for(
                 port,
@@ -328,8 +337,9 @@ def test_integration_web_status_removes_stale_pid_file_for_non_listener_process(
                 ["bash", SCRIPT], env=env, capture_output=True, text=True, timeout=8
             )
 
-            assert result.returncode == 1
-            assert "detached from port" in result.stdout.lower()
+            # Process is alive but command doesn't match, so identity verification fails
+            # Status should report "not running" and remove stale PID file
+            assert result.returncode == 1, f"Expected exit 1, got {result.returncode}: {result.stdout}"
             assert "not running" in result.stdout.lower()
             assert not pid_file.exists(), "Expected stale PID file to be removed"
         finally:
@@ -354,3 +364,38 @@ def test_integration_web_mode_without_lsof_fails_clearly():
 
     assert result.returncode != 0
     assert "lsof is required for web dashboard port checks" in result.stderr
+
+
+def test_integration_web_status_rejects_reused_pid_without_matching_cmd():
+    """Status should reject a stale PID file if the process no longer runs the web binary."""
+    port = _find_free_port()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        run_dir = Path(tmpdir) / "run"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        pid_file = run_dir / "web-dashboard.pid"
+        
+        # Start a sleep process (not the web binary)
+        sleeper = subprocess.Popen(["bash", "-lc", "exec sleep 30"])
+        try:
+            # Write a fake PID file with metadata claiming it's uvicorn-app, but pointing to sleep
+            import time
+            started_at = str(int(time.time()))
+            pid_file.write_text(f"{sleeper.pid}|{started_at}|uvicorn-app\n", encoding="utf-8")
+            
+            env = _env_for(
+                port,
+                "web",
+                SICHTER_UI_ACTION="status",
+                SICHTER_RUN_DIR=str(run_dir),
+            )
+            result = subprocess.run(
+                ["bash", SCRIPT], env=env, capture_output=True, text=True, timeout=8
+            )
+            
+            # Status should reject the reused PID (cmd doesn't match) and report not running
+            assert result.returncode == 1
+            assert "not running" in result.stdout.lower()
+            assert not pid_file.exists(), "Expected stale PID file to be removed"
+        finally:
+            sleeper.terminate()
+            sleeper.wait(timeout=5)
