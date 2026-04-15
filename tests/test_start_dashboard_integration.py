@@ -270,11 +270,15 @@ def test_integration_web_start_status_stop_lifecycle():
         assert stop_result.returncode == 0, stop_result.stderr
         assert not pid_file.exists(), "Expected PID file removal after stop"
 
-        try:
-            os.kill(tracked_pid, 0)
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            try:
+                os.kill(tracked_pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.05)
+        else:
             assert False, f"Expected tracked PID {tracked_pid} to be terminated"
-        except ProcessLookupError:
-            pass
 
 
 def test_integration_web_status_unknown_listener_returns_two():
