@@ -13,9 +13,8 @@ import signal
 import socket
 import subprocess
 import tempfile
+import time
 from pathlib import Path
-
-import pytest
 
 SCRIPT = str(Path(__file__).parent.parent / "scripts" / "start-dashboard.sh")
 
@@ -67,6 +66,18 @@ def _env_for(port: int, mode: str, **extra) -> dict:
     })
     base.update(extra)
     return base
+
+
+def _wait_until_listening(port: int, timeout_seconds: float = 5.0) -> None:
+    """Wait until a local TCP listener accepts connections on the target port."""
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(0.2)
+            if sock.connect_ex(("127.0.0.1", port)) == 0:
+                return
+        time.sleep(0.05)
+    raise AssertionError(f"Timed out waiting for listener on port {port}")
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +202,7 @@ def test_integration_web_mode_refuses_killing_unknown_listener_by_default():
         foreign_bin = _make_http_mock(tmpdir, port)
         foreign_proc = subprocess.Popen([str(foreign_bin)])
         try:
+            _wait_until_listening(port)
             web_bin = _make_silent_mock(tmpdir, name="mock-owned-web-bin")
             env = _env_for(
                 port,
@@ -258,5 +270,63 @@ def test_integration_web_start_status_stop_lifecycle():
         assert stop_result.returncode == 0, stop_result.stderr
         assert not pid_file.exists(), "Expected PID file removal after stop"
 
-        with pytest.raises(ProcessLookupError):
+        try:
             os.kill(tracked_pid, 0)
+            assert False, f"Expected tracked PID {tracked_pid} to be terminated"
+        except ProcessLookupError:
+            pass
+
+
+def test_integration_web_status_unknown_listener_returns_two():
+    """Status should return exit code 2 when port is used by unknown listener(s)."""
+    port = _find_free_port()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        foreign_bin = _make_http_mock(tmpdir, port)
+        foreign_proc = subprocess.Popen([str(foreign_bin)])
+        try:
+            _wait_until_listening(port)
+            env = _env_for(
+                port,
+                "web",
+                SICHTER_UI_ACTION="status",
+                SICHTER_RUN_DIR=str(Path(tmpdir) / "run"),
+            )
+            result = subprocess.run(
+                ["bash", SCRIPT], env=env, capture_output=True, text=True, timeout=8
+            )
+
+            assert result.returncode == 2
+            assert "unknown listener" in result.stdout.lower()
+        finally:
+            foreign_proc.terminate()
+            foreign_proc.wait(timeout=5)
+
+
+def test_integration_web_status_removes_stale_pid_file_for_non_listener_process():
+    """Status should delete stale PID file if PID is alive but no longer listening on the dashboard port."""
+    port = _find_free_port()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        run_dir = Path(tmpdir) / "run"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        pid_file = run_dir / "web-dashboard.pid"
+
+        sleeper = subprocess.Popen(["bash", "-lc", "exec sleep 30"])
+        try:
+            pid_file.write_text(f"{sleeper.pid}\n", encoding="utf-8")
+
+            env = _env_for(
+                port,
+                "web",
+                SICHTER_UI_ACTION="status",
+                SICHTER_RUN_DIR=str(run_dir),
+            )
+            result = subprocess.run(
+                ["bash", SCRIPT], env=env, capture_output=True, text=True, timeout=8
+            )
+
+            assert result.returncode == 1
+            assert "not running" in result.stdout.lower()
+            assert not pid_file.exists(), "Expected stale PID file to be removed"
+        finally:
+            sleeper.terminate()
+            sleeper.wait(timeout=5)

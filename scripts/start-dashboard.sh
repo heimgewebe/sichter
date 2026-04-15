@@ -41,10 +41,19 @@ require_executable() {
   fi
 }
 
+require_command() {
+  local command_name="$1"
+  local reason="$2"
+  command -v "$command_name" >/dev/null 2>&1 || die "$command_name is required for $reason"
+}
+
+require_web_lifecycle_prereqs() {
+  require_command lsof "web dashboard port checks"
+}
+
 listeners_on_port() {
   local port="$1"
   [[ -z "$port" ]] && return 0
-  command -v lsof >/dev/null 2>&1 || return 0
   lsof -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | tr '\n' ' ' || true
 }
 
@@ -67,14 +76,15 @@ kill_tracked_web_process_if_needed() {
   local listeners
   listeners="$(listeners_on_port "$port")"
   if [[ " $listeners " == *" $tracked_pid "* ]]; then
-    log "Stopping tracked web process pid=$tracked_pid on port $port"
-    kill "$tracked_pid" >/dev/null 2>&1 || true
-    wait "$tracked_pid" 2>/dev/null || true
-    rm -f "$WEB_PID_FILE"
-    return 0
+    log "Stopping tracked web process pid=$tracked_pid on port $port (listener matched)"
+  else
+    log "Stopping tracked web process pid=$tracked_pid (alive but not listening on port $port)"
   fi
 
-  return 1
+  kill "$tracked_pid" >/dev/null 2>&1 || true
+  wait "$tracked_pid" 2>/dev/null || true
+  rm -f "$WEB_PID_FILE"
+  return 0
 }
 
 stop_web_dashboard() {
@@ -100,25 +110,35 @@ stop_web_dashboard() {
 }
 
 status_web_dashboard() {
+  local tracked_pid=""
+
+  if [[ -f "$WEB_PID_FILE" ]]; then
+    local pid_candidate
+    pid_candidate="$(cat "$WEB_PID_FILE" 2>/dev/null || true)"
+    if [[ "$pid_candidate" =~ ^[0-9]+$ ]] && kill -0 "$pid_candidate" >/dev/null 2>&1; then
+      tracked_pid="$pid_candidate"
+    else
+      rm -f "$WEB_PID_FILE"
+    fi
+  fi
+
   local listeners
   listeners="$(listeners_on_port "$WEB_KILL_PORT")"
 
-  if [[ -f "$WEB_PID_FILE" ]]; then
-    local tracked_pid
-    tracked_pid="$(cat "$WEB_PID_FILE" 2>/dev/null || true)"
-    if [[ "$tracked_pid" =~ ^[0-9]+$ ]] && [[ " $listeners " == *" $tracked_pid "* ]]; then
+  if [[ -n "$tracked_pid" ]]; then
+    if [[ " $listeners " == *" $tracked_pid "* ]]; then
       log "Web dashboard is running (pid=$tracked_pid, port=$WEB_KILL_PORT)"
       return 0
-    fi
-
-    if [[ ! "$tracked_pid" =~ ^[0-9]+$ ]] || ! kill -0 "$tracked_pid" >/dev/null 2>&1; then
+    else
+      # PID is alive but no longer owns the dashboard listener.
       rm -f "$WEB_PID_FILE"
+      tracked_pid=""
     fi
   fi
 
   if [[ -n "$listeners" ]]; then
     log "Port $WEB_KILL_PORT is used by unknown listener(s): $listeners"
-    return 1
+    return 2
   fi
 
   log "Web dashboard is not running"
@@ -170,6 +190,7 @@ wait_for_health() {
 
 case "$UI_MODE" in
   web)
+    require_web_lifecycle_prereqs
     mkdir -p "$RUN_DIR"
     case "$UI_ACTION" in
       start)
