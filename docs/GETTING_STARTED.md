@@ -51,3 +51,13 @@ Diese Anleitung beschreibt die ersten Schritte nach dem Klonen des Repositories.
  bewusst hart beendet.
 
 4. **WebSocket-Eventstream testen**
+
+   ```bash
+   bin/ws-selftest --base http://127.0.0.1:5055 --replay 10
+   ```
+
+   Der Test versucht zuerst eine WS-Verbindung (`/events/stream`). Falls kein WebSocket-Client
+   installiert ist, faellt er auf `GET /events/recent` zurueck.
+
+ > **Hinweis:** Die Web-UI nutzt aktuell HTTP-Polling zur Aktualisierung der Event-Anzeige.
+ > Eine WebSocket-basierte Echtzeit-Ansicht ist fuer eine spaetere Version geplant.

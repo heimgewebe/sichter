@@ -27,5 +27,6 @@ apps/dashboard/dist/
 # Local secrets / env
 secrets.env
 .env
+.run/
 .smoke-logs/
 apps/dashboard/tsconfig.tsbuildinfo

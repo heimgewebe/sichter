@@ -49,6 +49,7 @@ require_command() {
 
 require_web_lifecycle_prereqs() {
   require_command lsof "web dashboard port checks"
+  require_command ps "web dashboard process identity checks"
 }
 
 listeners_on_port() {
@@ -73,8 +74,9 @@ verify_tracked_pid_identity() {
   local web_bin="$2"
   # Read metadata and verify:
   # 1. PID is numeric and alive
-  # 2. Process command line contains web_bin basename (not exact match, allows wrappers)
-  # 3. Start time metadata exists (additional ownership hint)
+  # 2. Stored command basename matches expected web binary basename
+  # 3. Process command line contains expected basename (allows wrappers)
+  # 4. Stored started_at matches live process elapsed time within a small tolerance
   
   [[ -f "$file" ]] || return 1
   
@@ -88,6 +90,12 @@ verify_tracked_pid_identity() {
   started_at="${metadata#*|}"
   started_at="${started_at%%|*}"
   cmd_basename="${metadata##*|}"
+
+  local expected_basename
+  expected_basename="$(basename "$web_bin")"
+
+  [[ -n "$cmd_basename" ]] || return 1
+  [[ "$cmd_basename" == "$expected_basename" ]] || return 1
   
   # PID must be numeric
   [[ "$tracked_pid" =~ ^[0-9]+$ ]] || return 1
@@ -104,7 +112,21 @@ verify_tracked_pid_identity() {
   # This prevents killing an unrelated reused PID.
   local proc_cmd
   proc_cmd="$(ps -p "$tracked_pid" -o args= 2>/dev/null || true)"
-  [[ "$proc_cmd" == *"$(basename "$web_bin")"* ]] || return 1
+  [[ "$proc_cmd" == *"$expected_basename"* ]] || return 1
+
+  # Compare metadata started_at with the live process elapsed time (seconds).
+  # This catches PID reuse where the command basename still happens to match.
+  local live_elapsed now_epoch expected_elapsed delta
+  live_elapsed="$(ps -p "$tracked_pid" -o etimes= 2>/dev/null | tr -d '[:space:]')"
+  [[ "$live_elapsed" =~ ^[0-9]+$ ]] || return 1
+
+  now_epoch="$(date +%s)"
+  expected_elapsed=$((now_epoch - started_at))
+  (( expected_elapsed >= 0 )) || return 1
+
+  delta=$((expected_elapsed - live_elapsed))
+  (( delta < 0 )) && delta=$(( -delta ))
+  (( delta <= 10 )) || return 1
   
   echo "$tracked_pid"
   return 0

@@ -399,3 +399,60 @@ def test_integration_web_status_rejects_reused_pid_without_matching_cmd():
         finally:
             sleeper.terminate()
             sleeper.wait(timeout=5)
+
+
+def test_integration_web_status_rejects_stale_started_at_for_matching_cmd():
+    """Status must reject tracked ownership when started_at metadata does not match live process age."""
+    port = _find_free_port()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        web_bin = _make_http_mock(tmpdir, port)
+        run_dir = Path(tmpdir) / "run"
+        web_log = Path(tmpdir) / "web.out"
+        pid_file = run_dir / "web-dashboard.pid"
+
+        start_env = _env_for(
+            port,
+            "web",
+            SICHTER_DASHBOARD_WEB_BIN=str(web_bin),
+            SICHTER_RUN_DIR=str(run_dir),
+            SICHTER_WEB_STDOUT=str(web_log),
+            SICHTER_WEB_STDERR=str(web_log),
+        )
+        start_result = subprocess.run(
+            ["bash", SCRIPT], env=start_env, capture_output=True, text=True, timeout=20
+        )
+        assert start_result.returncode == 0, start_result.stderr
+        assert pid_file.exists(), "Expected PID file after successful web start"
+
+        metadata = pid_file.read_text(encoding="utf-8").strip()
+        tracked_pid = int(metadata.split("|")[0])
+
+        # Tamper started_at to be far older than the live process runtime.
+        fake_started_at = str(int(time.time()) - 3600)
+        pid_file.write_text(f"{tracked_pid}|{fake_started_at}|{web_bin.name}\n", encoding="utf-8")
+
+        status_env = _env_for(
+            port,
+            "web",
+            SICHTER_UI_ACTION="status",
+            SICHTER_RUN_DIR=str(run_dir),
+            SICHTER_DASHBOARD_WEB_BIN=str(web_bin),
+        )
+        status_result = subprocess.run(
+            ["bash", SCRIPT], env=status_env, capture_output=True, text=True, timeout=8
+        )
+
+        # Identity must fail; listener is still there, so it is unknown (exit 2).
+        assert status_result.returncode == 2
+        assert "unknown listener" in status_result.stdout.lower()
+        assert not pid_file.exists(), "Expected stale PID file to be removed"
+
+        # Cleanup the still-running mock web process.
+        os.kill(tracked_pid, signal.SIGTERM)
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            try:
+                os.kill(tracked_pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.05)
