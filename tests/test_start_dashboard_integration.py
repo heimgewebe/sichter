@@ -282,7 +282,7 @@ def test_integration_web_start_status_stop_lifecycle():
 
 
 def test_integration_web_status_unknown_listener_returns_two():
-    """Status should return exit code 2 when port is used by unknown listener(s)."""
+    """Status should distinguish unknown listeners from a clean stopped state."""
     port = _find_free_port()
     with tempfile.TemporaryDirectory() as tmpdir:
         foreign_bin = _make_http_mock(tmpdir, port)
@@ -307,7 +307,7 @@ def test_integration_web_status_unknown_listener_returns_two():
 
 
 def test_integration_web_status_removes_stale_pid_file_for_non_listener_process():
-    """Status should delete stale PID file if PID is alive but no longer listening on the dashboard port."""
+    """Status should log detached ownership and remove stale PID file."""
     port = _find_free_port()
     with tempfile.TemporaryDirectory() as tmpdir:
         run_dir = Path(tmpdir) / "run"
@@ -329,8 +329,28 @@ def test_integration_web_status_removes_stale_pid_file_for_non_listener_process(
             )
 
             assert result.returncode == 1
+            assert "detached from port" in result.stdout.lower()
             assert "not running" in result.stdout.lower()
             assert not pid_file.exists(), "Expected stale PID file to be removed"
         finally:
             sleeper.terminate()
             sleeper.wait(timeout=5)
+
+
+def test_integration_web_mode_without_lsof_fails_clearly():
+    """Web lifecycle must fail clearly when lsof is unavailable."""
+    port = _find_free_port()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path_dir = Path(tmpdir) / "bin"
+        path_dir.mkdir(parents=True, exist_ok=True)
+        env = _env_for(
+            port,
+            "web",
+            PATH=str(path_dir),
+        )
+        result = subprocess.run(
+            ["/bin/bash", SCRIPT], env=env, capture_output=True, text=True, timeout=8
+        )
+
+    assert result.returncode != 0
+    assert "lsof is required for web dashboard port checks" in result.stderr

@@ -125,20 +125,22 @@ status_web_dashboard() {
   local listeners
   listeners="$(listeners_on_port "$WEB_KILL_PORT")"
 
-  if [[ -n "$tracked_pid" ]]; then
-    if [[ " $listeners " == *" $tracked_pid "* ]]; then
-      log "Web dashboard is running (pid=$tracked_pid, port=$WEB_KILL_PORT)"
-      return 0
-    else
-      # PID is alive but no longer owns the dashboard listener.
-      rm -f "$WEB_PID_FILE"
-      tracked_pid=""
-    fi
+    if [[ -f "$WEB_PID_FILE" ]]; then
+      if [[ -n "$tracked_pid" ]]; then
+        if [[ " $listeners " == *" $tracked_pid "* ]]; then
+          log "Web dashboard is running (pid=$tracked_pid, port=$WEB_KILL_PORT)"
+          return 0
+        else
+          log "Tracked web process pid=$tracked_pid is alive but detached from port $WEB_KILL_PORT; clearing ownership state"
+          rm -f "$WEB_PID_FILE"
+          tracked_pid=""
+        fi
+      fi
   fi
 
   if [[ -n "$listeners" ]]; then
     log "Port $WEB_KILL_PORT is used by unknown listener(s): $listeners"
-    return 2
+      return 2
   fi
 
   log "Web dashboard is not running"
