@@ -57,7 +57,7 @@ Diese Anleitung beschreibt die ersten Schritte nach dem Klonen des Repositories.
    ```
 
    Der Test versucht zuerst eine WS-Verbindung (`/events/stream`). Falls kein WebSocket-Client
-   installiert ist, faellt er auf `GET /events/recent` zurueck.
+   installiert ist, fällt er auf `GET /events/recent` zurück.
 
  > **Hinweis:** Die Web-UI nutzt aktuell HTTP-Polling zur Aktualisierung der Event-Anzeige.
- > Eine WebSocket-basierte Echtzeit-Ansicht ist fuer eine spaetere Version geplant.
+ > Eine WebSocket-basierte Echtzeit-Ansicht ist für eine spätere Version geplant.
