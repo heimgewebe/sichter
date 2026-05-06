@@ -7,7 +7,7 @@ DASHBOARD = Path(__file__).resolve().parents[1] / "bin" / "sichter-dashboard"
 
 
 def read_dashboard() -> str:
-    return DASHBOARD.read_text()
+    return DASHBOARD.read_text(encoding="utf-8")
 
 
 def assert_dispatches(source: str, menu_number: str, function_name: str, action: str) -> None:
