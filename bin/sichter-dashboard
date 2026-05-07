@@ -59,7 +59,58 @@ control_worker() {
   print_header
   echo "Worker $verb…"
   echo
-  systemctl --user "$action" "$WORKER_SERVICE" || true
+  if ! systemctl --user "$action" "$WORKER_SERVICE"; then
+    echo
+    echo "WARN: Worker-Aktion '$action' konnte nicht ausgeführt werden."
+  fi
+  pause
+}
+
+control_worker_autostart() {
+  local action="$1"
+  local verb
+  case "$action" in
+    enable) verb="Autostart einschalten" ;;
+    disable) verb="Autostart ausschalten" ;;
+    is-enabled) verb="Autostart-Status anzeigen" ;;
+    *)
+      echo "Unbekannte Autostart-Aktion: $action"
+      return 1
+      ;;
+  esac
+  print_header
+  echo "Worker $verb…"
+  echo "Hinweis: Autostart steuert nur zukünftige Starts, nicht die aktuelle Laufzeit."
+  echo
+  case "$action" in
+    enable)
+      if ! systemctl --user enable "$WORKER_SERVICE"; then
+        echo
+        echo "WARN: Worker-Autostart konnte nicht aktiviert werden."
+      fi
+      echo
+      echo "Aktueller Autostart-Status:"
+      if ! systemctl --user is-enabled "$WORKER_SERVICE"; then
+        echo "Hinweis: Autostart ist möglicherweise disabled, masked oder die Unit ist nicht installiert."
+      fi
+      ;;
+    disable)
+      if ! systemctl --user disable "$WORKER_SERVICE"; then
+        echo
+        echo "WARN: Worker-Autostart konnte nicht deaktiviert werden."
+      fi
+      echo
+      echo "Aktueller Autostart-Status:"
+      if ! systemctl --user is-enabled "$WORKER_SERVICE"; then
+        echo "Hinweis: Autostart ist möglicherweise disabled, masked oder die Unit ist nicht installiert."
+      fi
+      ;;
+    is-enabled)
+      if ! systemctl --user is-enabled "$WORKER_SERVICE"; then
+        echo "Hinweis: Autostart ist möglicherweise disabled, masked oder die Unit ist nicht installiert."
+      fi
+      ;;
+  esac
   pause
 }
 
@@ -195,13 +246,21 @@ main_menu() {
     cat <<'MENU'
 Menü
 ----
+Laufzeit (jetzt):
 1) Omnicheck (changed)
 2) Omnicheck (all)
 3) Worker Start
 4) Worker Stop
 5) Worker Status
-6) Letzte PRs anzeigen
-7) Logs öffnen
+
+Persistenz (künftige Starts):
+6) Worker Autostart Status
+7) Worker Autostart AN
+8) Worker Autostart AUS
+
+Weitere Ansichten:
+9) Letzte PRs anzeigen
+10) Logs öffnen
 q) Beenden
 MENU
     read -rp "Auswahl: " answer
@@ -211,8 +270,11 @@ MENU
       3) control_worker start ;;
       4) control_worker stop ;;
       5) control_worker status ;;
-      6) show_prs ;;
-      7) choose_log ;;
+      6) control_worker_autostart is-enabled ;;
+      7) control_worker_autostart enable ;;
+      8) control_worker_autostart disable ;;
+      9) show_prs ;;
+      10) choose_log ;;
       q | Q)
         clear
         exit 0
