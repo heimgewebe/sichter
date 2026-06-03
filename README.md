@@ -5,7 +5,7 @@ Autonomer Code-Reviewer + Auto-PR Engine.
 ## Quickstart
 
 ```bash
-git clone <dieses-repo> ~/sichter
+git clone https://github.com/heimgewebe/sichter.git ~/sichter
 cd ~/sichter
 scripts/bootstrap.sh
 ```
