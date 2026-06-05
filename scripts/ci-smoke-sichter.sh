@@ -3,21 +3,38 @@ set -euo pipefail
 
 # --- Konfiguration -----------------------------------------------------------
 API_HOST="${API_HOST:-127.0.0.1}"
-API_PORT="${API_PORT:-5055}"
-API_BASE="http://${API_HOST}:${API_PORT}"
 PY="${PYTHON3:-python3}"
+
+if [[ -z "${API_PORT:-}" ]]; then
+  API_PORT="$("$PY" - <<'PYPORT'
+import socket
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    s.bind(("127.0.0.1", 0))
+    print(s.getsockname()[1])
+PYPORT
+)"
+fi
+
+API_BASE="http://${API_HOST}:${API_PORT}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/sichter"
 QUEUE_DIR="$STATE_DIR/queue"
 EVENT_DIR="$STATE_DIR/events"
 LOG_DIR="${ROOT}/.smoke-logs"
+
+# Lokaler, ephemerer Smoke-Key. Kein Secret; nur für diesen Testlauf.
+export SICHTER_API_KEY="${SICHTER_API_KEY:-sichter-smoke-local-key}"
 mkdir -p "$LOG_DIR" "$QUEUE_DIR" "$EVENT_DIR"
 
 # Prozesse, die wir beenden müssen
 PIDS=()
+API_RESP=""
 # shellcheck disable=SC2329,SC2317
 cleanup() {
   set +e
+  if [[ -n "${API_RESP:-}" ]]; then
+    rm -f "$API_RESP" >/dev/null 2>&1 || true
+  fi
   for pid in "${PIDS[@]:-}"; do
     kill "$pid" >/dev/null 2>&1 || true
     wait "$pid" 2>/dev/null || true
@@ -96,10 +113,9 @@ log "enqueue job"
 ENQ_JSON='{"type":"ScanChanged","mode":"changed","auto_pr":false}'
 # Temp-Datei für die Server-Antwort
 API_RESP=$(mktemp)
-# shellcheck disable=SC2317
-trap 'rm -f "$API_RESP"' EXIT
 HTTP_CODE=$(curl -sS -w '%{http_code}' -o "$API_RESP" \
   -XPOST -H 'content-type: application/json' \
+  -H "X-API-Key: ${SICHTER_API_KEY:-}" \
   "$API_BASE/jobs/submit" -d "$ENQ_JSON")
 
 if [[ "$HTTP_CODE" -ge 200 && "$HTTP_CODE" -lt 300 ]]; then
@@ -118,7 +134,7 @@ log "warte auf Event-Eintrag"
 SEEN=0
 for i in {1..60}; do
   # wir akzeptieren sowohl /events/tail (text) als auch /events/recent (json)
-  if curl -fsS "$API_BASE/events/recent?n=200" | grep -q "$JID"; then
+  if curl -fsS -H "X-API-Key: ${SICHTER_API_KEY:-}" "$API_BASE/events/recent?n=200" | grep -q "$JID"; then
     SEEN=1
     break
   fi
@@ -126,7 +142,7 @@ for i in {1..60}; do
 done
 [[ "$SEEN" -eq 1 ]] || {
   log "Events (recent):"
-  curl -fsS "$API_BASE/events/recent?n=200" || true
+  curl -fsS -H "X-API-Key: ${SICHTER_API_KEY:-}" "$API_BASE/events/recent?n=200" || true
   tail -n 200 "$LOG_DIR/worker.log" 2>/dev/null || true
   fail "kein passendes Event zum Job gesehen"
 }
