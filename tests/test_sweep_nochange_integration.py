@@ -9,6 +9,12 @@ def _run(cmd: list[str], cwd: Path, env: dict[str, str] | None = None) -> subpro
     effective_cmd = cmd
     if cmd and cmd[0] == "git":
         effective_cmd = ["git", "-c", "core.hooksPath=/dev/null", *cmd[1:]]
+        if env is None:
+            env = os.environ.copy()
+        env["GIT_AUTHOR_NAME"] = "Test"
+        env["GIT_AUTHOR_EMAIL"] = "test@example.com"
+        env["GIT_COMMITTER_NAME"] = "Test"
+        env["GIT_COMMITTER_EMAIL"] = "test@example.com"
     return subprocess.run(effective_cmd, cwd=cwd, text=True, capture_output=True, check=True, env=env)
 
 
@@ -44,6 +50,10 @@ def test_sichter_pr_sweep_changed_nochange_creates_no_autofix_ref(tmp_path: Path
     env["SICHTER_SELF_REPO_NAME"] = "sichter"
     env["SICHTER_INCLUDE_SELF_REPO"] = "false"
     env["SICHTER_AUTO_PR"] = "0"
+    env["GIT_AUTHOR_NAME"] = "Test"
+    env["GIT_AUTHOR_EMAIL"] = "test@example.com"
+    env["GIT_COMMITTER_NAME"] = "Test"
+    env["GIT_COMMITTER_EMAIL"] = "test@example.com"
 
     result = subprocess.run(
         [str(script), "--changed"],
@@ -94,6 +104,10 @@ def test_sichter_pr_sweep_changed_untracked_file_is_not_skipped(tmp_path: Path):
     env["SICHTER_SELF_REPO_NAME"] = "sichter"
     env["SICHTER_INCLUDE_SELF_REPO"] = "false"
     env["SICHTER_AUTO_PR"] = "0"
+    env["GIT_AUTHOR_NAME"] = "Test"
+    env["GIT_AUTHOR_EMAIL"] = "test@example.com"
+    env["GIT_COMMITTER_NAME"] = "Test"
+    env["GIT_COMMITTER_EMAIL"] = "test@example.com"
 
     result = subprocess.run(
         [str(script), "--changed"],
@@ -146,6 +160,10 @@ def test_sichter_pr_sweep_changed_tracked_working_tree_change_is_not_skipped(tmp
     env["SICHTER_SELF_REPO_NAME"] = "sichter"
     env["SICHTER_INCLUDE_SELF_REPO"] = "false"
     env["SICHTER_AUTO_PR"] = "0"
+    env["GIT_AUTHOR_NAME"] = "Test"
+    env["GIT_AUTHOR_EMAIL"] = "test@example.com"
+    env["GIT_COMMITTER_NAME"] = "Test"
+    env["GIT_COMMITTER_EMAIL"] = "test@example.com"
 
     result = subprocess.run(
         [str(script), "--changed"],
