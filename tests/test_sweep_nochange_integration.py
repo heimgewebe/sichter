@@ -5,11 +5,33 @@ import subprocess
 from pathlib import Path
 
 
+def _git_test_env(base: dict[str, str] | None = None) -> dict[str, str]:
+    env = (base or os.environ).copy()
+    env.update(
+        {
+            "GIT_AUTHOR_NAME": "Sichter Tests",
+            "GIT_AUTHOR_EMAIL": "tests@example.invalid",
+            "GIT_COMMITTER_NAME": "Sichter Tests",
+            "GIT_COMMITTER_EMAIL": "tests@example.invalid",
+        }
+    )
+    return env
+
+
 def _run(cmd: list[str], cwd: Path, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     effective_cmd = cmd
+    effective_env = env
     if cmd and cmd[0] == "git":
         effective_cmd = ["git", "-c", "core.hooksPath=/dev/null", *cmd[1:]]
-    return subprocess.run(effective_cmd, cwd=cwd, text=True, capture_output=True, check=True, env=env)
+        effective_env = _git_test_env(env)
+    return subprocess.run(
+        effective_cmd,
+        cwd=cwd,
+        text=True,
+        capture_output=True,
+        check=True,
+        env=effective_env,
+    )
 
 
 def test_sichter_pr_sweep_changed_nochange_creates_no_autofix_ref(tmp_path: Path):
@@ -39,7 +61,7 @@ def test_sichter_pr_sweep_changed_nochange_creates_no_autofix_ref(tmp_path: Path
     hook.chmod(0o755)
 
     script = Path(__file__).resolve().parents[1] / "bin" / "sichter-pr-sweep"
-    env = os.environ.copy()
+    env = _git_test_env()
     env["HOME"] = str(home)
     env["SICHTER_SELF_REPO_NAME"] = "sichter"
     env["SICHTER_INCLUDE_SELF_REPO"] = "false"
@@ -89,7 +111,7 @@ def test_sichter_pr_sweep_changed_untracked_file_is_not_skipped(tmp_path: Path):
     hook.chmod(0o755)
 
     script = Path(__file__).resolve().parents[1] / "bin" / "sichter-pr-sweep"
-    env = os.environ.copy()
+    env = _git_test_env()
     env["HOME"] = str(home)
     env["SICHTER_SELF_REPO_NAME"] = "sichter"
     env["SICHTER_INCLUDE_SELF_REPO"] = "false"
@@ -141,7 +163,7 @@ def test_sichter_pr_sweep_changed_tracked_working_tree_change_is_not_skipped(tmp
     hook.chmod(0o755)
 
     script = Path(__file__).resolve().parents[1] / "bin" / "sichter-pr-sweep"
-    env = os.environ.copy()
+    env = _git_test_env()
     env["HOME"] = str(home)
     env["SICHTER_SELF_REPO_NAME"] = "sichter"
     env["SICHTER_INCLUDE_SELF_REPO"] = "false"
