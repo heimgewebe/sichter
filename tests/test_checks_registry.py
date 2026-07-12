@@ -149,7 +149,7 @@ class TestChecksRegistry(unittest.TestCase):
                 check=False,
                 capture_output=True,
                 text=True,
-                env={**os.environ, "RUFF_NO_CACHE": "1"},
+                env={**os.environ, "RUFF_NO_CACHE": "true"},
             )
             if check and completed.returncode != 0:
                 raise subprocess.CalledProcessError(
