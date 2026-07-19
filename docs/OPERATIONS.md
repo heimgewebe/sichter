@@ -10,9 +10,15 @@
 Alle systemd User-Units befinden sich unter `~/.config/systemd/user/` und werden
 über `systemctl --user` gesteuert.
 
-* `sichter-api.service` — REST-API für Queue und Einstellungen
-* `sichter-worker.service` — autonomer Worker für Linting und Auto-PRs
-* `sichter-autoreview.timer` — periodischer Deep-Review
+* `sichter-autoreview.timer` — kanonischer periodischer Deep-Review über `bin/sichter-pr-sweep --all`
+* `sichter-api.service` — deaktivierte Legacy-REST-API für Queue und Einstellungen
+* `sichter-worker.service` — deaktivierter Legacy-Queue-Worker
+* `sichter-ws-selftest.timer` — deaktivierter Legacy-API-Selbsttest
+
+Installations- und Bootstrap-Pfade aktivieren standardmäßig nur den direkten
+Review-Timer. Die Legacy-Ebene darf ausschließlich bewusst mit
+`SICHTER_ENABLE_LEGACY_QUEUE=1` aktiviert werden. Sie ist keine zweite
+Produktions- oder Aufgabenwahrheit.
 
 ## Hooks
 

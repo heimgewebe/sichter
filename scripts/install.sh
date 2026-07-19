@@ -89,10 +89,18 @@ if command -v systemctl >/dev/null 2>&1; then
   if systemctl --user show-environment >/dev/null 2>&1; then
     log "Aktualisiere systemd --user"
     systemctl --user daemon-reload
-    systemctl --user enable --now sichter-api.service
-    systemctl --user enable --now sichter-worker.service
     systemctl --user enable --now sichter-autoreview.timer
-    systemctl --user enable --now sichter-ws-selftest.timer
+    if [ "${SICHTER_ENABLE_LEGACY_QUEUE:-0}" = "1" ]; then
+      log "Aktiviere explizit die Legacy-API/Queue/Worker-Ebene"
+      systemctl --user enable --now sichter-api.service
+      systemctl --user enable --now sichter-worker.service
+      systemctl --user enable --now sichter-ws-selftest.timer
+    else
+      log "Legacy-API/Queue/Worker bleibt deaktiviert (Opt-in: SICHTER_ENABLE_LEGACY_QUEUE=1)"
+      systemctl --user disable --now sichter-api.service >/dev/null 2>&1 || true
+      systemctl --user disable --now sichter-worker.service >/dev/null 2>&1 || true
+      systemctl --user disable --now sichter-ws-selftest.timer >/dev/null 2>&1 || true
+    fi
   else
     warn "systemctl --user nicht aktiv – bitte in Session mit user systemd ausführen"
   fi

@@ -1,63 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
-WATCH="${HOME}/repos"
-QUEUE="${HOME}/sichter/queue"
-LOG="${HOME}/sichter/logs/reviewd-watch.log"
-LOCK_DIR="${HOME}/sichter/tmp"
-LOCK_FILE="$LOCK_DIR/watch.lock"
 
-mkdir -p "$QUEUE" "$WATCH" "$LOCK_DIR"
-
-exec 200>"$LOCK_FILE"
-if ! flock -n 200; then
-  echo "⚠️ watcher bereits aktiv" | tee -a "$LOG"
-  exit 0
-fi
-
-# 1) Wir schauen nur auf sinnvolle Endungen
-EXT_RE='\.((rs|toml|sh|py|ts|js|go|c|cpp|yml|yaml|md))$'
-# 2) Und ignorieren laute Verzeichnisse
-EXCLUDE_DIRS='/(\.git|target|node_modules|dist|build)/'
-
-# Safety guard: prevent empty regex from filtering everything (grep -vE "")
-if [[ -z "$EXT_RE" ]]; then
-  echo "❌ Configuration error: EXT_RE is empty" | tee -a "$LOG"
-  exit 1
-fi
-if [[ -z "$EXCLUDE_DIRS" ]]; then
-  echo "❌ Configuration error: EXCLUDE_DIRS is empty" | tee -a "$LOG"
-  exit 1
-fi
-
-# Debounce: 1 Job / Repo pro 3 Sekunden
-declare -A LAST
-DEBOUNCE=3
-
-echo "▶ watcher gestartet (quiet+debounce): $(date)" | tee -a "$LOG"
-
-# Optimized: filter with grep before reading into the loop
-# Use --line-buffered to avoid delay
-inotifywait -mr -e close_write,modify,create,move,moved_to --format '%w%f' "$WATCH" |
-  grep --line-buffered -vE "$EXCLUDE_DIRS" |
-  grep --line-buffered -Ei "$EXT_RE" |
-  while read -r file; do
-    dir="$(dirname "$file")"
-    root="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || true)"
-    if [ -z "$root" ] || [ ! -d "$root/.git" ]; then
-      continue
-    fi
-    repo="$(basename "$root")"
-
-    now=$(date +%s)
-    last=${LAST[$repo]:-0}
-    if [ $((now - last)) -lt $DEBOUNCE ]; then
-      # zu schnell hintereinander: skip
-      continue
-    fi
-    LAST[$repo]=$now
-
-    ts="$(date +%Y%m%d-%H%M%S)"
-    job="$QUEUE/$repo-$ts.job"
-    echo "$root" >"$job"
-    echo "🟨 job queued: $job ← $file" | tee -a "$LOG"
-  done
+printf '%s
+' 'Dieser inkompatible .job-Queuepfad ist stillgelegt.' >&2
+printf '%s
+' 'Nutze den kanonischen direkten Lauf: bin/sichter-pr-sweep --all' >&2
+exit 78
