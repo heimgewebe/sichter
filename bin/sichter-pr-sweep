@@ -9,6 +9,10 @@ Usage: sichter-pr-sweep [--changed|--all|--version|--help]
   --all       Prüft alle entdeckten Repositories.
   --version   Gibt den Guard-Vertrag aus.
   --help      Zeigt diese Hilfe ohne Seiteneffekte.
+
+Umgebung:
+  SICHTER_DRY_RUN=1  Erkennt Änderungen, erzeugt aber keine Checkouts, Branches,
+                     Commits, Pushes oder Pull Requests.
 EOF
 }
 
@@ -24,7 +28,7 @@ case "${1:-}" in
   --all|--changed) MODE="$1" ;;
   --version|version)
     echo "sichter-pr-sweep guard=hard-gates-v2"
-    echo "invariants=no-branch-on-nochange,self-repo-default-off,base-verification-before-branch,unknown-args-fail-closed"
+    echo "invariants=no-branch-on-nochange,self-repo-default-off,base-verification-before-branch,unknown-args-fail-closed,dry-run-no-clone-branch-commit-push-pr"
     exit 0
     ;;
   --help|-h|help)
@@ -42,6 +46,16 @@ case "$MODE" in
   --all|--changed) ;;
   *)
     printf 'sichter-pr-sweep: ungültiger MODE-Wert: %s\n' "$MODE" >&2
+    exit 64
+    ;;
+esac
+
+DRY_RUN="${SICHTER_DRY_RUN:-0}"
+case "${DRY_RUN,,}" in
+  ""|0|false|no|n|off) DRY_RUN=0 ;;
+  1|true|yes|y|on) DRY_RUN=1 ;;
+  *)
+    printf 'sichter-pr-sweep: ungültiger SICHTER_DRY_RUN-Wert: %s\n' "$DRY_RUN" >&2
     exit 64
     ;;
 esac
@@ -106,6 +120,7 @@ RESULT() {
   [[ "$action" == "PR" ]] && type="pr_created"
   [[ "$action" == "PUSH" ]] && type="branch_created"
   [[ "$action" == "COMMIT" ]] && type="branch_created"
+  [[ "$action" == "DRYRUN" ]] && type="change_observed"
   [[ "$action" == "ERROR" ]] && type="error"
   [[ "$action" == "SKIP" ]] && type="repo_skipped"
 
@@ -262,8 +277,12 @@ has_relevant_changes() {
   return 1
 }
 
-LOG_LINE "===== Sichter PR Sweep start (${MODE} / run_mode=${RUN_MODE}) ====="
-append_event '{"type": "start", "message": "PR Sweep started", "guard": "hard-gates-v2"}'
+DRY_RUN_JSON=false
+if [[ "$DRY_RUN" == "1" ]]; then
+  DRY_RUN_JSON=true
+fi
+LOG_LINE "===== Sichter PR Sweep start (${MODE} / run_mode=${RUN_MODE} / dry_run=${DRY_RUN}) ====="
+append_event "{\"type\": \"start\", \"message\": \"PR Sweep started\", \"guard\": \"hard-gates-v2\", \"dry_run\": ${DRY_RUN_JSON}}"
 
 if [[ "$MODE" == "--all" ]]; then
   mapfile -t REPOS < <(gh repo list "$ORG" --limit 100 --json name -q '.[].name' || true)
@@ -296,6 +315,10 @@ for r in "${REPOS[@]}"; do
 
   REPO_PATH="$HOME/repos/$r"
   if [[ ! -d "$REPO_PATH" ]]; then
+    if [[ "$MODE" == "--all" && "$DRY_RUN" == "1" ]]; then
+      RESULT "SKIP" "$r" "-" "dry_run_missing_local_checkout"
+      continue
+    fi
     if [[ "$MODE" == "--all" ]]; then
       LOG_LINE "Cloning missing repo $ORG/$r"
       gh repo clone "$ORG/$r" "$REPO_PATH" >/dev/null 2>&1 || true
@@ -371,6 +394,16 @@ for r in "${REPOS[@]}"; do
   if [[ "$HEAD_SHA" != "$BASE_SHA" ]]; then
     RESULT "ERROR" "$r" "-" "base_preparation_failed: base_sha_mismatch"
     append_event "{\"type\": \"base_preparation_failed\", \"repo\": \"$r\", \"base\": \"$BASE_REF\", \"reason\": \"base_sha_mismatch\"}"
+    popd >/dev/null
+    git worktree remove --force "$TMP_WT" >/dev/null 2>&1 || true
+    rm -rf "$TMP_WT"
+    set -e
+    popd >/dev/null || true
+    continue
+  fi
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    RESULT "DRYRUN" "$r" "-" "staged updates discarded; planned_branch=$PLANNED_BRANCH"
     popd >/dev/null
     git worktree remove --force "$TMP_WT" >/dev/null 2>&1 || true
     rm -rf "$TMP_WT"

@@ -66,5 +66,26 @@ def test_version_advertises_argument_guard(tmp_path: Path) -> None:
     result = _run(tmp_path, "--version")
     assert result.returncode == 0
     assert "unknown-args-fail-closed" in result.stdout
+    assert "dry-run-no-clone-branch-commit-push-pr" in result.stdout
     assert result.stderr == ""
+    _assert_no_runtime_state(tmp_path)
+
+
+def test_invalid_dry_run_environment_fails_closed(tmp_path: Path) -> None:
+    env = os.environ.copy()
+    env["HOME"] = str(tmp_path / "home")
+    env["XDG_STATE_HOME"] = str(tmp_path / "state")
+    env["SICHTER_DRY_RUN"] = "maybe-mutating"
+    result = subprocess.run(
+        [str(SCRIPT)],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    assert result.returncode == 64
+    assert result.stdout == ""
+    assert "ungültiger SICHTER_DRY_RUN-Wert" in result.stderr
     _assert_no_runtime_state(tmp_path)
