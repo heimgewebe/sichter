@@ -8,8 +8,10 @@ Diese Anleitung beschreibt die ersten Schritte nach dem Klonen des Repositories.
  ./scripts/install.sh
  ```
 
- Das Skript prüft benötigte Abhängigkeiten, richtet Symlinks ein und aktiviert die
- systemd-Units für API, Worker und den automatischen Deep-Review.
+ Das Skript prüft benötigte Abhängigkeiten, richtet Symlinks ein und aktiviert
+ standardmäßig ausschließlich den direkten automatischen Deep-Review. Die alte
+ API/Queue/Worker-Ebene bleibt deaktiviert; ein bewusstes Kompatibilitäts-Opt-in
+ ist mit `SICHTER_ENABLE_LEGACY_QUEUE=1 ./scripts/install.sh` möglich.
 
 2. **Status prüfen**
 
@@ -17,8 +19,8 @@ Diese Anleitung beschreibt die ersten Schritte nach dem Klonen des Repositories.
 
  ```bash
  omnicheck --changed
- systemctl --user status sichter-api.service
- systemctl --user status sichter-worker.service
+ systemctl --user status sichter-autoreview.timer
+ bin/sichter-pr-sweep --version
  ```
 
 3. **Dashboard starten**

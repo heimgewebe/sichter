@@ -130,9 +130,18 @@ else
   if systemctl --user show-environment >/dev/null 2>&1; then
     log "systemd --user erkannt – (re)load & enable"
     systemctl --user daemon-reload
-    systemctl --user enable --now sichter-api.service || warn "enable/start: sichter-api.service fehlgeschlagen"
-    systemctl --user enable --now sichter-worker.service || warn "enable/start: sichter-worker.service fehlgeschlagen"
     systemctl --user enable --now sichter-autoreview.timer || warn "enable/start: sichter-autoreview.timer fehlgeschlagen"
+    if [ "${SICHTER_ENABLE_LEGACY_QUEUE:-0}" = "1" ]; then
+      log "Aktiviere explizit die Legacy-API/Queue/Worker-Ebene"
+      systemctl --user enable --now sichter-api.service || warn "enable/start: sichter-api.service fehlgeschlagen"
+      systemctl --user enable --now sichter-worker.service || warn "enable/start: sichter-worker.service fehlgeschlagen"
+      systemctl --user enable --now sichter-ws-selftest.timer || warn "enable/start: sichter-ws-selftest.timer fehlgeschlagen"
+    else
+      log "Legacy-API/Queue/Worker bleibt deaktiviert (Opt-in: SICHTER_ENABLE_LEGACY_QUEUE=1)"
+      systemctl --user disable --now sichter-api.service >/dev/null 2>&1 || true
+      systemctl --user disable --now sichter-worker.service >/dev/null 2>&1 || true
+      systemctl --user disable --now sichter-ws-selftest.timer >/dev/null 2>&1 || true
+    fi
   else
     warn "systemd --user scheint nicht aktiv. Hinweise:"
     warn " • Graphische Session nutzen ODER 'loginctl enable-linger $USER' (root) setzen,"
@@ -144,10 +153,9 @@ fi
 echo
 echo "✅ Sichter installiert."
 echo "Nützliche Checks:"
-echo " • curl -fsS 127.0.0.1:5055/healthz || echo 'healthz nicht erreichbar'"
-echo " • systemctl --user status sichter-api.service || true"
-echo " • systemctl --user status sichter-worker.service || true"
+echo " • systemctl --user status sichter-autoreview.timer || true"
 echo " • systemctl --user list-timers | grep sichter || true"
+echo " • Legacy-API/Worker nur bei SICHTER_ENABLE_LEGACY_QUEUE=1"
 if [ "$SYSTEMD_HINT" = "1" ]; then
   echo "Tipp: sudo loginctl enable-linger $USER && neue Session starten"
 fi

@@ -25,9 +25,15 @@ Hook liegt nach `~/.config/omnipull/hooks/100-sichter-always-post.sh` und trigge
 
 ## Dienste
 
-- API: `systemctl --user status sichter-api.service`
-- Worker: `systemctl --user status sichter-worker.service`
-- Timer: `systemctl --user list-timers | grep sichter-sweep`
+Der kanonische Laufpfad ist der direkte periodische Review-Sweep:
+
+- Timer: `systemctl --user status sichter-autoreview.timer`
+- Lauf: `bin/sichter-pr-sweep --all`
+
+Die frühere API/Queue/Worker-Ebene bleibt als Kompatibilitätsfläche im Repository,
+wird aber weder von `scripts/install.sh` noch von `scripts/bootstrap.sh` standardmäßig
+aktiviert. Ein bewusstes temporäres Opt-in ist mit
+`SICHTER_ENABLE_LEGACY_QUEUE=1` möglich.
 
 ## Logs
 
