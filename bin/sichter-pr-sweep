@@ -1,16 +1,50 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODE="${MODE:---changed}"
-if [[ "${1:-}" == "--all" ]]; then
-  MODE="--all"
-elif [[ "${1:-}" == "--changed" ]]; then
-  MODE="--changed"
-elif [[ "${1:-}" == "--version" ]] || [[ "${1:-}" == "version" ]]; then
-  echo "sichter-pr-sweep guard=hard-gates-v2"
-  echo "invariants=no-branch-on-nochange,self-repo-default-off,base-verification-before-branch"
-  exit 0
+usage() {
+  cat <<'EOF'
+Usage: sichter-pr-sweep [--changed|--all|--version|--help]
+
+  --changed   Prüft nur Repositories mit relevanten Änderungen (Standard).
+  --all       Prüft alle entdeckten Repositories.
+  --version   Gibt den Guard-Vertrag aus.
+  --help      Zeigt diese Hilfe ohne Seiteneffekte.
+EOF
+}
+
+if (( $# > 1 )); then
+  printf 'sichter-pr-sweep: zu viele Argumente\n' >&2
+  usage >&2
+  exit 64
 fi
+
+MODE="${MODE:---changed}"
+case "${1:-}" in
+  "") ;;
+  --all|--changed) MODE="$1" ;;
+  --version|version)
+    echo "sichter-pr-sweep guard=hard-gates-v2"
+    echo "invariants=no-branch-on-nochange,self-repo-default-off,base-verification-before-branch,unknown-args-fail-closed"
+    exit 0
+    ;;
+  --help|-h|help)
+    usage
+    exit 0
+    ;;
+  *)
+    printf 'sichter-pr-sweep: unbekanntes Argument: %s\n' "$1" >&2
+    usage >&2
+    exit 64
+    ;;
+esac
+
+case "$MODE" in
+  --all|--changed) ;;
+  *)
+    printf 'sichter-pr-sweep: ungültiger MODE-Wert: %s\n' "$MODE" >&2
+    exit 64
+    ;;
+esac
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" >/dev/null 2>&1 && pwd)"
 YAML_GET="${SCRIPT_DIR}/yaml-get"
