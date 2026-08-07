@@ -2,6 +2,7 @@
 name: wgx-smoke
 
 "on":
+  workflow_call:
   workflow_dispatch:
   push:
     paths:

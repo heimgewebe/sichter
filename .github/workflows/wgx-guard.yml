@@ -2,6 +2,7 @@
 name: wgx-guard
 
 "on":
+  workflow_call:
   push:
     paths: [".wgx/**", ".github/workflows/wgx-guard.yml", "pyproject.toml", "Cargo.toml"]
   pull_request:
