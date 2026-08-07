@@ -13,6 +13,9 @@ permissions:
 
 jobs:
   guard:
-    # Fleet-Repos, die von metarepo aus via wgx up Templates beziehen,
-    # werden auf den kanonischen Guard-Workflow aus heimgewebe/wgx gesetzt.
-    uses: heimgewebe/wgx/.github/workflows/wgx-guard.yml@main
+    # Compatibility filename only: verification policy is owned by Metarepo.
+    uses: heimgewebe/metarepo/.github/workflows/reusable-repo-verify.yml@343c3ffa49100b4a82ff39b02f89f05ccdef275d
+    with:
+      mode: guard
+    permissions:
+      contents: read
