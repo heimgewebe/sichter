@@ -211,7 +211,7 @@ collect_changed_paths() {
     [[ -z "$path" ]] && continue
     is_logs_path "$path" && continue
     case "$path" in
-      /*|../*|*/../*|../) continue ;;
+      /*|../*|*/../*) continue ;;
     esac
     if [[ "$seen" == *"|$path|"* ]]; then
       continue
