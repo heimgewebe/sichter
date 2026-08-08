@@ -2,14 +2,22 @@
 name: wgx-smoke
 
 "on":
+  workflow_call:
   workflow_dispatch:
   push:
     paths:
       - ".wgx/**"
       - "docs/wgx-konzept.md"
+      - ".github/workflows/wgx-smoke.yml"
+
+permissions:
+  contents: read
 
 jobs:
   smoke:
-    # auch hier: statt eigener CI-Logik nur noch Forwarder auf das
-    # kanonische wgx-Workflow-Repo.
-    uses: heimgewebe/wgx/.github/workflows/wgx-smoke.yml@main
+    # Compatibility filename only: verification policy is owned by Metarepo.
+    uses: heimgewebe/metarepo/.github/workflows/reusable-repo-verify.yml@fe6950616b2d06343e284a56a8944e0a36f1f972
+    with:
+      mode: smoke
+    permissions:
+      contents: read

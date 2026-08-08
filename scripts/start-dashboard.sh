@@ -58,6 +58,14 @@ listeners_on_port() {
   lsof -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | tr '\n' ' ' || true
 }
 
+kill_listener_pids() {
+  local listeners="$1"
+  local -a listener_pids=()
+  read -r -a listener_pids <<<"$listeners"
+  ((${#listener_pids[@]} == 0)) && return 0
+  kill "${listener_pids[@]}" >/dev/null 2>&1 || true
+}
+
 write_web_pid_metadata() {
   local pid="$1"
   local web_bin="$2"
@@ -172,7 +180,7 @@ stop_web_dashboard() {
 
   if [[ "$WEB_KILL_UNKNOWN" == "1" ]]; then
     log "Force-stopping unknown listener(s) on port $WEB_KILL_PORT: $listeners"
-    kill $listeners >/dev/null 2>&1 || true
+    kill_listener_pids "$listeners"
     return 0
   fi
 
@@ -223,7 +231,7 @@ ensure_port_available_for_web() {
 
   if [[ "$WEB_KILL_UNKNOWN" == "1" ]]; then
     log "Force-stopping unknown listener(s) on port $port: $listeners"
-    kill $listeners >/dev/null 2>&1 || true
+    kill_listener_pids "$listeners"
     return 0
   fi
 
