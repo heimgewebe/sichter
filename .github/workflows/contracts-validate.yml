@@ -185,9 +185,37 @@ jobs:
 
           echo "::notice::✅ Guard passed"
 
+  fixtures-present:
+    name: "Detect contract fixtures"
+    needs: [version-sync-check, guard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      present: ${{ steps.detect.outputs.present }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - id: detect
+        name: Detect configured fixtures
+        env:
+          FIXTURES_GLOB: ${{ vars.FIXTURES_GLOB || 'fixtures/**/*.jsonl' }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob globstar
+          fixtures=( ${FIXTURES_GLOB} )
+          if (( ${#fixtures[@]} > 0 )); then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
   validate:
     name: "Validate fixtures via reusable workflow"
-    needs: [version-sync-check, guard]
+    needs: [fixtures-present]
+    if: needs.fixtures-present.outputs.present == 'true'
     uses: heimgewebe/contracts-mirror/.github/workflows/contracts-ajv-reusable.yml@2fd956e75c6b5f4427f7ecfd05017ba2de33831a
     secrets: inherit
     with:
