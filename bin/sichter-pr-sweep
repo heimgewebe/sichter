@@ -376,7 +376,7 @@ for r in "${REPOS[@]}"; do
 
   HOOK_SCRIPT="$HOME/sichter/hooks/post-run"
   if [[ -x "$HOOK_SCRIPT" ]]; then
-    HAUSKI_AUTO_APPLY=1 HAUSKI_AUTO_COMMIT=0 HAUSKI_AUTO_PR=0 SICHTER_RUN_MODE="$RUN_MODE" "$HOOK_SCRIPT" >/dev/null 2>&1
+    SICHTER_RUN_MODE="$RUN_MODE" "$HOOK_SCRIPT" >/dev/null 2>&1
   fi
 
   git add -A -- . ":(exclude)logs/**"
