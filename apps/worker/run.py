@@ -42,7 +42,7 @@ from lib.heuristics import run_drift_check, run_hotspot_check, run_redundancy_ch
 from lib.metrics import ReviewMetrics, record_findings_snapshot, record_metrics
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-NOTIFY_SCRIPT = REPO_ROOT / "bin" / "hauski-notify"
+NOTIFY_SCRIPT = REPO_ROOT / "bin" / "sichter-notify"
 NOTIFY_TIMEOUT_SECONDS = 5
 PID_FILE = STATE / "worker.pid"
 LOG_DIR = HOME / "sichter/logs"

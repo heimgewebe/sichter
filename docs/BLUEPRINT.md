@@ -26,7 +26,7 @@
 | REST-API (FastAPI) | ✅ | `apps/api/main.py` — Auth, Events, Jobs, Policy |
 | WebSocket-Events | ✅ | API + Dashboard-Hook mit Fallback auf Polling |
 | PR-Erstellung | ✅ | Branching, Push, `gh pr create` |
-| PR-Kommentare/Suggests | ✅ | `hauski-pr-suggest`, `hauski-pr-bot` |
+| Automatische PR-Sichtung | ✅ | `bin/sichter-pr-sweep` |
 | Policy-System | ✅ | YAML, Fallback-Kette, API-editierbar |
 | Systemd-Integration | ✅ | API + Worker als User-Services |
 | Dashboard (Web-UI) | 🟡 | Grundgerüst: Overview, Settings, Repos, WebSocket |

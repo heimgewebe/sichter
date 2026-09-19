@@ -122,12 +122,12 @@ class TestWorkerRun(unittest.TestCase):
                 return True
 
             def __str__(self):
-                return "/fake/hauski-notify"
+                return "/fake/sichter-notify"
 
         with patch("apps.worker.run.NOTIFY_SCRIPT", _FakeScript()), \
              patch(
                  "apps.worker.run.subprocess.run",
-                 side_effect=subprocess.TimeoutExpired(cmd="hauski-notify", timeout=5),
+                 side_effect=subprocess.TimeoutExpired(cmd="sichter-notify", timeout=5),
              ) as mock_run, \
              patch("apps.worker.run.log") as mock_log:
             worker_run.notify_internal("hello")
@@ -142,10 +142,10 @@ class TestWorkerRun(unittest.TestCase):
                 return True
 
             def __str__(self):
-                return "/fake/hauski-notify"
+                return "/fake/sichter-notify"
 
         result = subprocess.CompletedProcess(
-            args=["/fake/hauski-notify", "hello"],
+            args=["/fake/sichter-notify", "hello"],
             returncode=2,
             stdout="",
             stderr="notify failed",

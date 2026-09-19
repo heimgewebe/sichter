@@ -41,24 +41,17 @@ def test_operator_docs_mark_legacy_plane_as_opt_in() -> None:
         assert "sichter-autoreview.timer" in source
 
 
-def test_incompatible_job_queue_clients_fail_closed() -> None:
-    for relative in ("bin/hauski-watch", "bin/hauski-work"):
-        script = ROOT / relative
-        source = script.read_text(encoding="utf-8")
-        assert "$HOME/sichter/queue" not in source
-        assert ".job" in source
-        assert "bin/sichter-pr-sweep --all" in source
-        assert "exit 78" in source
+def test_hauski_named_runtime_surface_is_removed() -> None:
+    assert not list((ROOT / "bin").glob("hauski-*"))
+    assert not list((ROOT / "systemd").glob("hauski-*"))
+    assert not (ROOT / "env.sh").exists()
+    assert not (ROOT / "autostart.env").exists()
+    assert not (ROOT / "bin/pr-review").exists()
+    assert not (ROOT / "bin/pr-policy-wrapper").exists()
 
-        result = subprocess.run(
-            [str(script)],
-            cwd=ROOT,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
-        assert result.returncode == 78
-        assert result.stdout == ""
-        assert "inkompatible .job-Queuepfad ist stillgelegt" in result.stderr
-        assert "bin/sichter-pr-sweep --all" in result.stderr
+
+def test_neutral_status_and_notify_entrypoints_exist() -> None:
+    for relative in ("bin/sichter-status", "bin/sichter-notify"):
+        path = ROOT / relative
+        assert path.is_file()
+        assert path.stat().st_mode & 0o111
