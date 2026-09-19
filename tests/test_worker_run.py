@@ -4,7 +4,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from unittest.mock import call, patch
+from unittest.mock import patch
 
 from apps.worker import run as worker_run
 from lib.findings import Finding
@@ -122,12 +122,12 @@ class TestWorkerRun(unittest.TestCase):
                 return True
 
             def __str__(self):
-                return "/fake/hauski-notify"
+                return "/fake/sichter-notify"
 
         with patch("apps.worker.run.NOTIFY_SCRIPT", _FakeScript()), \
              patch(
                  "apps.worker.run.subprocess.run",
-                 side_effect=subprocess.TimeoutExpired(cmd="hauski-notify", timeout=5),
+                 side_effect=subprocess.TimeoutExpired(cmd="sichter-notify", timeout=5),
              ) as mock_run, \
              patch("apps.worker.run.log") as mock_log:
             worker_run.notify_internal("hello")
@@ -142,10 +142,10 @@ class TestWorkerRun(unittest.TestCase):
                 return True
 
             def __str__(self):
-                return "/fake/hauski-notify"
+                return "/fake/sichter-notify"
 
         result = subprocess.CompletedProcess(
-            args=["/fake/hauski-notify", "hello"],
+            args=["/fake/sichter-notify", "hello"],
             returncode=2,
             stdout="",
             stderr="notify failed",
@@ -1717,7 +1717,7 @@ class TestWorkerRun(unittest.TestCase):
     ):
         """mode='changed' must never read from or write to the findings cache."""
         from pathlib import Path as _Path
-        import tempfile, os
+        import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
             repo_dir = _Path(tmpdir)
@@ -1872,8 +1872,6 @@ class TestWorkerRun(unittest.TestCase):
     @patch("apps.worker.run.run_cmd")
     def test_run_gh_with_backoff_triggers_on_rate_limit(self, mock_run_cmd, mock_append_event, mock_time):
         """'rate limit' in stderr must trigger at least one backoff sleep."""
-        call_count = {"n": 0}
-
         class _Res:
             returncode = 1
             stdout = ""

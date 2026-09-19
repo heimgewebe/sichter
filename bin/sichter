@@ -23,7 +23,7 @@ case "$CMD" in
     exec "$DIR/sweep" "$@"
     ;;
   status)
-    exec "$DIR/hauski-status" "$@"
+    exec "$DIR/sichter-status" "$@"
     ;;
   *)
     echo "Usage: sichter [command] [args]"

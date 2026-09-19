@@ -6,13 +6,14 @@ API_HOST="${API_HOST:-127.0.0.1}"
 PY="${PYTHON3:-python3}"
 
 if [[ -z "${API_PORT:-}" ]]; then
-  API_PORT="$("$PY" - <<'PYPORT'
+  API_PORT="$(
+    "$PY" - <<'PYPORT'
 import socket
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.bind(("127.0.0.1", 0))
     print(s.getsockname()[1])
 PYPORT
-)"
+  )"
 fi
 
 API_BASE="http://${API_HOST}:${API_PORT}"

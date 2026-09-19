@@ -489,7 +489,8 @@ class TestMetrics(unittest.TestCase):
             # Should be the last two written entries (r3, r4)
             self.assertEqual(records[0]["repo"], "r3")
             self.assertEqual(records[1]["repo"], "r4")
-        finally:            path.unlink(missing_ok=True)
+        finally:
+            path.unlink(missing_ok=True)
 
     def test_latest_repo_findings_uses_latest_snapshot_per_repo(self):
         records = [
@@ -691,7 +692,7 @@ class TestTrendsOverTime(unittest.TestCase):
         self.assertTrue(all(r["findings"] == 0 for r in result))
 
     def test_counts_are_aggregated_by_day(self):
-        from datetime import date, timedelta
+        from datetime import date
         today = date.today().isoformat()
         records = [
             {"timestamp": f"{today}T10:00:00", "findings_count": 3},

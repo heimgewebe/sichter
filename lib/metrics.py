@@ -494,7 +494,7 @@ def detect_anomalies(
         List of alert dicts with keys:
         ``repo``, ``current_count``, ``baseline_avg``, ``ratio``, ``message``.
     """
-    from datetime import date, timedelta
+    from datetime import timedelta
 
     # Group finding counts by (repo, date)
     repo_daily: dict[str, dict[str, int]] = {}

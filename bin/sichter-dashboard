@@ -7,7 +7,7 @@ PR_LOG="$LOG_DIR/pr.log"
 WORKER_LOG="$LOG_DIR/worker.log"
 WORKER_SERVICE="sichter-worker.service"
 OMNICHECK_CLI="$ROOT_DIR/bin/omnicheck"
-SICHTER_ENV_FILE="$ROOT_DIR/autostart.env"
+SICHTER_ENV_FILE="${SICHTER_ENV_FILE:-$HOME/.config/sichter/sweep.env}"
 
 print_header() {
   clear
@@ -146,8 +146,8 @@ if allowlist:
         if repo:
             print(repo)
 else:
-    remote_base = os.environ.get("HAUSKI_REMOTE_BASE")
-    org = os.environ.get("HAUSKI_ORG")
+    remote_base = os.environ.get("SICHTER_REMOTE_BASE")
+    org = os.environ.get("SICHTER_ORG")
     repos: list[str] = []
     if remote_base and org:
         base = Path(os.path.expandvars(remote_base)).expanduser()
@@ -172,7 +172,7 @@ show_prs() {
   echo
   mapfile -t repos < <(ROOT_DIR="$ROOT_DIR" resolve_repos)
   if [[ "${#repos[@]}" -eq 0 ]]; then
-    echo "Keine Repositories konfiguriert. Ergänze allowlist in config/policy.yml oder HAUSKI_REMOTE_BASE."
+    echo "Keine Repositories konfiguriert. Ergänze allowlist in config/policy.yml oder SICHTER_REMOTE_BASE."
     pause
     return
   fi
@@ -234,7 +234,7 @@ show_env_info() {
   if [[ -f "$SICHTER_ENV_FILE" ]]; then
     echo "Konfiguration: $SICHTER_ENV_FILE"
     echo "--------------------------------"
-    grep -E '^(HAUSKI_|SICHTER_)' "$SICHTER_ENV_FILE" || true
+    grep -E '^(SICHTER_ORG|SICHTER_REMOTE_BASE|SICHTER_WORKTREE_BASE|SICHTER_PR_INTERVAL|SICHTER_AUTO_PR|SICHTER_RUN_MODE)=' "$SICHTER_ENV_FILE" || true
     echo
   fi
 }

@@ -479,8 +479,8 @@ def _resolve_repos() -> list[str]:
     logger.warning(f"Failed to load repos from policy: {e}")
 
   # Fallback to environment-based discovery
-  org = os.environ.get("HAUSKI_ORG")
-  remote_base = os.environ.get("HAUSKI_REMOTE_BASE")
+  org = os.environ.get("SICHTER_ORG")
+  remote_base = os.environ.get("SICHTER_REMOTE_BASE")
   if org and remote_base:
     try:
       base = Path(os.path.expandvars(remote_base)).expanduser()

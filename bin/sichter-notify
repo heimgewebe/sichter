@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Ping bei „Tests failed“ / „Security“: Desktop + Slack (Webhook) + Matrix
+# Sichter review alert: Desktop + optional Slack/Matrix
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 [ -n "$ROOT" ] || exit 0
 REPO_NAME="$(basename "$ROOT")"
@@ -27,7 +27,7 @@ else
 
   [ "$NEED_ALERT" -eq 1 ] || exit 0
 
-  MSG="HausKI: ⚠️  $REPO_NAME – Review-Alarm ($(basename "$LAST"))"
+  MSG="Sichter: ⚠️  $REPO_NAME – Review-Alarm ($(basename "$LAST"))"
 fi
 
 # Desktop

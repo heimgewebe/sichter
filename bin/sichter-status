@@ -65,7 +65,7 @@ export_json() {
 }
 usage() {
   cat <<U
-hauski-status v1.3
+sichter-status v1.3
   summary            Übersicht (robust)
   export             schreibt $OUT_SUM
   logs               relevante Logs

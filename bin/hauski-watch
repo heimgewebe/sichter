@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-printf '%s
-' 'Dieser inkompatible .job-Queuepfad ist stillgelegt.' >&2
-printf '%s
-' 'Nutze den kanonischen direkten Lauf: bin/sichter-pr-sweep --all' >&2
-exit 78
