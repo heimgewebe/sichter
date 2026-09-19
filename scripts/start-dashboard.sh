@@ -85,13 +85,13 @@ verify_tracked_pid_identity() {
   # 2. Stored command basename matches expected web binary basename
   # 3. Process command line contains expected basename (allows wrappers)
   # 4. Stored started_at matches live process elapsed time within a small tolerance
-  
+
   [[ -f "$file" ]] || return 1
-  
+
   local metadata
   metadata="$(cat "$file" 2>/dev/null || true)"
   [[ -n "$metadata" ]] || return 1
-  
+
   local tracked_pid started_at cmd_basename
   # Parse metadata: pid|started_at|cmd_basename
   tracked_pid="${metadata%%|*}"
@@ -104,18 +104,18 @@ verify_tracked_pid_identity() {
 
   [[ -n "$cmd_basename" ]] || return 1
   [[ "$cmd_basename" == "$expected_basename" ]] || return 1
-  
+
   # PID must be numeric
   [[ "$tracked_pid" =~ ^[0-9]+$ ]] || return 1
-  
+
   # PID must be alive
   if ! kill -0 "$tracked_pid" >/dev/null 2>&1; then
     return 1
   fi
-  
+
   # Verify start_at is numeric (metadata integrity check)
   [[ "$started_at" =~ ^[0-9]+$ ]] || return 1
-  
+
   # Verify process command line contains expected web_bin basename.
   # This prevents killing an unrelated reused PID.
   local proc_cmd
@@ -130,12 +130,12 @@ verify_tracked_pid_identity() {
 
   now_epoch="$(date +%s)"
   expected_elapsed=$((now_epoch - started_at))
-  (( expected_elapsed >= 0 )) || return 1
+  ((expected_elapsed >= 0)) || return 1
 
   delta=$((expected_elapsed - live_elapsed))
-  (( delta < 0 )) && delta=$(( -delta ))
-  (( delta <= 10 )) || return 1
-  
+  ((delta < 0)) && delta=$((-delta))
+  ((delta <= 10)) || return 1
+
   echo "$tracked_pid"
   return 0
 }
@@ -143,14 +143,14 @@ verify_tracked_pid_identity() {
 kill_tracked_web_process_if_needed() {
   local port="$1"
   local web_bin="$2"
-  
+
   local tracked_pid
   tracked_pid="$(verify_tracked_pid_identity "$WEB_PID_FILE" "$web_bin" 2>/dev/null || true)"
   [[ -n "$tracked_pid" ]] || {
     rm -f "$WEB_PID_FILE"
     return 1
   }
-  
+
   local listeners
   listeners="$(listeners_on_port "$port")"
   if [[ " $listeners " == *" $tracked_pid "* ]]; then
@@ -158,7 +158,7 @@ kill_tracked_web_process_if_needed() {
   else
     log "Stopping tracked web process pid=$tracked_pid (alive but not listening on port $port)"
   fi
-  
+
   kill "$tracked_pid" >/dev/null 2>&1 || true
   wait "$tracked_pid" 2>/dev/null || true
   rm -f "$WEB_PID_FILE"
@@ -190,19 +190,19 @@ stop_web_dashboard() {
 status_web_dashboard() {
   # State machine: check tracked ownership first, then port listeners.
   # Return: 0 = running and tracked, 1 = not running, 2 = unknown listener
-  
+
   local tracked_pid
   tracked_pid="$(verify_tracked_pid_identity "$WEB_PID_FILE" "$WEB_BIN" 2>/dev/null || true)"
-  
+
   local listeners
   listeners="$(listeners_on_port "$WEB_KILL_PORT")"
-  
+
   # Tracked process is valid and listening: running state, exit 0
   if [[ -n "$tracked_pid" ]] && [[ " $listeners " == *" $tracked_pid "* ]]; then
     log "Web dashboard is running (pid=$tracked_pid, port=$WEB_KILL_PORT)"
     return 0
   fi
-  
+
   # Tracked process exists but is detached from port: clear stale ownership
   if [[ -n "$tracked_pid" ]]; then
     log "Tracked web process pid=$tracked_pid is alive but detached from port $WEB_KILL_PORT; clearing ownership state"
@@ -211,13 +211,13 @@ status_web_dashboard() {
     # PID file exists but identity verification failed: stale or invalid metadata
     rm -f "$WEB_PID_FILE"
   fi
-  
+
   # Unknown listener on port: exit 2 (distinct from "not running")
   if [[ -n "$listeners" ]]; then
     log "Port $WEB_KILL_PORT is used by unknown listener(s): $listeners"
     return 2
   fi
-  
+
   # Port is clean and no tracked process: not running, exit 1
   log "Web dashboard is not running"
   return 1
@@ -244,11 +244,11 @@ wait_for_health() {
   local interval="$3"
 
   local elapsed=0
-  while (( elapsed < timeout )); do
+  while ((elapsed < timeout)); do
     local remaining=$((timeout - elapsed))
     local connect_timeout=1
 
-    if (( remaining < connect_timeout )); then
+    if ((remaining < connect_timeout)); then
       connect_timeout=$remaining
     fi
 

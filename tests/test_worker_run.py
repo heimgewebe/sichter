@@ -4,7 +4,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from unittest.mock import call, patch
+from unittest.mock import patch
 
 from apps.worker import run as worker_run
 from lib.findings import Finding
@@ -1717,7 +1717,7 @@ class TestWorkerRun(unittest.TestCase):
     ):
         """mode='changed' must never read from or write to the findings cache."""
         from pathlib import Path as _Path
-        import tempfile, os
+        import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
             repo_dir = _Path(tmpdir)
@@ -1872,8 +1872,6 @@ class TestWorkerRun(unittest.TestCase):
     @patch("apps.worker.run.run_cmd")
     def test_run_gh_with_backoff_triggers_on_rate_limit(self, mock_run_cmd, mock_append_event, mock_time):
         """'rate limit' in stderr must trigger at least one backoff sleep."""
-        call_count = {"n": 0}
-
         class _Res:
             returncode = 1
             stdout = ""

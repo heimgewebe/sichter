@@ -29,7 +29,7 @@ if _PYTEST_AVAILABLE:
     from pathlib import Path
     from unittest.mock import MagicMock, patch
 
-    from apps.api.main import _cache_bucket, _get_sorted_files, _scan_files_cached
+    from apps.api.main import _get_sorted_files, _scan_files_cached
 
 
     class FakeEntry:

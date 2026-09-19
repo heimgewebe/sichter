@@ -1,4 +1,3 @@
-import os
 import sys
 from pathlib import Path
 
@@ -9,7 +8,7 @@ sys.path.insert(0, str(APP_ROOT.parent))
 # Import module and classes
 # We do not need to set os.environ["REVIEW_ROOT"] anymore because we inject it explicitly
 from app import main  # noqa: E402
-from app.main import Settings
+from app.main import Settings  # noqa: E402
 
 if __name__ == "__main__":
     print(f"Current working directory: {Path.cwd()}")

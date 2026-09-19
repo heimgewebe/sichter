@@ -16,7 +16,7 @@ Umgebung:
 EOF
 }
 
-if (( $# > 1 )); then
+if (($# > 1)); then
   printf 'sichter-pr-sweep: zu viele Argumente\n' >&2
   usage >&2
   exit 64
@@ -25,13 +25,13 @@ fi
 MODE="${MODE:---changed}"
 case "${1:-}" in
   "") ;;
-  --all|--changed) MODE="$1" ;;
-  --version|version)
+  --all | --changed) MODE="$1" ;;
+  --version | version)
     echo "sichter-pr-sweep guard=hard-gates-v2"
     echo "invariants=no-branch-on-nochange,self-repo-default-off,base-verification-before-branch,unknown-args-fail-closed,dry-run-no-clone-branch-commit-push-pr"
     exit 0
     ;;
-  --help|-h|help)
+  --help | -h | help)
     usage
     exit 0
     ;;
@@ -43,7 +43,7 @@ case "${1:-}" in
 esac
 
 case "$MODE" in
-  --all|--changed) ;;
+  --all | --changed) ;;
   *)
     printf 'sichter-pr-sweep: ungültiger MODE-Wert: %s\n' "$MODE" >&2
     exit 64
@@ -52,8 +52,8 @@ esac
 
 DRY_RUN="${SICHTER_DRY_RUN:-0}"
 case "${DRY_RUN,,}" in
-  ""|0|false|no|n|off) DRY_RUN=0 ;;
-  1|true|yes|y|on) DRY_RUN=1 ;;
+  "" | 0 | false | no | n | off) DRY_RUN=0 ;;
+  1 | true | yes | y | on) DRY_RUN=1 ;;
   *)
     printf 'sichter-pr-sweep: ungültiger SICHTER_DRY_RUN-Wert: %s\n' "$DRY_RUN" >&2
     exit 64
@@ -137,7 +137,7 @@ RESULT() {
 
 is_truthy() {
   case "${1,,}" in
-    1|true|yes|y|on) return 0 ;;
+    1 | true | yes | y | on) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -211,7 +211,7 @@ collect_changed_paths() {
     [[ -z "$path" ]] && continue
     is_logs_path "$path" && continue
     case "$path" in
-      /*|../*|*/../*) continue ;;
+      /* | ../* | */../*) continue ;;
     esac
     if [[ "$seen" == *"|$path|"* ]]; then
       continue

@@ -4,13 +4,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PY="${PYTHON3:-python3}"
 
-if "$PY" - <<'PY' >/dev/null 2>&1
+if "$PY" - <<'PY' >/dev/null 2>&1; then
 import fastapi
 import pydantic
 import uvicorn
 import websockets
 PY
-then
+
   exec bash "$ROOT/scripts/ci-smoke-sichter.sh" "$@"
 fi
 

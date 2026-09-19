@@ -5,8 +5,8 @@ APP="apps.api.main:app"
 PORT="${PORT:-5055}"
 HOST="${HOST:-127.0.0.1}"
 if [[ -x "$ROOT/.venv/bin/uvicorn" ]]; then
-	UVICORN="${UVICORN_BIN:-$ROOT/.venv/bin/uvicorn}"
+  UVICORN="${UVICORN_BIN:-$ROOT/.venv/bin/uvicorn}"
 else
-	UVICORN="${UVICORN_BIN:-uvicorn}"
+  UVICORN="${UVICORN_BIN:-uvicorn}"
 fi
 exec "$UVICORN" "$APP" --host "$HOST" --port "$PORT"
